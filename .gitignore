@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+coverage/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+secrets/
+credentials/
+private/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+.codex/
+
+# Temporary files
+tmp/
+temp/
+.cache/
+.pnpm-store/
+
+# Local package artifacts
+*.tgz

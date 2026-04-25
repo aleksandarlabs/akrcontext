@@ -1,0 +1,34 @@
+{
+  "name": "contextforge",
+  "version": "0.1.0",
+  "description": "Local CLI that installs ContextForge agentic workflow harnesses into repositories.",
+  "type": "module",
+  "bin": {
+    "contextforge": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "test": "vitest run",
+    "prepare": "pnpm build",
+    "contextforge": "node dist/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "docs"
+  ],
+  "dependencies": {
+    "@inquirer/prompts": "^7.3.2",
+    "commander": "^13.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "tsup": "^8.3.6",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.7"
+  },
+  "packageManager": "pnpm@10.5.2"
+}
