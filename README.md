@@ -8,9 +8,19 @@ The harness gives your chosen coding agent a disciplined workflow for context ga
 
 See [docs/INSTALLATION.md](docs/INSTALLATION.md) for source-repo installation and global linking.
 
+Clone and build ContextForge:
+
 ```bash
 pnpm install
 pnpm build
+```
+
+Use it from another repository with a global link:
+
+```bash
+pnpm link --global
+cd /path/to/target-project
+contextforge init --target codex
 ```
 
 ## Commands
@@ -22,16 +32,22 @@ pnpm contextforge init --target all
 pnpm contextforge doctor
 pnpm contextforge config show
 pnpm contextforge config set defaultWorkflow SDD+TDD
+pnpm contextforge task "Define invoice API examples" --workflow SDD+EDD
 pnpm contextforge compile TASK-001 --target codex
 ```
 
-Common flags:
+Common flags for core commands:
 
 ```bash
 --target codex|claude|copilot|pi|all
 --dry-run
 --force
 --json
+```
+
+Task-only workflow override:
+
+```bash
 --workflow fast-patch|research-first|SDD|TDD|EDD|SDD+TDD|SDD+EDD|TDD+EDD
 ```
 
@@ -50,7 +66,7 @@ The chosen agent owns the ContextForge workflow after init.
 The CLI task command remains available for headless or scripted use:
 
 ```bash
-pnpm contextforge task "Define invoice API examples" --workflow SDD+EDD
+contextforge task "Define invoice API examples" --workflow SDD+EDD
 ```
 
 ## Project Defaults
