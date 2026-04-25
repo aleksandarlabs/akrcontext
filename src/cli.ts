@@ -134,11 +134,41 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   printWriteGroup("Missing", result.missing);
   printWriteGroup("Human-approved merge needed", result.conflicts);
   printWriteGroup("Suggested safe next steps", result.suggestions);
-  console.log('Suggested Codex prompt: "Run ContextForge doctor. Inspect this repo agent instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges."');
+  const target = result.installedTargets[0] ?? result.detectedTargets[0];
+  if (target) {
+    console.log(`Suggested ${targetLabel(target)} prompt: "${doctorPromptFor(target)}"`);
+  } else {
+    console.log('Suggested agent prompt: "Run ContextForge doctor after installing a target harness. Do not modify source code."');
+  }
 }
 
 function printWriteGroup(label: string, values: string[]): void {
   if (values.length === 0) return;
   console.log(`${label}:`);
   for (const value of values) console.log(`+ ${value}`);
+}
+
+function targetLabel(target: Target): string {
+  const labels: Record<Target, string> = {
+    codex: "Codex",
+    claude: "Claude Code",
+    copilot: "GitHub Copilot",
+    pi: "Pi Code",
+  };
+  return labels[target];
+}
+
+function doctorPromptFor(target: Target): string {
+  const shared =
+    "Run ContextForge doctor. Inspect this repo agent instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+  if (target === "pi") {
+    return "Run the ContextForge doctor workflow. Inspect this repo Pi Code harness and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+  }
+  if (target === "claude") {
+    return "Run the ContextForge doctor skill. Inspect this repo Claude Code harness and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+  }
+  if (target === "copilot") {
+    return "Use the ContextForge doctor prompt. Inspect this repo Copilot instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+  }
+  return shared;
 }

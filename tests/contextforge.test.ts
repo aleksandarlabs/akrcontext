@@ -9,6 +9,7 @@ import { pathExists } from "../src/fs-utils.js";
 import { runDoctor } from "../src/doctor.js";
 import { runInit } from "../src/init.js";
 import { runTask } from "../src/task.js";
+import { main } from "../src/cli.js";
 
 let tmp: string;
 
@@ -84,6 +85,27 @@ describe("doctor", () => {
     expect(result.installedTargets).toContain("codex");
     expect(result.readiness).toBeGreaterThan(50);
     expect(await pathExists(path.join(tmp, ".contextforge/wiki/agent-setup.md"))).toBe(true);
+  });
+
+  it("prints the installed target in the suggested doctor prompt", async () => {
+    await runInit({ cwd: tmp, target: "pi", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.chdir(tmp);
+      await main(["node", "contextforge", "doctor"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(writes.join("\n")).toContain("Suggested Pi Code prompt:");
+    expect(writes.join("\n")).not.toContain("Suggested Codex prompt:");
   });
 });
 
