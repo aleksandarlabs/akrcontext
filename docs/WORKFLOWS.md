@@ -1,6 +1,6 @@
 # Workflows
 
-ContextForge supports explicit workflows without forcing every task into the same process.
+akrctx supports explicit workflows without forcing every task into the same process.
 
 ## Supported Workflows
 
@@ -33,16 +33,16 @@ Use `TDD+EDD` for bug fixes where examples clarify edge cases.
 
 ## Agent-First Flow
 
-After `contextforge init`, the selected coding agent should own task preparation:
+After `akrctx init`, the selected coding agent should own task preparation:
 
 ```txt
-Run ContextForge task workflow for invoice API examples. Use SDD+EDD.
+Run akrctx task workflow for invoice API examples. Use SDD+EDD.
 ```
 
 The CLI task command is a deterministic fallback:
 
 ```bash
-contextforge task "Define invoice API examples" --workflow SDD+EDD
+akrctx task "Define invoice API examples" --workflow SDD+EDD
 ```
 
 Every task capsule should record:

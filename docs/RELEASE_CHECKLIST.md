@@ -1,6 +1,6 @@
 # Release Checklist
 
-ContextForge v0.1 is source-repo installable. It is not published to npm yet.
+akrctx v0.1 is source-repo installable. It is not published to npm yet.
 
 ## Before Tagging
 
@@ -8,10 +8,10 @@ ContextForge v0.1 is source-repo installable. It is not published to npm yet.
 pnpm install
 pnpm build
 pnpm test
-pnpm contextforge init --target codex --dry-run
-pnpm contextforge doctor --json
-pnpm contextforge config show
-pnpm contextforge task "Define invoice API examples" --workflow SDD+EDD --dry-run --json
+pnpm akrctx init --target codex --dry-run
+pnpm akrctx doctor --json
+pnpm akrctx config show
+pnpm akrctx task "Define invoice API examples" --workflow SDD+EDD --dry-run --json
 ```
 
 ## Manual Checks
@@ -31,4 +31,4 @@ pnpm contextforge task "Define invoice API examples" --workflow SDD+EDD --dry-ru
 - Web app.
 - External agent execution.
 
-These non-goals describe the ContextForge CLI, not the programming agent after a harness is installed.
+These non-goals describe the akrctx CLI, not the programming agent after a harness is installed.

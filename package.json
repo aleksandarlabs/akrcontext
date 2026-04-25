@@ -1,16 +1,19 @@
 {
-  "name": "contextforge",
+  "name": "akr-context",
   "version": "0.1.0",
-  "description": "Local CLI that installs ContextForge agentic workflow harnesses into repositories.",
+  "description": "Local CLI that installs akrctx agentic workflow harnesses into repositories.",
   "type": "module",
   "bin": {
-    "contextforge": "dist/index.js"
+    "akrctx": "dist/index.js"
   },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --sourcemap",
     "test": "vitest run",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "format": "biome format --write .",
     "prepare": "pnpm build",
-    "contextforge": "node dist/index.js"
+    "akrctx": "node dist/index.js"
   },
   "engines": {
     "node": ">=20"
@@ -25,6 +28,7 @@
     "commander": "^13.1.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.0",
     "@types/node": "^22.13.5",
     "tsup": "^8.3.6",
     "typescript": "^5.7.3",

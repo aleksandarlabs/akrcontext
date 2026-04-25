@@ -1,6 +1,6 @@
 # Installation
 
-ContextForge is currently intended to live from a source repository. It is not published to npm yet.
+akrctx is currently intended to live from a source repository. It is not published to npm yet.
 
 ## Requirements
 
@@ -18,16 +18,16 @@ pnpm test
 Run the CLI from this repo:
 
 ```bash
-pnpm contextforge --help
-pnpm contextforge init --target codex --dry-run
+pnpm akrctx --help
+pnpm akrctx init --target codex --dry-run
 ```
 
 ## Use From Another Repository
 
-Build and link ContextForge:
+Build and link akrctx:
 
 ```bash
-cd /path/to/contextforge
+cd /path/to/akrctx
 pnpm install
 pnpm build
 pnpm link --global
@@ -37,8 +37,8 @@ Then in another project:
 
 ```bash
 cd /path/to/target-project
-contextforge init --target codex
-contextforge doctor
+akrctx init --target codex
+akrctx doctor
 ```
 
 ## Git Install Later
@@ -47,5 +47,5 @@ When the repo is hosted, users can install from the repository URL. The package 
 
 ```bash
 pnpm add -D <repo-url>
-pnpm exec contextforge init --target codex
+pnpm exec akrctx init --target codex
 ```

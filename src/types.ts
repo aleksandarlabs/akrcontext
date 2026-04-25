@@ -7,11 +7,17 @@ export const workflows = ["fast-patch", "research-first", "SDD", "TDD", "EDD", "
 export type Workflow = (typeof workflows)[number];
 export type WorkflowDefault = Workflow | "task-fit";
 
-export interface ContextForgeConfig {
+/**
+ * TaskWorkflow extends Workflow with "UI review", which is a valid task-level
+ * recommendation but not a selectable config default.
+ */
+export type TaskWorkflow = Workflow | "UI review";
+
+export interface akrctxConfig {
   version: number;
   targets: Target[];
-  sourceOfTruth: ".contextforge";
-  createdBy: "contextforge";
+  sourceOfTruth: ".akrctx";
+  createdBy: "akrctx";
   defaults: {
     target?: Target;
     workflow: WorkflowDefault;

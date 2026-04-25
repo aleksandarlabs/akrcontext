@@ -1,5 +1,5 @@
 import path from "node:path";
-import { isDirectory, pathExists } from "./fs-utils.js";
+import { pathExists } from "./fs-utils.js";
 import type { DetectionResult, Target } from "./types.js";
 
 const targetEvidence: Record<Target, string[]> = {
@@ -26,7 +26,8 @@ export async function detectTargets(cwd: string): Promise<DetectionResult> {
   for (const [target, candidates] of Object.entries(targetEvidence) as Array<[Target, string[]]>) {
     for (const candidate of candidates) {
       const absolute = path.join(cwd, candidate);
-      if ((await pathExists(absolute)) || (await isDirectory(absolute))) {
+      // pathExists covers both files and directories via access(); isDirectory is redundant.
+      if (await pathExists(absolute)) {
         evidence[target].push(candidate);
       }
     }

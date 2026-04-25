@@ -1,0 +1,75 @@
+import type { Target } from "./types.js";
+
+export const neutralRequired = [
+  ".akrctx/config.json",
+  ".akrctx/policy.json",
+  ".akrctx/wiki/overview.md",
+  ".akrctx/wiki/architecture.md",
+  ".akrctx/wiki/conventions.md",
+  ".akrctx/wiki/testing.md",
+  ".akrctx/wiki/workflows.md",
+  ".akrctx/wiki/decisions.md",
+  ".akrctx/wiki/agent-setup.md",
+  ".akrctx/wiki/write-policy.md",
+  ".akrctx/wiki/log.md",
+  ".akrctx/tasks/_template/task.md",
+  ".akrctx/tasks/_template/context.md",
+  ".akrctx/tasks/_template/plan.md",
+  ".akrctx/tasks/_template/review-checklist.md",
+  ".akrctx/targets/codex.md",
+  ".akrctx/targets/claude.md",
+  ".akrctx/targets/copilot.md",
+  ".akrctx/targets/pi.md",
+];
+
+export const targetRequired: Record<Target, string[]> = {
+  codex: [
+    "AGENTS.md",
+    ".agents/skills/akrctx-init/SKILL.md",
+    ".agents/skills/akrctx-doctor/SKILL.md",
+    ".agents/skills/akrctx-task/SKILL.md",
+    ".agents/skills/akrctx-review/SKILL.md",
+    ".agents/skills/akrctx-workflow/SKILL.md",
+    ".agents/skills/akrctx-write-policy/SKILL.md",
+  ],
+  claude: [
+    "CLAUDE.md",
+    ".claude/commands/akrctx-doctor.md",
+    ".claude/commands/akrctx-task.md",
+    ".claude/skills/akrctx-init/SKILL.md",
+    ".claude/skills/akrctx-doctor/SKILL.md",
+    ".claude/skills/akrctx-task/SKILL.md",
+    ".claude/skills/akrctx-review/SKILL.md",
+    ".claude/skills/akrctx-workflow/SKILL.md",
+    ".claude/skills/akrctx-write-policy/SKILL.md",
+  ],
+  copilot: [
+    ".github/copilot-instructions.md",
+    ".github/instructions/akrctx.instructions.md",
+    ".github/prompts/akrctx-doctor.prompt.md",
+    ".github/prompts/akrctx-task.prompt.md",
+    ".github/prompts/akrctx-workflow.prompt.md",
+    ".github/prompts/akrctx-write-policy.prompt.md",
+    ".github/skills/akrctx-init/SKILL.md",
+    ".github/skills/akrctx-doctor/SKILL.md",
+    ".github/skills/akrctx-task/SKILL.md",
+    ".github/skills/akrctx-review/SKILL.md",
+    ".github/skills/akrctx-workflow/SKILL.md",
+    ".github/skills/akrctx-write-policy/SKILL.md",
+  ],
+  pi: [
+    ".pi/prompts/akrctx-doctor.md",
+    ".pi/prompts/akrctx-task.md",
+    ".pi/prompts/akrctx-workflow.md",
+    ".pi/prompts/akrctx-write-policy.md",
+    ".pi/skills/akrctx-init/SKILL.md",
+    ".pi/skills/akrctx-doctor/SKILL.md",
+    ".pi/skills/akrctx-task/SKILL.md",
+    ".pi/skills/akrctx-review/SKILL.md",
+    ".pi/skills/akrctx-workflow/SKILL.md",
+    ".pi/skills/akrctx-write-policy/SKILL.md",
+  ],
+};
+
+/** Files that may be user-authored and must never be silently deleted. */
+export const protectedFiles = ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"];

@@ -8,6 +8,7 @@ import {
   codexSkills,
   configTemplate,
   copilotFiles,
+  copilotSkills,
   mainInstructionTemplate,
   piFiles,
   piSkills,
@@ -25,37 +26,47 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   const { target, selectedTargets, fallbackUsed } = await resolveTarget(options, detection.detected);
   const writes: WriteResult[] = [];
 
-  const addWrite = async (relativePath: string, content: string, protectedFile = false, reason?: string) => {
-    writes.push(
-      await writePlannedFile(cwd, relativePath, String(content), {
-        dryRun: options.dryRun,
-        force: options.force,
-        protected: protectedFile,
-        reason,
-      }),
-    );
-  };
+  const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
+    writePlannedFile(cwd, relativePath, String(content), {
+      dryRun: options.dryRun,
+      force: options.force,
+      protected: protectedFile,
+      reason,
+    });
 
-  await addWrite(".contextforge/config.json", configTemplate(selectedTargets), false, "ContextForge config.");
-  await addWrite(".contextforge/policy.json", policyTemplate(), false, "ContextForge security and merge policy.");
+  // Neutral foundation files (sequential — config before wiki for logical order in output).
+  writes.push(await writeFile(".akrctx/config.json", configTemplate(selectedTargets), false, "akrctx config."));
+  writes.push(await writeFile(".akrctx/policy.json", policyTemplate(), false, "akrctx security and merge policy."));
 
-  for (const [relativePath, content] of Object.entries(wikiTemplates)) {
-    await addWrite(path.posix.join(".contextforge", relativePath), content, false, "ContextForge wiki file.");
-  }
-  for (const [relativePath, content] of Object.entries(taskTemplateFiles)) {
-    await addWrite(path.posix.join(".contextforge", relativePath), content, false, "ContextForge task template.");
-  }
-  for (const targetName of targets) {
-    await addWrite(
-      `.contextforge/targets/${targetName}.md`,
-      targetReferenceTemplates[targetName],
-      false,
-      "ContextForge target reference.",
-    );
-  }
+  // Wiki, task templates, and target references are independent — write in parallel.
+  const [wikiResults, taskResults, targetResults] = await Promise.all([
+    Promise.all(
+      Object.entries(wikiTemplates).map(([relativePath, content]) =>
+        writeFile(path.posix.join(".akrctx", relativePath), content, false, "akrctx wiki file."),
+      ),
+    ),
+    Promise.all(
+      Object.entries(taskTemplateFiles).map(([relativePath, content]) =>
+        writeFile(path.posix.join(".akrctx", relativePath), content, false, "akrctx task template."),
+      ),
+    ),
+    Promise.all(
+      targets.map((targetName) =>
+        writeFile(
+          `.akrctx/targets/${targetName}.md`,
+          targetReferenceTemplates[targetName],
+          false,
+          "akrctx target reference.",
+        ),
+      ),
+    ),
+  ]);
+  writes.push(...wikiResults, ...taskResults, ...targetResults);
 
+  // Target-specific harness files.
   for (const targetName of selectedTargets) {
-    await installTarget(cwd, targetName, addWrite);
+    const targetWrites = await installTarget(cwd, targetName, options);
+    writes.push(...targetWrites);
   }
 
   return {
@@ -89,7 +100,7 @@ async function resolveTarget(
     const answer = await select<TargetOption>({
       message:
         detected.length > 1
-          ? `Multiple agent setups detected (${detected.join(", ")}). Which target should ContextForge install?`
+          ? `Multiple agent setups detected (${detected.join(", ")}). Which target should akrctx install?`
           : "No agentic structure detected. Which agent will this project use?",
       choices: [
         { name: "Codex", value: "codex" },
@@ -108,49 +119,80 @@ async function resolveTarget(
 async function installTarget(
   cwd: string,
   target: Target,
-  addWrite: (relativePath: string, content: string, protectedFile?: boolean, reason?: string) => Promise<void>,
-): Promise<void> {
+  options: CommandOptions,
+): Promise<WriteResult[]> {
+  const writes: WriteResult[] = [];
+  const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
+    writePlannedFile(cwd, relativePath, String(content), {
+      dryRun: options.dryRun,
+      force: options.force,
+      protected: protectedFile,
+      reason,
+    });
+
   if (target === "codex") {
-    await addWrite("AGENTS.md", mainInstructionTemplate("codex"), true, "Existing AGENTS.md preserved; wrote suggested Codex harness.");
-    for (const [relativePath, content] of Object.entries(codexSkills)) {
-      await addWrite(relativePath, content, false, "Codex ContextForge skill.");
-    }
-    return;
+    const [main, ...skills] = await Promise.all([
+      writeFile("AGENTS.md", mainInstructionTemplate("codex"), true, "Existing AGENTS.md preserved; wrote suggested Codex harness."),
+      ...Object.entries(codexSkills).map(([relativePath, content]) =>
+        writeFile(relativePath, content, false, "Codex akrctx skill."),
+      ),
+    ]);
+    writes.push(main, ...skills);
+    return writes;
   }
 
   if (target === "claude") {
-    await addWrite("CLAUDE.md", mainInstructionTemplate("claude"), true, "Existing CLAUDE.md preserved; wrote suggested Claude harness.");
-    for (const [relativePath, content] of Object.entries(claudeCommands)) {
-      await addWrite(relativePath, content, false, "Claude ContextForge command.");
-    }
-    for (const [relativePath, content] of Object.entries(claudeSkills)) {
-      await addWrite(relativePath, content, false, "Claude ContextForge skill.");
-    }
-    return;
+    const [main, ...rest] = await Promise.all([
+      writeFile("CLAUDE.md", mainInstructionTemplate("claude"), true, "Existing CLAUDE.md preserved; wrote suggested Claude harness."),
+      ...Object.entries(claudeCommands).map(([relativePath, content]) =>
+        writeFile(relativePath, content, false, "Claude akrctx command."),
+      ),
+      ...Object.entries(claudeSkills).map(([relativePath, content]) =>
+        writeFile(relativePath, content, false, "Claude akrctx skill."),
+      ),
+    ]);
+    writes.push(main, ...rest);
+    return writes;
   }
 
   if (target === "copilot") {
-    await addWrite(
-      ".github/copilot-instructions.md",
-      mainInstructionTemplate("copilot"),
-      true,
-      "Existing Copilot instructions preserved; wrote suggested harness.",
-    );
-    for (const [relativePath, content] of Object.entries(copilotFiles)) {
-      await addWrite(relativePath, content, false, "Copilot ContextForge prompt or instruction.");
-    }
-    return;
+    const [main, ...rest] = await Promise.all([
+      writeFile(
+        ".github/copilot-instructions.md",
+        mainInstructionTemplate("copilot"),
+        true,
+        "Existing Copilot instructions preserved; wrote suggested harness.",
+      ),
+      ...Object.entries(copilotFiles).map(([relativePath, content]) =>
+        writeFile(relativePath, content, false, "Copilot akrctx prompt or instruction."),
+      ),
+      ...Object.entries(copilotSkills).map(([relativePath, content]) =>
+        writeFile(relativePath, content, false, "Copilot akrctx skill."),
+      ),
+    ]);
+    writes.push(main, ...rest);
+    return writes;
   }
 
-  await addWrite(".pi/prompts/contextforge-doctor.md", piFiles[".pi/prompts/contextforge-doctor.md"], false, "Pi ContextForge prompt.");
-  await addWrite(".pi/prompts/contextforge-task.md", piFiles[".pi/prompts/contextforge-task.md"], false, "Pi ContextForge prompt.");
-  await addWrite(".pi/prompts/contextforge-workflow.md", piFiles[".pi/prompts/contextforge-workflow.md"], false, "Pi ContextForge prompt.");
-  await addWrite(".pi/prompts/contextforge-write-policy.md", piFiles[".pi/prompts/contextforge-write-policy.md"], false, "Pi ContextForge prompt.");
-  for (const [relativePath, content] of Object.entries(piSkills)) {
-    await addWrite(relativePath, content, false, "Pi ContextForge skill.");
-  }
+  // pi
+  const piResults = await Promise.all([
+    ...Object.entries(piFiles).map(([relativePath, content]) =>
+      writeFile(relativePath, content, false, "Pi akrctx prompt."),
+    ),
+    ...Object.entries(piSkills).map(([relativePath, content]) =>
+      writeFile(relativePath, content, false, "Pi akrctx skill."),
+    ),
+  ]);
+  writes.push(...piResults);
 
   if (!(await pathExists(path.join(cwd, ".pi")))) {
-    await addWrite(".pi/README.md", "# Pi ContextForge Harness\n\nThis directory contains ContextForge prompts and skills for Pi.\n");
+    writes.push(
+      await writeFile(
+        ".pi/README.md",
+        "# Pi akrctx Harness\n\nThis directory contains akrctx prompts and skills for Pi.\n",
+      ),
+    );
   }
+
+  return writes;
 }

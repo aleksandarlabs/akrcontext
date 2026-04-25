@@ -2,14 +2,14 @@
 
 ## What is a harness?
 
-A harness is the set of files that make an agent understand ContextForge.
+A harness is the set of files that make an agent understand akrctx.
 
 For Codex, the harness is:
 
 ```txt
 AGENTS.md
-.agents/skills/contextforge-*/SKILL.md
-.contextforge/
+.agents/skills/akrctx-*/SKILL.md
+.akrctx/
 ```
 
 For Claude:
@@ -17,7 +17,7 @@ For Claude:
 ```txt
 CLAUDE.md
 .claude/commands/
-.contextforge/
+.akrctx/
 ```
 
 For Copilot:
@@ -26,7 +26,7 @@ For Copilot:
 .github/copilot-instructions.md
 .github/instructions/
 .github/prompts/
-.contextforge/
+.akrctx/
 ```
 
 For Pi:
@@ -34,7 +34,7 @@ For Pi:
 ```txt
 .pi/prompts/
 .pi/skills/
-.contextforge/
+.akrctx/
 ```
 
 ## Important distinction
@@ -49,19 +49,19 @@ The CLI must install high-quality instructions and structure.
 
 The installed harness must teach the agent these workflows:
 
-### ContextForge Doctor
+### akrctx Doctor
 
 Purpose:
 
 - inspect current agent instructions
 - inspect project structure
-- update `.contextforge/wiki/`
+- update `.akrctx/wiki/`
 - identify missing docs/rules
 - detect contradictions
 - recommend improvements
 - not overwrite files without approval
 
-### ContextForge Task
+### akrctx Task
 
 Purpose:
 
@@ -72,7 +72,7 @@ Purpose:
 - define quality gates
 - prepare implementation brief
 
-### ContextForge Research
+### akrctx Research
 
 Purpose:
 
@@ -81,7 +81,7 @@ Purpose:
 - update wiki
 - avoid implementation until context is ready
 
-### ContextForge Review
+### akrctx Review
 
 Purpose:
 
@@ -101,8 +101,8 @@ It may also generate basic task skeletons, but the intelligent enrichment is don
 ## Suggested user mental model
 
 ```txt
-contextforge init       -> install the boss
+akrctx init       -> install the boss
 open Codex/Claude/etc   -> the chosen agent now follows the boss
-contextforge doctor     -> local check, plus agent workflow instructions
-contextforge task       -> create/compile a task capsule
+akrctx doctor     -> local check, plus agent workflow instructions
+akrctx task       -> create/compile a task capsule
 ```

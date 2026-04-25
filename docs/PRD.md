@@ -1,18 +1,18 @@
-# PRD — ContextForge v0.1
+# PRD — akrctx v0.1
 
 ## Goal
 
-Build a local CLI that installs and manages a ContextForge harness for AI coding agents.
+Build a local CLI that installs and manages a akrctx harness for AI coding agents.
 
 ## Primary outcomes
 
 A developer can:
 
-1. Run `contextforge init`.
-2. Let ContextForge detect or ask which agent they use.
+1. Run `akrctx init`.
+2. Let akrctx detect or ask which agent they use.
 3. Install the correct harness for that agent.
 4. Preserve any existing instructions.
-5. Open their chosen agent and have it follow ContextForge methodology.
+5. Open their chosen agent and have it follow akrctx methodology.
 6. Create task capsules and agent-specific briefs.
 7. Run doctor to audit and improve the setup.
 
@@ -21,10 +21,10 @@ A developer can:
 ### Commands
 
 ```bash
-contextforge init
-contextforge doctor
-contextforge task <description>
-contextforge compile <taskId>
+akrctx init
+akrctx doctor
+akrctx task <description>
+akrctx compile <taskId>
 ```
 
 ### Targets
@@ -40,7 +40,7 @@ all
 ### Generated neutral structure
 
 ```txt
-.contextforge/
+.akrctx/
   config.json
   policy.json
   wiki/
@@ -51,36 +51,36 @@ all
 ### Generated Codex harness
 
 ```txt
-AGENTS.md or AGENTS.contextforge.suggested.md
-.agents/skills/contextforge-init/SKILL.md
-.agents/skills/contextforge-doctor/SKILL.md
-.agents/skills/contextforge-task/SKILL.md
-.agents/skills/contextforge-review/SKILL.md
+AGENTS.md or AGENTS.akrctx.suggested.md
+.agents/skills/akrctx-init/SKILL.md
+.agents/skills/akrctx-doctor/SKILL.md
+.agents/skills/akrctx-task/SKILL.md
+.agents/skills/akrctx-review/SKILL.md
 ```
 
 ### Generated Claude harness
 
 ```txt
-CLAUDE.md or CLAUDE.contextforge.suggested.md
-.claude/commands/contextforge-doctor.md
-.claude/commands/contextforge-task.md
+CLAUDE.md or CLAUDE.akrctx.suggested.md
+.claude/commands/akrctx-doctor.md
+.claude/commands/akrctx-task.md
 ```
 
 ### Generated Copilot harness
 
 ```txt
-.github/copilot-instructions.md or .github/copilot-instructions.contextforge.suggested.md
-.github/instructions/contextforge.instructions.md
-.github/prompts/contextforge-doctor.prompt.md
-.github/prompts/contextforge-task.prompt.md
+.github/copilot-instructions.md or .github/copilot-instructions.akrctx.suggested.md
+.github/instructions/akrctx.instructions.md
+.github/prompts/akrctx-doctor.prompt.md
+.github/prompts/akrctx-task.prompt.md
 ```
 
 ### Generated Pi harness
 
 ```txt
-.pi/prompts/contextforge-doctor.md
-.pi/prompts/contextforge-task.md
-.pi/skills/contextforge/SKILL.md
+.pi/prompts/akrctx-doctor.md
+.pi/prompts/akrctx-task.md
+.pi/skills/akrctx/SKILL.md
 ```
 
 ## Non-goals
@@ -90,7 +90,7 @@ CLAUDE.md or CLAUDE.contextforge.suggested.md
 - No LLM API integration.
 - No telemetry.
 - No external agent execution in v0.1.
-- No application feature implementation by the ContextForge CLI.
+- No application feature implementation by the akrctx CLI.
 - No automatic rewriting of existing agent files.
 
 ## Acceptance criteria
@@ -99,14 +99,14 @@ CLAUDE.md or CLAUDE.contextforge.suggested.md
 
 - Detects existing agent setup.
 - Asks for target when needed.
-- Creates `.contextforge/`.
+- Creates `.akrctx/`.
 - Creates target harness files.
 - Does not overwrite existing files.
 - Reports conflicts and suggested files.
 
 ### Doctor
 
-- Checks whether ContextForge is installed.
+- Checks whether akrctx is installed.
 - Checks which targets exist.
 - Checks missing files.
 - Checks existing instruction conflicts/gaps.

@@ -1,8 +1,8 @@
-# Product Brief — ContextForge
+# Product Brief — akrctx
 
 ## Short definition
 
-ContextForge installs an agentic workflow harness into a software project so the chosen coding agent knows how to prepare enterprise-ready context before implementation.
+akrctx installs an agentic workflow harness into a software project so the chosen coding agent knows how to prepare enterprise-ready context before implementation.
 
 ## The user problem
 
@@ -16,10 +16,10 @@ A developer working with AI coding agents often asks:
 
 ## The solution
 
-ContextForge installs a neutral project layer:
+akrctx installs a neutral project layer:
 
 ```txt
-.contextforge/
+.akrctx/
 ```
 
 And target-specific harness files:
@@ -33,19 +33,19 @@ Pi          -> .pi/prompts/ + .pi/skills/
 
 ## Core philosophy
 
-ContextForge does not replace the coding agent.
+akrctx does not replace the coding agent.
 
 It makes the chosen coding agent behave better.
 
 ```txt
-ContextForge = method + structure + safety + task context + quality gates
+akrctx = method + structure + safety + task context + quality gates
 Agent        = reasoning + codebase analysis + implementation
 ```
 
 ## Main flow
 
 ```bash
-contextforge init
+akrctx init
 ```
 
 If no agent setup exists:
@@ -59,12 +59,12 @@ Which agent will this project use?
 4. Pi
 ```
 
-If the user chooses Codex, ContextForge installs the Codex harness.
+If the user chooses Codex, akrctx installs the Codex harness.
 
 From that point, Codex opens the repo and is guided by the generated `AGENTS.md` and skills.
 
 ## Existing projects
 
-If the project already has instructions, ContextForge must not overwrite them.
+If the project already has instructions, akrctx must not overwrite them.
 
-It adds missing structure and creates suggested files. Then `contextforge doctor` audits, normalizes and proposes improvements.
+It adds missing structure and creates suggested files. Then `akrctx doctor` audits, normalizes and proposes improvements.

@@ -7,27 +7,27 @@
 ```txt
 AGENTS.md
 .agents/skills/
-.contextforge/
+.akrctx/
 ```
 
 ### Why not only `.codex/`?
 
 For Codex, `AGENTS.md` is the main project instruction file. `.codex/` is for project-scoped Codex configuration, hooks and advanced settings. Skills live under `.agents/skills/`.
 
-So ContextForge should use:
+So akrctx should use:
 
 - `AGENTS.md` for core repo guidance
-- `.agents/skills/` for reusable ContextForge workflows
-- `.contextforge/` for neutral source of truth
+- `.agents/skills/` for reusable akrctx workflows
+- `.akrctx/` for neutral source of truth
 - `.codex/` only for optional Codex configuration later
 
 ### Generated skill folders
 
 ```txt
-.agents/skills/contextforge-init/SKILL.md
-.agents/skills/contextforge-doctor/SKILL.md
-.agents/skills/contextforge-task/SKILL.md
-.agents/skills/contextforge-review/SKILL.md
+.agents/skills/akrctx-init/SKILL.md
+.agents/skills/akrctx-doctor/SKILL.md
+.agents/skills/akrctx-task/SKILL.md
+.agents/skills/akrctx-review/SKILL.md
 ```
 
 ## Claude Code
@@ -37,7 +37,7 @@ So ContextForge should use:
 ```txt
 CLAUDE.md
 .claude/commands/
-.contextforge/
+.akrctx/
 ```
 
 ## GitHub Copilot
@@ -46,10 +46,10 @@ CLAUDE.md
 
 ```txt
 .github/copilot-instructions.md
-.github/instructions/contextforge.instructions.md
-.github/prompts/contextforge-doctor.prompt.md
-.github/prompts/contextforge-task.prompt.md
-.contextforge/
+.github/instructions/akrctx.instructions.md
+.github/prompts/akrctx-doctor.prompt.md
+.github/prompts/akrctx-task.prompt.md
+.akrctx/
 ```
 
 ## Pi
@@ -57,14 +57,14 @@ CLAUDE.md
 ### Main files
 
 ```txt
-.pi/prompts/contextforge-doctor.md
-.pi/prompts/contextforge-task.md
-.pi/skills/contextforge/SKILL.md
-.contextforge/
+.pi/prompts/akrctx-doctor.md
+.pi/prompts/akrctx-task.md
+.pi/skills/akrctx/SKILL.md
+.akrctx/
 ```
 
 ## All targets
 
-The source of truth is always `.contextforge/`.
+The source of truth is always `.akrctx/`.
 
 Target files are adapters.

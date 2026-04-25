@@ -38,7 +38,7 @@ export function suggestedPathFor(relativePath: string): string {
   const parsed = path.posix.parse(relativePath);
   const ext = parsed.ext || ".md";
   const base = parsed.base.endsWith(ext) ? parsed.base.slice(0, -ext.length) : parsed.base;
-  return path.posix.join(parsed.dir, `${base}.contextforge.suggested${ext}`);
+  return path.posix.join(parsed.dir, `${base}.akrctx.suggested${ext}`);
 }
 
 export async function writePlannedFile(

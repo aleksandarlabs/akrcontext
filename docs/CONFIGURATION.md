@@ -1,9 +1,9 @@
 # Configuration
 
-ContextForge stores project defaults in:
+akrctx stores project defaults in:
 
 ```txt
-.contextforge/config.json
+.akrctx/config.json
 ```
 
 The config is shared by the CLI and the installed agent harness.
@@ -11,18 +11,18 @@ The config is shared by the CLI and the installed agent harness.
 ## Show Config
 
 ```bash
-contextforge config show
+akrctx config show
 ```
 
 ## Set Defaults
 
 ```bash
-contextforge config set defaultWorkflow task-fit
-contextforge config set defaultWorkflow SDD+TDD
-contextforge config set defaultTarget codex
-contextforge config set requireTaskCapsule true
-contextforge config set requireWorkflowReason true
-contextforge config set contextBudget proportional
+akrctx config set defaultWorkflow task-fit
+akrctx config set defaultWorkflow SDD+TDD
+akrctx config set defaultTarget codex
+akrctx config set requireTaskCapsule true
+akrctx config set requireWorkflowReason true
+akrctx config set contextBudget proportional
 ```
 
 ## Workflow Default
@@ -48,4 +48,4 @@ Use a concrete workflow when the whole project should bias toward that process u
 - `proportional`: load policy, current task capsule, and relevant wiki pages.
 - `thorough`: allow broader wiki review for high-risk tasks.
 
-Do not read all of `.contextforge/` by default.
+Do not read all of `.akrctx/` by default.

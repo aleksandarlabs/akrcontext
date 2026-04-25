@@ -1,23 +1,23 @@
-# AGENTS.md - ContextForge Harness
+# AGENTS.md - akrctx Harness
 
-This repository is ContextForge-aware. Treat `.contextforge/` as the project workflow source of truth.
+This repository is akrctx-aware. Treat `.akrctx/` as the project workflow source of truth.
 
 ## Mandatory Behavior
 
 When the user asks to implement a feature, fix, refactor, or meaningful code change:
 
-1. Read `.contextforge/config.json` and `.contextforge/policy.json`.
-2. Create or update a task capsule under `.contextforge/tasks/TASK-XXX-.../` before implementation.
+1. Read `.akrctx/config.json` and `.akrctx/policy.json`.
+2. Create or update a task capsule under `.akrctx/tasks/TASK-XXX-.../` before implementation.
 3. Record the chosen workflow and the reason in the capsule.
 4. Follow the workflow from config unless the user explicitly overrides it.
-5. Load only relevant context. Do not read all of `.contextforge/` by default.
+5. Load only relevant context. Do not read all of `.akrctx/` by default.
 6. After implementation, update the task review checklist and run relevant validation.
 
-Do not ask the user to run `contextforge task` during normal agent use. The CLI task command is only a headless fallback.
+Create the task capsule yourself — do not ask the user to run `akrctx task`. The CLI task command is only a headless fallback for scripts and CI.
 
 ## Current Project Defaults
 
-Read the live values from `.contextforge/config.json`. Important defaults may include:
+Read the live values from `.akrctx/config.json`. Important defaults may include:
 
 - `defaults.workflow`
 - `defaults.requireTaskCapsule`
@@ -27,15 +27,15 @@ Read the live values from `.contextforge/config.json`. Important defaults may in
 
 If `defaults.workflow` is `task-fit`, choose the smallest workflow that fits the task. If it is concrete, use it unless the user explicitly asks otherwise.
 
-## ContextForge Write Policy
+## akrctx Write Policy
 
 Use these homes:
 
-- Task capsules: `.contextforge/tasks/TASK-XXX-.../`
-- Doctor findings: `.contextforge/wiki/`
-- Compiled briefs: `.contextforge/tasks/TASK-XXX-.../exports/`
-- Decisions: `.contextforge/wiki/decisions.md`
-- Task implementation notes: `.contextforge/tasks/TASK-XXX-.../log.md`
+- Task capsules: `.akrctx/tasks/TASK-XXX-.../`
+- Doctor findings: `.akrctx/wiki/`
+- Compiled briefs: `.akrctx/tasks/TASK-XXX-.../exports/`
+- Decisions: `.akrctx/wiki/decisions.md`
+- Task implementation notes: `.akrctx/tasks/TASK-XXX-.../log.md`
 
 Do not write durable workflow notes in random files.
 
@@ -46,7 +46,7 @@ Do not write durable workflow notes in random files.
 
 ## Contributor Notes
 
-This repository builds ContextForge, a local CLI that installs agent workflow harnesses into other projects.
+This repository builds akrctx, a local CLI that installs agent workflow harnesses into other projects.
 
 Primary source files:
 
@@ -57,13 +57,13 @@ Primary source files:
 - `src/compile.ts` - target brief generation.
 - `src/config.ts` - project defaults and workflow config.
 - `src/templates.ts` - generated harness content.
-- `tests/contextforge.test.ts` - CLI core behavior.
+- `tests/akrctx.test.ts` - CLI core behavior.
 
 Run before handoff:
 
 ```bash
 pnpm build
 pnpm test
-pnpm contextforge init --target codex --dry-run
-pnpm contextforge doctor --json
+pnpm akrctx init --target codex --dry-run
+pnpm akrctx doctor --json
 ```

@@ -1,6 +1,6 @@
 # Commands and UX
 
-## `contextforge init`
+## `akrctx init`
 
 ### Flow
 
@@ -8,7 +8,7 @@
 1. scan current directory
 2. detect agent setup
 3. choose target
-4. create .contextforge/
+4. create .akrctx/
 5. install target harness
 6. preserve existing files
 7. report what happened
@@ -17,7 +17,7 @@
 ### Example
 
 ```bash
-contextforge init
+akrctx init
 ```
 
 If no target found:
@@ -36,19 +36,19 @@ Which agent will this project use?
 If Codex selected:
 
 ```txt
-Installing ContextForge Codex harness...
+Installing akrctx Codex harness...
 
 Created:
-+ .contextforge/config.json
-+ .contextforge/policy.json
-+ .contextforge/wiki/overview.md
-+ .agents/skills/contextforge-doctor/SKILL.md
-+ .agents/skills/contextforge-task/SKILL.md
++ .akrctx/config.json
++ .akrctx/policy.json
++ .akrctx/wiki/overview.md
++ .agents/skills/akrctx-doctor/SKILL.md
++ .agents/skills/akrctx-task/SKILL.md
 + AGENTS.md
 
 Next:
 Open Codex in this repo and ask:
-"Run ContextForge doctor."
+"Run akrctx doctor."
 ```
 
 If `AGENTS.md` exists:
@@ -58,22 +58,22 @@ Found existing AGENTS.md.
 Preserving it.
 
 Created:
-+ AGENTS.contextforge.suggested.md
-+ .contextforge/wiki/agent-setup.md
++ AGENTS.akrctx.suggested.md
++ .akrctx/wiki/agent-setup.md
 
 Next:
 Open Codex and ask:
-"Run ContextForge doctor and compare AGENTS.md with AGENTS.contextforge.suggested.md. Propose a safe merge."
+"Run akrctx doctor and compare AGENTS.md with AGENTS.akrctx.suggested.md. Propose a safe merge."
 ```
 
-## `contextforge doctor`
+## `akrctx doctor`
 
 Local deterministic doctor.
 
 It reports:
 
 - installed targets
-- missing ContextForge files
+- missing akrctx files
 - existing instruction files
 - conflicts
 - readiness score
@@ -83,21 +83,21 @@ It should also print a suggested agent prompt:
 
 ```txt
 Suggested Codex prompt:
-Run ContextForge doctor. Inspect this repo's agent instructions and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.
+Run akrctx doctor. Inspect this repo's agent instructions and .akrctx wiki. Audit setup only; do not implement product features during doctor. Update .akrctx/wiki and propose instruction merges.
 ```
 
-## `contextforge task`
+## `akrctx task`
 
 Creates a task capsule.
 
 ```bash
-contextforge task "Create settings screen with tabs and tests"
+akrctx task "Create settings screen with tabs and tests"
 ```
 
 Creates:
 
 ```txt
-.contextforge/tasks/TASK-001-create-settings-screen-with-tabs-and-tests/
+.akrctx/tasks/TASK-001-create-settings-screen-with-tabs-and-tests/
   task.md
   context.md
   plan.md
@@ -109,13 +109,13 @@ Then tells user:
 
 ```txt
 Open your agent and ask:
-Run ContextForge task workflow for TASK-001.
+Run akrctx task workflow for TASK-001.
 ```
 
-## `contextforge compile`
+## `akrctx compile`
 
 Generates an agent-specific implementation/research brief.
 
 ```bash
-contextforge compile TASK-001 --target codex
+akrctx compile TASK-001 --target codex
 ```

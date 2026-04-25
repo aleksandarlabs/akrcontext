@@ -24,7 +24,7 @@ export async function runCompile(taskId: string, options: CommandOptions & { tar
   const checklist = (await readTextIfExists(path.join(cwd, taskDir, "review-checklist.md"))) ?? "";
   const outputPath = path.posix.join(taskDir, "exports", `${target}.md`);
 
-  const brief = `# ContextForge ${target} Brief - ${taskId}
+  const brief = `# akrctx ${target} Brief - ${taskId}
 
 Use this brief with the ${target} target adapter. Do not read secrets or overwrite existing instruction files without explicit human approval.
 
@@ -52,7 +52,7 @@ ${checklist.trim()}
   await writePlannedFile(cwd, outputPath, brief, {
     dryRun: options.dryRun,
     force: options.force,
-    reason: "Compiled target-specific ContextForge brief.",
+    reason: "Compiled target-specific akrctx brief.",
   });
 
   return { taskId, target, outputPath };
