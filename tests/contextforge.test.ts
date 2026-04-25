@@ -39,6 +39,27 @@ describe("ContextForge init", () => {
     expect(await pathExists(path.join(tmp, ".contextforge/wiki/write-policy.md"))).toBe(true);
   });
 
+  it("creates an active Codex harness when AGENTS.md does not exist", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const agents = await readFile(path.join(tmp, "AGENTS.md"), "utf8");
+    expect(agents).toContain("Mandatory Behavior");
+    expect(agents).toContain("Create or update a task capsule");
+    expect(agents).toContain("before implementation");
+    expect(agents).toContain("Do not ask the user to run contextforge task");
+  });
+
+  it("creates a harness policy that does not restrict the programming agent from implementation", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const policy = JSON.parse(await readFile(path.join(tmp, ".contextforge/policy.json"), "utf8"));
+    expect(policy).not.toHaveProperty("allowSourceCodeWrites");
+    expect(policy).not.toHaveProperty("network");
+    expect(policy).not.toHaveProperty("llmProvider");
+    expect(policy).not.toHaveProperty("allowExternalAgentExecution");
+    expect(policy.mergeStrategy).toBe("preserve-and-suggest");
+  });
+
   it("installs target workflow surfaces for all supported targets", async () => {
     await runInit({ cwd: tmp, target: "all", nonInteractive: true });
 
@@ -134,6 +155,13 @@ describe("task and compile", () => {
     const plan = await readFile(path.join(tmp, task.taskDir, "plan.md"), "utf8");
     expect(plan).toContain("SDD+EDD");
     expect(plan).toContain("Load only the workflow skill or prompt");
+  });
+
+  it("uses TDD+EDD for game tasks under task-fit fallback", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Create Tetris game", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("TDD+EDD");
   });
 
   it("uses configured workflow defaults when no task override is provided", async () => {

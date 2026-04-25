@@ -83,7 +83,7 @@ It should also print a suggested agent prompt:
 
 ```txt
 Suggested Codex prompt:
-Run ContextForge doctor. Inspect this repo's agent instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.
+Run ContextForge doctor. Inspect this repo's agent instructions and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.
 ```
 
 ## `contextforge task`

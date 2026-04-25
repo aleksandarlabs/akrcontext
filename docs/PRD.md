@@ -90,7 +90,7 @@ CLAUDE.md or CLAUDE.contextforge.suggested.md
 - No LLM API integration.
 - No telemetry.
 - No external agent execution in v0.1.
-- No application source-code edits.
+- No application feature implementation by the ContextForge CLI.
 - No automatic rewriting of existing agent files.
 
 ## Acceptance criteria

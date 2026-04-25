@@ -1,9 +1,5 @@
 {
   "version": 1,
-  "network": "disabled",
-  "llmProvider": "external-agent-only",
-  "allowExternalAgentExecution": false,
-  "allowSourceCodeWrites": false,
   "mergeStrategy": "preserve-and-suggest",
   "blockedReadPatterns": [
     ".env",

@@ -62,14 +62,13 @@ If implemented, append blocks must be delimited:
 
 Do not implement automatic append by default.
 
-## Security defaults
+## CLI Scope Defaults
 
-- No network calls.
-- No telemetry.
-- No LLM API calls.
-- No source code writes.
-- Avoid reading secret files.
-- Do not include secrets in generated prompts or task capsules.
+The ContextForge CLI installs files and performs deterministic checks. It does not do research, call LLM providers, execute external agents, or implement application features.
+
+After init, the selected programming agent owns research and implementation through the installed harness.
+
+Agent-facing policy must not disable normal implementation. It should only define merge safety, blocked secret reads, context budget, and where durable ContextForge notes belong.
 
 ## Ignore patterns
 
@@ -105,11 +104,17 @@ With at least:
 ```json
 {
   "version": 1,
-  "network": "disabled",
-  "llmProvider": "external-agent-only",
-  "allowExternalAgentExecution": false,
-  "allowSourceCodeWrites": false,
   "mergeStrategy": "preserve-and-suggest",
-  "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "secrets/", "credentials/"]
+  "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "secrets/", "credentials/"],
+  "contextBudget": {
+    "rootInstructions": "minimal",
+    "loadWorkflowsOnDemand": true,
+    "doNotReadAllContextforgeByDefault": true
+  },
+  "writePolicy": {
+    "task": [".contextforge/tasks/TASK-XXX/"],
+    "compile": [".contextforge/tasks/TASK-XXX/exports/<target>.md"],
+    "decisions": [".contextforge/wiki/decisions.md"]
+  }
 }
 ```

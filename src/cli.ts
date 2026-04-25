@@ -138,7 +138,7 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   if (target) {
     console.log(`Suggested ${targetLabel(target)} prompt: "${doctorPromptFor(target)}"`);
   } else {
-    console.log('Suggested agent prompt: "Run ContextForge doctor after installing a target harness. Do not modify source code."');
+    console.log('Suggested agent prompt: "Run ContextForge doctor after installing a target harness. Audit setup only; do not implement product features during doctor."');
   }
 }
 
@@ -160,15 +160,15 @@ function targetLabel(target: Target): string {
 
 function doctorPromptFor(target: Target): string {
   const shared =
-    "Run ContextForge doctor. Inspect this repo agent instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+    "Run ContextForge doctor. Inspect this repo agent instructions and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.";
   if (target === "pi") {
-    return "Run the ContextForge doctor workflow. Inspect this repo Pi Code harness and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+    return "Run the ContextForge doctor workflow. Inspect this repo Pi Code harness and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.";
   }
   if (target === "claude") {
-    return "Run the ContextForge doctor skill. Inspect this repo Claude Code harness and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+    return "Run the ContextForge doctor skill. Inspect this repo Claude Code harness and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.";
   }
   if (target === "copilot") {
-    return "Use the ContextForge doctor prompt. Inspect this repo Copilot instructions and .contextforge wiki. Do not modify source code. Update only .contextforge/wiki and propose instruction merges.";
+    return "Use the ContextForge doctor prompt. Inspect this repo Copilot instructions and .contextforge wiki. Audit setup only; do not implement product features during doctor. Update .contextforge/wiki and propose instruction merges.";
   }
   return shared;
 }

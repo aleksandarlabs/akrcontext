@@ -30,3 +30,5 @@ pnpm contextforge task "Define invoice API examples" --workflow SDD+EDD --dry-ru
 - Telemetry.
 - Web app.
 - External agent execution.
+
+These non-goals describe the ContextForge CLI, not the programming agent after a harness is installed.

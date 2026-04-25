@@ -26,7 +26,7 @@ export async function runCompile(taskId: string, options: CommandOptions & { tar
 
   const brief = `# ContextForge ${target} Brief - ${taskId}
 
-Use this brief with the ${target} target adapter. Do not read secrets, call LLM APIs, run external agents, or overwrite existing instruction files without explicit human approval.
+Use this brief with the ${target} target adapter. Do not read secrets or overwrite existing instruction files without explicit human approval.
 
 ## Task
 

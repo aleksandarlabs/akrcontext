@@ -35,10 +35,6 @@ export function policyTemplate(): string {
   return JSON.stringify(
     {
       version: 1,
-      network: "disabled",
-      llmProvider: "external-agent-only",
-      allowExternalAgentExecution: false,
-      allowSourceCodeWrites: false,
       mergeStrategy: "preserve-and-suggest",
       blockedReadPatterns: [".env", ".env.*", "*.pem", "*.key", "secrets/", "credentials/", "private/"],
       contextBudget: {
@@ -124,7 +120,7 @@ ContextForge keeps root instructions small and writes durable context only when 
 };
 
 export const taskTemplateFiles: Record<string, string> = {
-  "tasks/_template/task.md": "# Task\n\n## Goal\n\nDescribe the requested change.\n\n## Out Of Scope\n\n- Source-code changes outside this task.\n",
+  "tasks/_template/task.md": "# Task\n\n## Goal\n\nDescribe the requested change.\n\n## Out Of Scope\n\n- Work outside this task capsule's agreed scope.\n",
   "tasks/_template/context.md": "# Context\n\n## Relevant Files\n\n- To be filled by the agent.\n\n## Blocked Reads\n\n- Secrets and credentials must not be read.\n",
   "tasks/_template/plan.md":
     "# Plan\n\n## Workflow\n\n- research-first\n\n## Steps\n\n1. Inspect relevant context.\n2. Confirm scope.\n3. Implement only after context is ready.\n",
@@ -144,25 +140,46 @@ export function mainInstructionTemplate(target: Target): string {
   const heading = target === "claude" ? "CLAUDE.md" : target === "copilot" ? "GitHub Copilot Instructions" : "AGENTS.md";
   return `# ${heading} - ContextForge
 
-This repository uses ContextForge as a local agentic workflow harness.
+This repository uses ContextForge as a local agentic workflow harness. Treat .contextforge/ as the workflow source of truth.
 
-## Rules
+## Mandatory Behavior
 
-- Preserve existing instructions; use suggested files for conflicts.
-- Do not read secrets or credentials.
-- Do not call LLM APIs, telemetry, or external agents as part of ContextForge v0.1.
-- Keep root instructions minimal. Load detailed workflows from target skills/prompts only when relevant.
+When the user asks to implement a feature, fix, refactor, or meaningful code change:
 
-## ContextForge Flow
+1. Read .contextforge/config.json and .contextforge/policy.json.
+2. Create or update a task capsule under .contextforge/tasks/TASK-XXX-.../ before implementation.
+3. Record the chosen workflow and the reason in the capsule.
+4. Follow the workflow from config unless the user explicitly overrides it.
+5. Load only relevant context. Do not read all of .contextforge/ by default.
+6. After implementation, update the task review checklist and run relevant validation.
 
-1. Read .contextforge/policy.json when safety or merge behavior matters.
-2. For implementation, use the current task capsule under .contextforge/tasks/.
-3. Do not read all of .contextforge/ by default; open only relevant wiki pages.
-4. Write durable notes according to .contextforge/wiki/write-policy.md.
+Do not ask the user to run contextforge task during normal agent use. The CLI task command is only a headless fallback.
 
 ## Workflow Selection
 
-Use fast-patch, research-first, SDD, TDD, EDD, or explicit combinations such as SDD+TDD and SDD+EDD when the task capsule says so.
+Read the live values from .contextforge/config.json:
+
+- defaults.workflow
+- defaults.requireTaskCapsule
+- defaults.requireWorkflowReason
+- defaults.contextBudget
+- workflowRules
+
+If defaults.workflow is task-fit, choose the smallest workflow that fits the task. If it is concrete, use it unless the user explicitly asks otherwise.
+
+## Write Policy
+
+- Task capsules: .contextforge/tasks/TASK-XXX-.../
+- Doctor findings: .contextforge/wiki/
+- Compiled briefs: .contextforge/tasks/TASK-XXX-.../exports/
+- Decisions: .contextforge/wiki/decisions.md
+- Task implementation notes: .contextforge/tasks/TASK-XXX-.../log.md
+
+## Safety
+
+- Preserve existing instructions; use suggested files for conflicts.
+- Do not read secrets or credentials.
+- Keep root instructions minimal. Load detailed workflows from target skills/prompts only when relevant.
 `;
 }
 
@@ -181,7 +198,7 @@ ${body}
 const initBody =
   "Detect existing Codex, Claude, Copilot, and Pi Code setup. Preserve all user-authored instruction files. Add missing ContextForge structure and create suggested files for conflicts.";
 const doctorBody =
-  "Audit agent instructions, project docs, task templates, security policy, and quality gates. Update only .contextforge/wiki/ unless the user approves an instruction-file merge. Do not modify source code.";
+  "Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .contextforge/wiki/ and propose instruction merges. Do not implement product features during doctor.";
 const taskBody =
   "Turn the request into a task capsule with goal, scope, context, explicit workflow choice, acceptance criteria, validation commands, and an implementation brief. Do not invent unknowns; record open questions.";
 const reviewBody =
@@ -241,7 +258,7 @@ applyTo: "**"
 Use `.contextforge/` as the neutral source of truth. Preserve existing instruction files and avoid secrets. Do not read all of `.contextforge/` by default; open only the current task capsule, policy, and relevant wiki pages.
 `,
   ".github/prompts/contextforge-doctor.prompt.md":
-    "# ContextForge Doctor\n\nAudit agent setup, wiki coverage, task templates, and quality gates. Propose safe merges instead of rewriting instructions.\n",
+    "# ContextForge Doctor\n\nAudit agent setup, wiki coverage, task templates, and quality gates. Propose safe merges instead of rewriting instructions. Do not implement product features during doctor.\n",
   ".github/prompts/contextforge-task.prompt.md":
     "# ContextForge Task\n\nPrepare a task capsule with scope, context, acceptance criteria, and validation commands.\n",
   ".github/prompts/contextforge-workflow.prompt.md":

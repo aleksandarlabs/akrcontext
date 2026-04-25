@@ -18,9 +18,11 @@ Target files are adapters.
 
 Do not depend on `.codex/` for main instructions.
 
-## Decision 5 — No source code edits
+## Decision 5 — CLI is not the implementer
 
-ContextForge prepares work. It does not implement the app feature.
+The ContextForge CLI installs the harness and performs deterministic file operations. It does not implement the app feature.
+
+After init, the chosen programming agent may implement normally when the user asks it to, guided by the task capsule and workflow.
 
 ## Decision 6 — Agent does intelligent work after init
 

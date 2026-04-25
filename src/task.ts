@@ -63,6 +63,7 @@ export function recommendWorkflow(description: string): string {
   const text = description.toLowerCase();
   if (/\bsdd\W*edd\b|\bedd\W*sdd\b/.test(text)) return "SDD+EDD";
   if (/\bsdd\W*tdd\b|\btdd\W*sdd\b/.test(text)) return "SDD+TDD";
+  if (/\btetris\b|\bgame\b|\bgameplay\b|\binteractive\b/.test(text)) return "TDD+EDD";
   if (/\bedd\b|example|edge case|edge-case\b/.test(text)) return "EDD";
   if (/\bsdd\b|\bapi|schema|contract|spec\b/.test(text)) return "SDD";
   if (/\btdd\b|\btest|bug|fix|regression\b/.test(text)) return "TDD";
@@ -105,10 +106,7 @@ ${workflow}
 
 ## Out Of Scope
 
-- LLM API integration.
-- Telemetry.
-- External agent execution.
-- Source-code changes outside the approved implementation task.
+- Work outside this task capsule's agreed scope.
 
 ## Open Questions
 
@@ -154,7 +152,7 @@ ${workflow}
 4. Confirm acceptance criteria and validation commands.
 5. Implement within scope.
 6. Run quality gates.
-7. Review for instruction overwrite, secret handling, and source-code boundaries.
+7. Review for instruction overwrite, secret handling, and scope boundaries.
 `;
 }
 
