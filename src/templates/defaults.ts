@@ -53,7 +53,7 @@ export function policyTemplate(): string {
       contextBudget: {
         rootInstructions: "minimal",
         loadWorkflowsOnDemand: true,
-        doNotReadAllContextforgeByDefault: true,
+        doNotReadAllByDefault: true,
       },
       writePolicy: {
         doctor: [
