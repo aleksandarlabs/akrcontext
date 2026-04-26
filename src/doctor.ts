@@ -17,7 +17,8 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
-  const suggestions = buildSuggestions(installed, installedTargets, missing, conflicts, installedVersion);
+  const judgeGap = await getJudgeGap(cwd);
+  const suggestions = buildSuggestions(installed, installedTargets, missing, conflicts, installedVersion, judgeGap);
   const readiness = scoreReadiness(installed, installedTargets, missing, conflicts);
 
   const result: DoctorResult = {
@@ -88,12 +89,34 @@ function suggestedFor(relativePath: string): string {
   return `${base}.akrctx.suggested${ext}`;
 }
 
+async function getJudgeGap(cwd: string): Promise<string | undefined> {
+  const configPath = path.join(cwd, ".akrctx/config.json");
+  if (!(await pathExists(configPath))) return undefined;
+  try {
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    if (config.judge?.enabled !== true) return undefined;
+    const judgeFiles = [
+      ".claude/agents/akrctx-judge.md",
+      ".github/agents/akrctx-judge.agent.md",
+      ".codex/agents/akrctx-judge.toml",
+    ];
+    const anyPresent = await Promise.all(judgeFiles.map((f) => pathExists(path.join(cwd, f)))).then((r) =>
+      r.some(Boolean),
+    );
+    if (!anyPresent) return "`judge.enabled` is true but no judge agent files found. Run `akrctx judge enable`.";
+  } catch {
+    // ignore
+  }
+  return undefined;
+}
+
 function buildSuggestions(
   installed: boolean,
   installedTargets: Target[],
   missing: string[],
   conflicts: string[],
   installedVersion?: string,
+  judgeGap?: string,
 ): string[] {
   const suggestions: string[] = [];
 
@@ -120,6 +143,10 @@ function buildSuggestions(
     suggestions.push(
       "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
     );
+  }
+
+  if (judgeGap) {
+    suggestions.push(judgeGap);
   }
 
   if (installedVersion && installedVersion !== CLI_VERSION) {

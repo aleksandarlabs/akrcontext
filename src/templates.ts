@@ -14,3 +14,4 @@ export {
   piSkills,
   piFiles,
 } from "./templates/instructions.js";
+export { claudeJudgeFile, copilotJudgeFile, codexJudgeFile } from "./templates/judge.js";

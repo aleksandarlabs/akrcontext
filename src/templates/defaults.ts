@@ -10,6 +10,7 @@ export function defaultConfig(targets: Target[]): akrctxConfig {
   return {
     version: 1,
     installedVersion: CLI_VERSION,
+    judge: { enabled: false, trigger: "post-implementation" },
     targets,
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",

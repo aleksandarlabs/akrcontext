@@ -138,7 +138,14 @@ const workflowBody = `Use the workflow named in the task capsule.
 4. Report findings ordered by severity. Reference file and line where possible.
 5. Do not modify code unless the user explicitly asks for fixes after the review.
 
-Do not expand into a heavyweight process unless the task capsule or user explicitly asks for it.`;
+Do not expand into a heavyweight process unless the task capsule or user explicitly asks for it.
+
+## Judge (optional)
+
+If \`judge.enabled\` is \`true\` in \`.akrctx/config.json\`, after completing implementation
+offer the user the option to invoke the \`akrctx-judge\` subagent for independent review.
+The judge reads the task capsule and the changed code and reports APPROVED / NEEDS CHANGES / BLOCKED.
+Do not invoke the judge automatically — always wait for explicit user confirmation.`;
 const writePolicyBody =
   "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
 

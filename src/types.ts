@@ -13,9 +13,15 @@ export type WorkflowDefault = Workflow | "task-fit";
  */
 export type TaskWorkflow = Workflow | "UI review";
 
+export interface JudgeConfig {
+  enabled: boolean;
+  trigger: "post-implementation";
+}
+
 export interface akrctxConfig {
   version: number;
   installedVersion?: string;
+  judge?: JudgeConfig;
   targets: Target[];
   sourceOfTruth: ".akrctx";
   createdBy: "akrctx";

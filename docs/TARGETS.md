@@ -1,70 +1,108 @@
-# Target Adapter Spec
+# Target Adapters
+
+Each target adapter translates the akrctx harness into the format the agent understands. The neutral source of truth (`.akrctx/`) is always the same regardless of target.
 
 ## Codex
 
-### Main files
-
-```txt
-AGENTS.md
-.agents/skills/
-.akrctx/
 ```
-
-### Why not only `.codex/`?
-
-For Codex, `AGENTS.md` is the main project instruction file. `.codex/` is for project-scoped Codex configuration, hooks and advanced settings. Skills live under `.agents/skills/`.
-
-So akrctx should use:
-
-- `AGENTS.md` for core repo guidance
-- `.agents/skills/` for reusable akrctx workflows
-- `.akrctx/` for neutral source of truth
-- `.codex/` only for optional Codex configuration later
-
-### Generated skill folders
-
-```txt
+AGENTS.md                                ← main instructions (protected)
 .agents/skills/akrctx-init/SKILL.md
 .agents/skills/akrctx-doctor/SKILL.md
 .agents/skills/akrctx-task/SKILL.md
 .agents/skills/akrctx-review/SKILL.md
+.agents/skills/akrctx-workflow/SKILL.md
+.agents/skills/akrctx-write-policy/SKILL.md
+.codex/agents/akrctx-judge.toml          ← optional, created by `akrctx judge enable`
 ```
+
+`AGENTS.md` is the primary instruction file Codex reads. Skills are loaded on demand when the agent invokes a workflow. Judge uses Codex's native subagent system (`.codex/agents/*.toml`).
+
+---
 
 ## Claude Code
 
-### Main files
-
-```txt
-CLAUDE.md
-.claude/commands/
-.akrctx/
 ```
+CLAUDE.md                                ← main instructions (protected)
+.claude/commands/akrctx-doctor.md
+.claude/commands/akrctx-task.md
+.claude/skills/akrctx-init/SKILL.md
+.claude/skills/akrctx-doctor/SKILL.md
+.claude/skills/akrctx-task/SKILL.md
+.claude/skills/akrctx-review/SKILL.md
+.claude/skills/akrctx-workflow/SKILL.md
+.claude/skills/akrctx-write-policy/SKILL.md
+.claude/agents/akrctx-judge.md           ← optional, created by `akrctx judge enable`
+```
+
+`CLAUDE.md` is the primary instruction file Claude Code reads. Commands are slash-command shortcuts. Skills load on demand. Judge uses Claude Code's native subagent system (`.claude/agents/*.md` with YAML frontmatter).
+
+---
 
 ## GitHub Copilot
 
-### Main files
-
-```txt
-.github/copilot-instructions.md
+```
+.github/copilot-instructions.md          ← main instructions (protected)
 .github/instructions/akrctx.instructions.md
 .github/prompts/akrctx-doctor.prompt.md
 .github/prompts/akrctx-task.prompt.md
-.akrctx/
+.github/prompts/akrctx-workflow.prompt.md
+.github/prompts/akrctx-write-policy.prompt.md
+.github/skills/akrctx-init/SKILL.md
+.github/skills/akrctx-doctor/SKILL.md
+.github/skills/akrctx-task/SKILL.md
+.github/skills/akrctx-review/SKILL.md
+.github/skills/akrctx-workflow/SKILL.md
+.github/skills/akrctx-write-policy/SKILL.md
+.github/agents/akrctx-judge.agent.md     ← optional, created by `akrctx judge enable`
 ```
+
+Copilot reads `copilot-instructions.md` globally. Instructions files scope rules to file patterns. Prompts are reusable conversation starters. Judge uses Copilot's native agent system (`.github/agents/*.agent.md`).
+
+---
 
 ## Pi
 
-### Main files
-
-```txt
+```
 .pi/prompts/akrctx-doctor.md
 .pi/prompts/akrctx-task.md
-.pi/skills/akrctx/SKILL.md
-.akrctx/
+.pi/prompts/akrctx-workflow.md
+.pi/prompts/akrctx-write-policy.md
+.pi/skills/akrctx-init/SKILL.md
+.pi/skills/akrctx-doctor/SKILL.md
+.pi/skills/akrctx-task/SKILL.md
+.pi/skills/akrctx-review/SKILL.md
+.pi/skills/akrctx-workflow/SKILL.md
+.pi/skills/akrctx-write-policy/SKILL.md
 ```
 
-## All targets
+Pi has no native subagent API. The judge is not available for Pi targets. `akrctx judge enable` skips Pi automatically.
 
-The source of truth is always `.akrctx/`.
+---
 
-Target files are adapters.
+## Neutral source of truth (all targets)
+
+```
+.akrctx/
+  config.json          ← workflow defaults, installed version, judge config
+  policy.json          ← merge strategy, blocked read patterns, context budget
+  wiki/
+    overview.md        ← project name, installed targets, quick reference
+    architecture.md
+    conventions.md
+    testing.md
+    workflows.md
+    decisions.md
+    agent-setup.md     ← written by `akrctx doctor`
+    write-policy.md
+    log.md
+  tasks/
+    _template/         ← capsule template files
+    TASK-XXX-<slug>/   ← one directory per task
+  targets/
+    codex.md
+    claude.md
+    copilot.md
+    pi.md
+```
+
+The neutral layer is always written regardless of which target is installed. Target adapters are thin — they translate the harness into the format each agent expects.

@@ -26,17 +26,22 @@ akrctx init --target codex
 ## Commands
 
 ```bash
-pnpm akrctx init
-pnpm akrctx init --target codex
-pnpm akrctx init --target all
-pnpm akrctx doctor
-pnpm akrctx config show
-pnpm akrctx config set defaultWorkflow SDD+TDD
-pnpm akrctx task "Define invoice API examples" --workflow SDD+EDD
-pnpm akrctx compile TASK-001 --target codex
+akrctx init                             # detect agent and install harness
+akrctx init --target codex             # install for specific target
+akrctx init --target all               # install for all targets
+akrctx doctor                          # audit setup and write wiki readiness report
+akrctx status                          # quick summary of installed targets and tasks
+akrctx upgrade                         # update harness files to current CLI version
+akrctx config show
+akrctx config set defaultWorkflow SDD+TDD
+akrctx task "Define invoice API examples" --workflow SDD+EDD
+akrctx compile TASK-001 --target codex
+akrctx judge enable                    # install optional judge subagent
+akrctx judge status
+akrctx remove --target codex --force   # remove harness for a target
 ```
 
-Common flags for core commands:
+Common flags:
 
 ```bash
 --target codex|claude|copilot|pi|all
@@ -74,11 +79,11 @@ akrctx task "Define invoice API examples" --workflow SDD+EDD
 Workflow defaults live in `.akrctx/config.json` so the agent and CLI share the same policy.
 
 ```bash
-pnpm akrctx config show
-pnpm akrctx config set defaultWorkflow task-fit
-pnpm akrctx config set defaultWorkflow SDD+TDD
-pnpm akrctx config set requireWorkflowReason true
-pnpm akrctx config set contextBudget proportional
+akrctx config show
+akrctx config set defaultWorkflow task-fit
+akrctx config set defaultWorkflow SDD+TDD
+akrctx config set requireWorkflowReason true
+akrctx config set contextBudget proportional
 ```
 
 Use `task-fit` when the agent should choose the smallest workflow that fits the task. Use a concrete workflow when the whole project should default to that method unless a task says otherwise.
@@ -140,6 +145,6 @@ Use `akrctx doctor` to audit the setup and ask your chosen agent to propose a hu
 ```bash
 pnpm build
 pnpm test
-pnpm akrctx init --target codex --dry-run
-pnpm akrctx doctor --json
+akrctx init --target codex --dry-run
+akrctx doctor --json
 ```

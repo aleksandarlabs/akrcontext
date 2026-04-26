@@ -49,3 +49,58 @@ Use a concrete workflow when the whole project should bias toward that process u
 - `thorough`: allow broader wiki review for high-risk tasks.
 
 Do not read all of `.akrctx/` by default.
+
+---
+
+## Judge
+
+The judge is an optional subagent that independently reviews implementation against the task capsule. It is disabled by default.
+
+```bash
+akrctx judge enable   # install judge files and set enabled: true
+akrctx judge disable  # set enabled: false (files are kept)
+akrctx judge status   # show state
+```
+
+The enabled state is stored in config:
+
+```json
+{
+  "judge": {
+    "enabled": false,
+    "trigger": "post-implementation"
+  }
+}
+```
+
+**Do not set `enabled: true` manually in `config.json`** without running `akrctx judge enable` first. If the judge is enabled but no agent files exist, `akrctx doctor` will detect the gap and prompt you to run `judge enable`.
+
+Each platform's judge agent file is installed in the native subagent location for that target. No model is hardcoded — add your preferred model manually after installation. See [JUDGE.md](JUDGE.md) for per-platform instructions.
+
+---
+
+## Full config.json shape
+
+```json
+{
+  "version": 1,
+  "installedVersion": "0.1.0",
+  "targets": ["codex"],
+  "judge": {
+    "enabled": false,
+    "trigger": "post-implementation"
+  },
+  "defaults": {
+    "workflow": "task-fit",
+    "allowedWorkflows": ["fast-patch", "research-first", "SDD", "TDD", "EDD", "SDD+TDD", "SDD+EDD", "TDD+EDD"],
+    "requireTaskCapsule": true,
+    "requireWorkflowReason": true,
+    "contextBudget": "proportional"
+  },
+  "workflowRules": [
+    { "match": "bug|fix|regression|hotfix", "workflow": "fast-patch" },
+    { "match": "research|spike|explore|investigate", "workflow": "research-first" },
+    { "match": "ui|screen|component|layout|design", "workflow": "UI review" }
+  ]
+}
+```

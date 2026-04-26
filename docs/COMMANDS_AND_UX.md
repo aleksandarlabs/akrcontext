@@ -2,120 +2,187 @@
 
 ## `akrctx init`
 
-### Flow
-
-```txt
-1. scan current directory
-2. detect agent setup
-3. choose target
-4. create .akrctx/
-5. install target harness
-6. preserve existing files
-7. report what happened
-```
-
-### Example
+Installs the akrctx harness into the current repository.
 
 ```bash
 akrctx init
+akrctx init --target codex
+akrctx init --target all
+akrctx init --target copilot --dry-run
+akrctx init --force          # update akrctx-owned files that already exist
 ```
 
-If no target found:
+Flow:
 
-```txt
-No agentic structure detected.
-Which agent will this project use?
-
-> Codex
-  Claude Code
-  GitHub Copilot
-  Pi
-  All
+```
+1. scan current directory
+2. detect existing agent setup (Codex, Claude, Copilot, Pi)
+3. ask which target if ambiguous (skipped with --target)
+4. create .akrctx/ — neutral source of truth
+5. install target-specific harness files
+6. preserve existing instruction files (AGENTS.md, CLAUDE.md, etc.)
+7. report what was created, updated, or suggested
 ```
 
-If Codex selected:
+If a protected file already exists, init writes a suggested variant instead:
 
-```txt
-Installing akrctx Codex harness...
-
-Created:
-+ .akrctx/config.json
-+ .akrctx/policy.json
-+ .akrctx/wiki/overview.md
-+ .agents/skills/akrctx-doctor/SKILL.md
-+ .agents/skills/akrctx-task/SKILL.md
-+ AGENTS.md
-
-Next:
-Open Codex in this repo and ask:
-"Run akrctx doctor."
+```
+AGENTS.md → AGENTS.akrctx.suggested.md
+CLAUDE.md → CLAUDE.akrctx.suggested.md
 ```
 
-If `AGENTS.md` exists:
-
-```txt
-Found existing AGENTS.md.
-Preserving it.
-
-Created:
-+ AGENTS.akrctx.suggested.md
-+ .akrctx/wiki/agent-setup.md
-
-Next:
-Open Codex and ask:
-"Run akrctx doctor and compare AGENTS.md with AGENTS.akrctx.suggested.md. Propose a safe merge."
-```
+---
 
 ## `akrctx doctor`
 
-Local deterministic doctor.
+Audits the akrctx setup and writes a readiness report.
 
-It reports:
+```bash
+akrctx doctor
+akrctx doctor --json
+```
+
+Reports:
 
 - installed targets
-- missing akrctx files
-- existing instruction files
-- conflicts
-- readiness score
-- next agent prompt
+- missing harness files
+- pending suggested merges
+- config gaps
+- judge misconfiguration (enabled but files missing)
+- version drift between installed harness and current CLI
+- readiness score (0–100)
+- suggested agent prompt to continue the audit intelligently
 
-It should also print a suggested agent prompt:
+---
 
-```txt
-Suggested Codex prompt:
-Run akrctx doctor. Inspect this repo's agent instructions and .akrctx wiki. Audit setup only; do not implement product features during doctor. Update .akrctx/wiki and propose instruction merges.
+## `akrctx status`
+
+Quick install summary.
+
+```bash
+akrctx status
+akrctx status --json
 ```
+
+Shows installed targets, task count, recent task IDs, default workflow, and context budget.
+
+---
+
+## `akrctx upgrade`
+
+Updates akrctx-owned harness files to the current CLI version.
+
+```bash
+akrctx upgrade
+akrctx upgrade --target codex
+akrctx upgrade --dry-run
+```
+
+Rewrites skill files, prompts, and instructions. Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are never overwritten.
+
+Run `akrctx doctor` after upgrading to verify the result.
+
+---
 
 ## `akrctx task`
 
-Creates a task capsule.
+Creates a task capsule. Intended as a headless fallback for scripts and CI. During normal agent-assisted work the agent creates the capsule itself.
 
 ```bash
-akrctx task "Create settings screen with tabs and tests"
+akrctx task "Fix regression in invoice calculation"
+akrctx task "Define invoice API examples" --workflow SDD+EDD
+akrctx task "Create settings screen" --workflow "UI review"
 ```
 
-Creates:
+Creates under `.akrctx/tasks/TASK-XXX-<slug>/`:
 
-```txt
-.akrctx/tasks/TASK-001-create-settings-screen-with-tabs-and-tests/
-  task.md
-  context.md
-  plan.md
-  review-checklist.md
-  exports/
+```
+task.md
+context.md
+plan.md
+acceptance-criteria.md
+review-checklist.md
 ```
 
-Then tells user:
+Workflow is chosen automatically from the task description unless overridden with `--workflow`.
 
-```txt
-Open your agent and ask:
-Run akrctx task workflow for TASK-001.
-```
+---
 
 ## `akrctx compile`
 
-Generates an agent-specific implementation/research brief.
+Compiles a task capsule into a single agent-ready brief.
 
 ```bash
+akrctx compile TASK-001
 akrctx compile TASK-001 --target codex
+akrctx compile TASK-001 --target claude
 ```
+
+Concatenates task.md + context.md + plan.md + acceptance-criteria.md into:
+
+```
+.akrctx/tasks/TASK-001/exports/<target>.md
+```
+
+Paste or reference this file in your agent session when you need a deterministic brief.
+
+---
+
+## `akrctx config`
+
+Shows or updates project defaults stored in `.akrctx/config.json`.
+
+```bash
+akrctx config show
+
+akrctx config set defaultWorkflow task-fit
+akrctx config set defaultWorkflow SDD+TDD
+akrctx config set defaultTarget codex
+akrctx config set requireTaskCapsule true
+akrctx config set requireWorkflowReason true
+akrctx config set contextBudget proportional
+```
+
+Valid `contextBudget` values: `minimal` | `proportional` | `thorough`.
+
+---
+
+## `akrctx judge`
+
+Manages the optional judge subagent. The judge independently reviews whether an implementation matches the task capsule. Disabled by default.
+
+```bash
+akrctx judge enable           # enable + install agent files for installed targets
+akrctx judge enable --dry-run # preview files that would be created
+akrctx judge disable          # disable (files are kept, remove manually if needed)
+akrctx judge status           # show enabled state and which agent files exist
+```
+
+Pi is not supported — it has no native subagent API.
+
+See [JUDGE.md](JUDGE.md) for the full flow including how to set a model.
+
+---
+
+## `akrctx remove`
+
+Removes akrctx harness files for a target.
+
+```bash
+akrctx remove --target codex              # dry-run: list what would be removed
+akrctx remove --target codex --force      # remove codex skill files
+akrctx remove --all --force               # remove .akrctx/ and all target files
+```
+
+Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are always skipped — remove them manually if needed.
+
+---
+
+## Common flags
+
+| Flag | Effect |
+|---|---|
+| `--target <target>` | `codex` \| `claude` \| `copilot` \| `pi` \| `all` |
+| `--dry-run` | Show planned writes without creating files |
+| `--force` | Update akrctx-owned files that already exist |
+| `--json` | Emit JSON output for scripting |

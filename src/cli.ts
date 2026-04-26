@@ -4,6 +4,7 @@ import { readConfig, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { b, bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
 import { runInit } from "./init.js";
+import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
 import { runTask } from "./task.js";
@@ -263,6 +264,94 @@ export async function main(argv = process.argv): Promise<void> {
     console.log(`Compiled (${result.target}): ${result.outputPath}`);
   });
 
+  // ── judge ─────────────────────────────────────────────────────────────────
+  const judge = program.command("judge").description("Manage the optional akrctx judge subagent.");
+
+  addCommon(
+    judge
+      .command("enable")
+      .description("Enable the judge and install agent files for the installed targets.")
+      .addHelpText(
+        "after",
+        [
+          "",
+          "Generates a judge agent file for each installed target:",
+          "  Claude Code  →  .claude/agents/akrctx-judge.md",
+          "  Copilot      →  .github/agents/akrctx-judge.agent.md",
+          "  Codex        →  .codex/agents/akrctx-judge.toml",
+          "  Pi           →  not supported (skipped)",
+          "",
+          "The generated files do not specify a model.",
+          "To use a specific model, add the model field manually:",
+          "",
+          "  Claude Code / Copilot — add to YAML frontmatter:",
+          "    model: <model-id>",
+          "",
+          "  Codex — add to the TOML file:",
+          "    model = \"<model-id>\"",
+          "",
+          "Check your platform's documentation for valid model identifiers.",
+          "They are platform-specific and change over time.",
+        ].join("\n"),
+      ),
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runJudgeEnable(options);
+    if (options.json) { console.log(JSON.stringify(result, null, 2)); return; }
+    const verb = options.dryRun ? "Would install" : "Installed";
+    log(`${bold("Judge:")} ${green("enabled")}`);
+    if (result.writes.length) {
+      ln();
+      for (const w of result.writes) log(`  ${plus()} ${file(w.path)}`);
+    }
+    if (result.skippedTargets.length) {
+      ln();
+      log(`  ${dim(`Skipped (no native subagent support): ${result.skippedTargets.join(", ")}`)}`);
+    }
+    ln();
+    log(`  ${dim(`${verb} for: ${result.installedTargets.join(", ")}`)}`);
+    log(`  ${dim("To set a model, edit the generated file and add the model field.")}`);
+    log(`  ${dim("See docs/JUDGE.md for examples.")}`);
+  });
+
+  addCommon(
+    judge
+      .command("disable")
+      .description("Disable the judge. Agent files are kept — remove them manually if needed."),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    await runJudgeDisable(options);
+    if (options.json) { console.log(JSON.stringify({ enabled: false })); return; }
+    log(`${bold("Judge:")} ${yellow("disabled")}`);
+    log(dim("  Agent files were not removed. Delete them manually if you no longer need them."));
+  });
+
+  addCommon(
+    judge.command("status").description("Show judge configuration and installed agent files."),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runJudgeStatus(options);
+    if (options.json) { console.log(JSON.stringify(result, null, 2)); return; }
+    const enabledLabel = result.enabled ? green("enabled") : yellow("disabled");
+    log(`${bold("Judge:")} ${enabledLabel}  ${dim(`trigger: ${result.trigger}`)}`);
+    if (result.presentFiles.length) {
+      ln();
+      log(`  ${dim("Agent files present:")}`);
+      for (const f of result.presentFiles) log(`    ${plus()} ${file(f)}`);
+    }
+    if (result.missingFiles.length) {
+      ln();
+      log(`  ${yellow("Agent files missing (run `akrctx judge enable`):")}`);
+      for (const f of result.missingFiles) log(`    ${minus()} ${file(f)}`);
+    }
+    if (!result.enabled) {
+      ln();
+      log(`  Run ${cmd("akrctx judge enable")} to activate.`);
+    }
+  });
+
   // ── upgrade ───────────────────────────────────────────────────────────────
   addCommon(
     program
@@ -422,9 +511,10 @@ function printInit(result: InitResult, options: CommandOptions): void {
 
   ln();
   log(`  ${bold("Useful commands")}`);
-  log(`    ${cmd("akrctx status")}   ${dim("— quick check")}`);
-  log(`    ${cmd("akrctx doctor")}   ${dim("— full audit + readiness score")}`);
-  log(`    ${cmd("akrctx --help")}   ${dim("— full reference")}`);
+  log(`    ${cmd("akrctx status")}         ${dim("— quick check")}`);
+  log(`    ${cmd("akrctx doctor")}         ${dim("— full audit + readiness score")}`);
+  log(`    ${cmd("akrctx judge enable")}   ${dim("— add optional judge subagent (Claude / Copilot / Codex)")}`);
+  log(`    ${cmd("akrctx --help")}         ${dim("— full reference")}`);
   ln();
   log(rule());
 }
