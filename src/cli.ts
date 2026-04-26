@@ -8,12 +8,14 @@ import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
 import { runTask } from "./task.js";
 import type { CommandOptions, DoctorResult, InitResult, Target, TargetOption, WriteResult } from "./types.js";
+import { CLI_VERSION } from "./version.js";
 
 export async function main(argv = process.argv): Promise<void> {
   const program = new Command();
 
   program
     .name("akrctx")
+    .version(CLI_VERSION)
     .description(
       [
         "akrctx installs an agentic workflow harness into a repository.",
@@ -22,7 +24,6 @@ export async function main(argv = process.argv): Promise<void> {
         "selection, merge safety, and quality gates — without replacing the agent.",
       ].join("\n"),
     )
-    .version("0.1.0")
     .addHelpText(
       "after",
       [
@@ -260,6 +261,30 @@ export async function main(argv = process.argv): Promise<void> {
       return;
     }
     console.log(`Compiled (${result.target}): ${result.outputPath}`);
+  });
+
+  // ── upgrade ───────────────────────────────────────────────────────────────
+  addCommon(
+    program
+      .command("upgrade")
+      .description("Update akrctx-owned harness files to the current CLI version.")
+      .addHelpText(
+        "after",
+        [
+          "",
+          "Rewrites skill files, prompts, and instructions to the current CLI version.",
+          "Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are never overwritten.",
+          "",
+          "Examples:",
+          "  akrctx upgrade                    upgrade installed targets",
+          "  akrctx upgrade --target codex     upgrade only codex harness files",
+          "  akrctx upgrade --dry-run          preview what would change",
+        ].join("\n"),
+      ),
+  ).action(async (raw) => {
+    const options = { ...normalizeOptions(raw), force: true };
+    const result = await runInit(options);
+    printInit(result, options);
   });
 
   // ── remove ────────────────────────────────────────────────────────────────

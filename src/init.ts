@@ -1,4 +1,5 @@
 import { select } from "@inquirer/prompts";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -10,6 +11,7 @@ import {
   copilotFiles,
   copilotSkills,
   mainInstructionTemplate,
+  overviewTemplate,
   piFiles,
   piSkills,
   policyTemplate,
@@ -19,6 +21,7 @@ import {
 } from "./templates.js";
 import type { CommandOptions, InitResult, Target, TargetOption, WriteResult } from "./types.js";
 import { targets } from "./types.js";
+import { CLI_VERSION } from "./version.js";
 
 export async function runInit(options: CommandOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -38,8 +41,16 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   writes.push(await writeFile(".akrctx/config.json", configTemplate(selectedTargets), false, "akrctx config."));
   writes.push(await writeFile(".akrctx/policy.json", policyTemplate(), false, "akrctx security and merge policy."));
 
+  const projectName = await readProjectName(cwd);
+
   // Wiki, task templates, and target references are independent — write in parallel.
-  const [wikiResults, taskResults, targetResults] = await Promise.all([
+  const [overviewResult, wikiResults, taskResults, targetResults] = await Promise.all([
+    writeFile(
+      ".akrctx/wiki/overview.md",
+      overviewTemplate(projectName, selectedTargets, CLI_VERSION),
+      false,
+      "akrctx wiki file.",
+    ),
     Promise.all(
       Object.entries(wikiTemplates).map(([relativePath, content]) =>
         writeFile(path.posix.join(".akrctx", relativePath), content, false, "akrctx wiki file."),
@@ -61,7 +72,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       ),
     ),
   ]);
-  writes.push(...wikiResults, ...taskResults, ...targetResults);
+  writes.push(overviewResult, ...wikiResults, ...taskResults, ...targetResults);
 
   // Target-specific harness files.
   for (const targetName of selectedTargets) {
@@ -195,4 +206,14 @@ async function installTarget(
   }
 
   return writes;
+}
+
+async function readProjectName(cwd: string): Promise<string> {
+  try {
+    const pkg = JSON.parse(await readFile(path.join(cwd, "package.json"), "utf8"));
+    if (typeof pkg.name === "string" && pkg.name.trim()) return pkg.name.trim();
+  } catch {
+    // no package.json or invalid JSON — fall through
+  }
+  return path.basename(cwd);
 }

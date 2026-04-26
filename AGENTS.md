@@ -1,69 +1,44 @@
-# AGENTS.md - akrctx Harness
+# AGENTS.md
 
-This repository is akrctx-aware. Treat `.akrctx/` as the project workflow source of truth.
+This repository is the source for **akrctx** — a CLI that installs agentic workflow harnesses into other projects. You are working on the tool itself, not on a project that uses it.
 
-## Mandatory Behavior
+## Architecture
 
-When the user asks to implement a feature, fix, refactor, or meaningful code change:
+The CLI is a Node.js ESM package (TypeScript, built with tsup, tested with vitest, linted with biome).
 
-1. Read `.akrctx/config.json` and `.akrctx/policy.json`.
-2. Create or update a task capsule under `.akrctx/tasks/TASK-XXX-.../` before implementation.
-3. Record the chosen workflow and the reason in the capsule.
-4. Follow the workflow from config unless the user explicitly overrides it.
-5. Load only relevant context. Do not read all of `.akrctx/` by default.
-6. After implementation, update the task review checklist and run relevant validation.
+| File | Role |
+|---|---|
+| `src/cli.ts` | Command wiring (Commander.js). All user-facing help text lives here. |
+| `src/init.ts` | Harness installation: detects targets, writes files, handles conflicts. |
+| `src/doctor.ts` | Deterministic audit: checks installed files, scores readiness, writes wiki. |
+| `src/task.ts` | Task capsule generation and workflow recommendation from description keywords. |
+| `src/compile.ts` | Compiles a task capsule into a single agent-ready brief. |
+| `src/config.ts` | Reads and mutates `.akrctx/config.json` in the target project. |
+| `src/status.ts` | Quick install summary. |
+| `src/remove.ts` | Removes harness files for a target. |
+| `src/detect.ts` | Detects which agent targets exist in a project (Codex, Claude, Copilot, Pi). |
+| `src/version.ts` | Single source of truth for the CLI version (`CLI_VERSION`). |
+| `src/types.ts` | All types: `Workflow`, `Target`, `TaskWorkflow`, `akrctxConfig`, etc. |
+| `src/fs-utils.ts` | File system helpers (pathExists, safeWrite, etc.). |
+| `src/format.ts` | Terminal output formatting (colors, bold, rule lines). |
+| `src/templates/instructions.ts` | **Single source of truth** for all generated harness content: skill text, instruction files, prompts. Change workflow or skill descriptions here. |
+| `src/templates/defaults.ts` | Default `config.json` and `policy.json` content. |
+| `src/templates/wiki.ts` | Wiki file templates installed under `.akrctx/wiki/`. |
+| `tests/akrctx.test.ts` | Full CLI test suite — runs against a temp directory per test. |
 
-Create the task capsule yourself — do not ask the user to run `akrctx task`. The CLI task command is only a headless fallback for scripts and CI.
+## Key constraints
 
-## Current Project Defaults
+- `Workflow` in `types.ts` is the set of user-selectable workflows. `TaskWorkflow` extends it with `"UI review"`, which is auto-assigned via `workflowRules.ui` but not a user-selectable default.
+- `src/templates/instructions.ts` is generated content — it is what agents in other projects will read. Keep it concise and instructional.
+- `src/version.ts` is the single source of `CLI_VERSION`. Update it here when bumping the version; `cli.ts`, `templates/defaults.ts`, and `doctor.ts` all import from it.
+- `policy.json` must not restrict what the programming agent can do (no `allowSourceCodeWrites`, no `network`, no `llmProvider` keys).
 
-Read the live values from `.akrctx/config.json`. Important defaults may include:
-
-- `defaults.workflow`
-- `defaults.requireTaskCapsule`
-- `defaults.requireWorkflowReason`
-- `defaults.contextBudget`
-- `workflowRules`
-
-If `defaults.workflow` is `task-fit`, choose the smallest workflow that fits the task. If it is concrete, use it unless the user explicitly asks otherwise.
-
-## akrctx Write Policy
-
-Use these homes:
-
-- Task capsules: `.akrctx/tasks/TASK-XXX-.../`
-- Doctor findings: `.akrctx/wiki/`
-- Compiled briefs: `.akrctx/tasks/TASK-XXX-.../exports/`
-- Decisions: `.akrctx/wiki/decisions.md`
-- Task implementation notes: `.akrctx/tasks/TASK-XXX-.../log.md`
-
-Do not write durable workflow notes in random files.
-
-## Safety
-
-- Do not read secrets or credential files.
-- Do not overwrite existing instruction files in target projects. Write suggested files on conflict.
-
-## Contributor Notes
-
-This repository builds akrctx, a local CLI that installs agent workflow harnesses into other projects.
-
-Primary source files:
-
-- `src/cli.ts` - command wiring.
-- `src/init.ts` - harness installation.
-- `src/doctor.ts` - deterministic setup audit.
-- `src/task.ts` - task capsule generation.
-- `src/compile.ts` - target brief generation.
-- `src/config.ts` - project defaults and workflow config.
-- `src/templates.ts` - generated harness content.
-- `tests/akrctx.test.ts` - CLI core behavior.
-
-Run before handoff:
+## Before handoff
 
 ```bash
 pnpm build
 pnpm test
+pnpm lint
 pnpm akrctx init --target codex --dry-run
 pnpm akrctx doctor --json
 ```

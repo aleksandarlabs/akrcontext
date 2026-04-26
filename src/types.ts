@@ -15,6 +15,7 @@ export type TaskWorkflow = Workflow | "UI review";
 
 export interface akrctxConfig {
   version: number;
+  installedVersion?: string;
   targets: Target[];
   sourceOfTruth: ".akrctx";
   createdBy: "akrctx";

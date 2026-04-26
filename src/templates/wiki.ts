@@ -1,5 +1,26 @@
+export function overviewTemplate(projectName: string, targets: string[], installedVersion: string): string {
+  return `# Overview
+
+**Project:** ${projectName}
+**akrctx version:** ${installedVersion}
+**Installed targets:** ${targets.join(", ")}
+
+This repository uses akrctx as an agentic workflow harness. The \`.akrctx/\` directory is the neutral source of truth.
+
+## Quick Reference
+
+- Workflows: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD, TDD+EDD, UI review
+- Default workflow: read from \`.akrctx/config.json\` → \`defaults.workflow\`
+- Task capsules: \`.akrctx/tasks/TASK-XXX/\`
+- Wiki: \`.akrctx/wiki/\` (populated by \`akrctx doctor\`)
+
+## Next Steps
+
+Ask your agent: "Run akrctx doctor." It will audit this setup and populate the wiki.
+`;
+}
+
 export const wikiTemplates: Record<string, string> = {
-  "wiki/overview.md": "# Overview\n\nakrctx is installed in this repository as a neutral source of truth for agentic workflows.\n",
   "wiki/architecture.md": "# Architecture\n\nDocument the project architecture here as the agent learns it.\n",
   "wiki/conventions.md": "# Conventions\n\nDocument coding, naming, and review conventions here.\n",
   "wiki/testing.md": "# Testing\n\nDocument build, test, lint, and validation commands here.\n",
@@ -25,6 +46,7 @@ The project default lives in .akrctx/config.json:
 - SDD+TDD
 - SDD+EDD
 - TDD+EDD
+- UI review (auto-assigned for UI tasks, not a user-selectable default)
 
 ## Selection Policy
 
@@ -35,6 +57,7 @@ The project default lives in .akrctx/config.json:
 - Use EDD for examples, edge cases, and ambiguous rules.
 - Use SDD+EDD for domains with many examples or boundary cases.
 - Use research-first when the relevant area is unknown.
+- Use UI review for UI validation tasks (discovers stylelint, storybook, playwright, etc.).
 `,
   "wiki/decisions.md": "# Decisions\n\nRecord important project and agent-workflow decisions here.\n",
   "wiki/agent-setup.md":

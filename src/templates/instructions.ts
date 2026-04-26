@@ -79,15 +79,64 @@ const reviewBody =
   "Check whether the task capsule is ready: goal clarity, testability, relevant context, blocked secrets, scope control, validation commands, and human-approved merge strategy.";
 const workflowBody = `Use the workflow named in the task capsule.
 
-## Workflow Modes
+## fast-patch
 
-- fast-patch: minimal context, smallest safe change.
-- research-first: inspect and summarize uncertainty before coding.
-- SDD: write or update behavior/spec contract before implementation.
-- TDD: write or update failing tests before implementation.
-- EDD: define examples and edge cases before implementation.
-- SDD+TDD: specify behavior first, then encode it in tests.
-- SDD+EDD: specify behavior first, then add examples and edge cases.
+1. Load only the files directly touched by the change.
+2. Make the smallest safe edit that satisfies the goal.
+3. Verify the change does not break adjacent behavior.
+4. No spec or new tests unless they already exist.
+
+## research-first
+
+1. Read .akrctx/config.json, policy.json, and relevant wiki pages without modifying code.
+2. Inspect relevant files, git log, and .akrctx/wiki/decisions.md.
+3. List open questions and areas of uncertainty in the task capsule.
+4. Propose an approach and wait for user confirmation before implementing.
+5. Switch to a concrete workflow (TDD, SDD, etc.) for implementation.
+
+## SDD
+
+1. Write or update the behavior contract: inputs, outputs, preconditions, postconditions, and explicit out-of-scope boundaries.
+2. Record the contract in the task capsule before touching implementation files.
+3. Implement only what the contract specifies.
+
+## TDD
+
+1. Write failing tests that encode the expected behavior. Confirm they fail for the right reason.
+2. Implement the minimum code to make the tests pass.
+3. Refactor if needed, keeping tests green.
+
+## EDD
+
+1. Define concrete examples and edge cases: happy paths, empty inputs, boundary values, unexpected combinations.
+2. Record examples in the task capsule.
+3. Implement against those examples.
+
+## SDD+TDD
+
+1. Write the behavior contract (SDD).
+2. Encode the contract as failing tests (TDD).
+3. Implement until tests pass.
+
+## SDD+EDD
+
+1. Write the behavior contract (SDD).
+2. Define examples and edge cases that illustrate the contract (EDD).
+3. Implement against contract and examples.
+
+## TDD+EDD
+
+1. Define examples and edge cases (EDD).
+2. Encode each example as a failing test (TDD).
+3. Implement until tests pass.
+
+## UI review
+
+1. Check for existing UI conventions in project instructions or .akrctx/wiki/conventions.md. If the project defines its own UI review process, follow it instead.
+2. Discover which tools are present: stylelint, eslint with style or a11y rules, storybook, playwright, cypress, chromatic, percy, or any browser preview command in package.json scripts.
+3. Run the tools that are available. Do not skip tools without noting why.
+4. Report findings ordered by severity. Reference file and line where possible.
+5. Do not modify code unless the user explicitly asks for fixes after the review.
 
 Do not expand into a heavyweight process unless the task capsule or user explicitly asks for it.`;
 const writePolicyBody =
@@ -105,7 +154,7 @@ const sharedSkills = {
     reviewBody,
   ],
   "akrctx-workflow": [
-    "Use when selecting or applying SDD, TDD, EDD, research-first, fast-patch, or combined workflows.",
+    "Use when selecting or applying SDD, TDD, EDD, research-first, fast-patch, UI review, or combined workflows.",
     workflowBody,
   ],
   "akrctx-write-policy": [
@@ -150,7 +199,7 @@ Use \`.akrctx/\` as the neutral source of truth. Preserve existing instruction f
   ".github/prompts/akrctx-task.prompt.md":
     "# akrctx Task\n\nPrepare a task capsule with scope, context, acceptance criteria, and validation commands.\n",
   ".github/prompts/akrctx-workflow.prompt.md":
-    "# akrctx Workflow\n\nApply the task capsule workflow: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, or SDD+EDD. Keep the process proportional to task risk.\n",
+    "# akrctx Workflow\n\nApply the task capsule workflow: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD, TDD+EDD, or UI review. Keep the process proportional to task risk.\n",
   ".github/prompts/akrctx-write-policy.prompt.md":
     "# akrctx Write Policy\n\nWrite durable notes only to the akrctx write-policy paths. Do not overwrite existing instructions without human approval.\n",
 };
@@ -163,7 +212,7 @@ export const piFiles: Record<string, string> = {
   ".pi/prompts/akrctx-task.md":
     "# akrctx Task\n\nPrepare a akrctx task capsule before implementation.\n",
   ".pi/prompts/akrctx-workflow.md":
-    "# akrctx Workflow\n\nUse the task capsule workflow. Supported modes: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD.\n",
+    "# akrctx Workflow\n\nUse the task capsule workflow. Supported modes: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD, TDD+EDD, UI review.\n",
   ".pi/prompts/akrctx-write-policy.md":
     "# akrctx Write Policy\n\nPersist notes only in approved akrctx paths. Do not read all of `.akrctx/` by default.\n",
 };

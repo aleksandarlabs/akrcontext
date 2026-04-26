@@ -50,7 +50,7 @@ export async function writePlannedFile(
   const targetPath = path.join(cwd, relativePath);
   const exists = await pathExists(targetPath);
 
-  if (exists && options.protected && !options.force) {
+  if (exists && options.protected) {
     const suggested = suggestedPathFor(relativePath);
     const suggestedAbsolute = path.join(cwd, suggested);
     const suggestedExists = await pathExists(suggestedAbsolute);

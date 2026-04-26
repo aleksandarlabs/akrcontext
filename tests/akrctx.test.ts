@@ -12,6 +12,8 @@ import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { recommendWorkflow, runTask, slugify } from "../src/task.js";
 import { main } from "../src/cli.js";
+import { workflows } from "../src/types.js";
+import { CLI_VERSION } from "../src/version.js";
 
 let tmp: string;
 
@@ -423,5 +425,78 @@ describe("remove", () => {
     await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true } as Parameters<typeof runRemove>[0]);
 
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
+  });
+});
+
+// ── skill content contract ────────────────────────────────────────────────────
+
+describe("skill content contract", () => {
+  it("installed workflow skill contains every workflow name and UI review", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const skill = await readFile(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), "utf8");
+
+    for (const w of workflows) {
+      expect(skill, `skill missing workflow: ${w}`).toContain(w);
+    }
+    expect(skill, "skill missing UI review").toContain("UI review");
+  });
+
+  it("config.json records the CLI version that installed the harness", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const config = await readConfig(tmp);
+    expect(config?.installedVersion).toBe(CLI_VERSION);
+  });
+
+  it("wiki/overview.md includes project name and installed targets", async () => {
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "my-app" }), "utf8");
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const overview = await readFile(path.join(tmp, ".akrctx/wiki/overview.md"), "utf8");
+    expect(overview).toContain("my-app");
+    expect(overview).toContain("codex");
+    expect(overview).toContain(CLI_VERSION);
+  });
+
+  it("wiki/overview.md falls back to directory name when no package.json exists", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const overview = await readFile(path.join(tmp, ".akrctx/wiki/overview.md"), "utf8");
+    expect(overview).toContain(path.basename(tmp));
+  });
+});
+
+// ── upgrade ───────────────────────────────────────────────────────────────────
+
+describe("upgrade", () => {
+  it("rewrites akrctx-owned skill files without touching protected AGENTS.md", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Custom instructions\n", "utf8");
+
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(tmp);
+      await main(["node", "akrctx", "upgrade", "--target", "codex"]);
+    } finally {
+      process.chdir(previousCwd);
+    }
+
+    expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe("# Custom instructions\n");
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
+  });
+
+  it("doctor detects version drift and suggests upgrade", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.installedVersion = "0.0.1";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.suggestions.some((s) => s.includes("akrctx upgrade"))).toBe(true);
+    expect(result.suggestions.some((s) => s.includes("0.0.1"))).toBe(true);
   });
 });

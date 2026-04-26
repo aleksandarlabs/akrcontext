@@ -1,5 +1,6 @@
 import type { akrctxConfig, Target } from "../types.js";
 import { workflows } from "../types.js";
+import { CLI_VERSION } from "../version.js";
 
 export function configTemplate(targets: Target[]): string {
   return JSON.stringify(defaultConfig(targets), null, 2);
@@ -8,6 +9,7 @@ export function configTemplate(targets: Target[]): string {
 export function defaultConfig(targets: Target[]): akrctxConfig {
   return {
     version: 1,
+    installedVersion: CLI_VERSION,
     targets,
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",

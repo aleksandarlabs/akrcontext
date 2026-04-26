@@ -2,7 +2,7 @@
 // the implementation into focused sub-modules.
 
 export { configTemplate, defaultConfig, policyTemplate } from "./templates/defaults.js";
-export { wikiTemplates, taskTemplateFiles } from "./templates/wiki.js";
+export { overviewTemplate, wikiTemplates, taskTemplateFiles } from "./templates/wiki.js";
 export {
   targetReferenceTemplates,
   mainInstructionTemplate,

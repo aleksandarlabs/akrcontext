@@ -12,6 +12,7 @@ akrctx supports explicit workflows without forcing every task into the same proc
 - `SDD+TDD`
 - `SDD+EDD`
 - `TDD+EDD`
+- `UI review` (auto-assigned via `workflowRules.ui`, not user-selectable as a default)
 
 ## Recommended Use
 
@@ -30,6 +31,8 @@ Use `SDD+TDD` for new or changed contracts that need executable tests.
 Use `SDD+EDD` for rule-heavy domains where examples and boundaries matter.
 
 Use `TDD+EDD` for bug fixes where examples clarify edge cases.
+
+Use `UI review` for tasks that require reviewing or validating UI quality. The agent discovers available tools (stylelint, eslint, storybook, playwright, chromatic, etc.) and runs them without modifying code. If the project defines its own UI review conventions, those take precedence.
 
 ## Agent-First Flow
 

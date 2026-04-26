@@ -4,6 +4,7 @@ import { detectTargets } from "./detect.js";
 import { neutralRequired, targetRequired, protectedFiles } from "./harness-files.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import type { CommandOptions, DoctorResult, Target } from "./types.js";
+import { CLI_VERSION } from "./version.js";
 
 export async function runDoctor(options: CommandOptions): Promise<DoctorResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -13,10 +14,10 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
     ...neutralRequired,
     ...installedTargets.flatMap((target) => targetRequired[target]),
   ]);
-  const configGaps = await getConfigGaps(cwd);
+  const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
-  const suggestions = buildSuggestions(installed, installedTargets, missing, conflicts);
+  const suggestions = buildSuggestions(installed, installedTargets, missing, conflicts, installedVersion);
   const readiness = scoreReadiness(installed, installedTargets, missing, conflicts);
 
   const result: DoctorResult = {
@@ -51,9 +52,9 @@ async function getMissing(cwd: string, files: string[]): Promise<string[]> {
   return results.filter((r) => !r.exists).map((r) => r.file);
 }
 
-async function getConfigGaps(cwd: string): Promise<string[]> {
+async function getConfigGaps(cwd: string): Promise<{ gaps: string[]; installedVersion?: string }> {
   const configPath = path.join(cwd, ".akrctx/config.json");
-  if (!(await pathExists(configPath))) return [];
+  if (!(await pathExists(configPath))) return { gaps: [] };
   try {
     const config = JSON.parse(await readFile(configPath, "utf8"));
     const gaps: string[] = [];
@@ -64,9 +65,9 @@ async function getConfigGaps(cwd: string): Promise<string[]> {
     if (typeof config.defaults?.requireWorkflowReason !== "boolean")
       gaps.push(".akrctx/config.json — missing defaults.requireWorkflowReason");
     if (!config.workflowRules) gaps.push(".akrctx/config.json — missing workflowRules");
-    return gaps;
+    return { gaps, installedVersion: config.installedVersion };
   } catch {
-    return [".akrctx/config.json — invalid JSON (run akrctx init to regenerate)"];
+    return { gaps: [".akrctx/config.json — invalid JSON (run akrctx init to regenerate)"] };
   }
 }
 
@@ -92,6 +93,7 @@ function buildSuggestions(
   installedTargets: Target[],
   missing: string[],
   conflicts: string[],
+  installedVersion?: string,
 ): string[] {
   const suggestions: string[] = [];
 
@@ -117,6 +119,12 @@ function buildSuggestions(
   if (conflicts.length > 0) {
     suggestions.push(
       "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
+    );
+  }
+
+  if (installedVersion && installedVersion !== CLI_VERSION) {
+    suggestions.push(
+      `Harness was installed with akrctx v${installedVersion}. Current CLI is v${CLI_VERSION}. Run \`akrctx upgrade\` to update skill files.`,
     );
   }
 
