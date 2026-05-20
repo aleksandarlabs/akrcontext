@@ -152,10 +152,7 @@ const writePolicyBody =
 const sharedSkills = {
   "akrctx-init": ["Use when installing or reviewing the akrctx harness in a repository.", initBody],
   "akrctx-doctor": ["Use when auditing whether a repo is ready for AI coding agents.", doctorBody],
-  "akrctx-task": [
-    "Use when turning a development request into a akrctx task capsule.",
-    taskBody,
-  ],
+  "akrctx-task": ["Use when turning a development request into a akrctx task capsule.", taskBody],
   "akrctx-review": [
     "Use before or after implementation to verify task readiness, quality gates, tests, and scope.",
     reviewBody,
@@ -216,8 +213,7 @@ export const piSkills: Record<string, string> = skillFiles(".pi/skills");
 export const piFiles: Record<string, string> = {
   ".pi/prompts/akrctx-doctor.md":
     "# akrctx Doctor\n\nAudit this repository's akrctx setup and propose safe normalization.\n",
-  ".pi/prompts/akrctx-task.md":
-    "# akrctx Task\n\nPrepare a akrctx task capsule before implementation.\n",
+  ".pi/prompts/akrctx-task.md": "# akrctx Task\n\nPrepare a akrctx task capsule before implementation.\n",
   ".pi/prompts/akrctx-workflow.md":
     "# akrctx Workflow\n\nUse the task capsule workflow. Supported modes: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD, TDD+EDD, UI review.\n",
   ".pi/prompts/akrctx-write-policy.md":

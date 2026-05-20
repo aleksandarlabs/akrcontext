@@ -18,11 +18,7 @@
   "engines": {
     "node": ">=20"
   },
-  "files": [
-    "dist",
-    "README.md",
-    "docs"
-  ],
+  "files": ["dist", "README.md", "docs"],
   "dependencies": {
     "@inquirer/prompts": "^7.3.2",
     "commander": "^13.1.0"
@@ -34,5 +30,26 @@
     "typescript": "^5.7.3",
     "vitest": "^3.0.7"
   },
-  "packageManager": "pnpm@10.5.2"
+  "packageManager": "pnpm@10.5.2",
+  "author": "AleksandarLabs (https://aleksandarlabs.com)",
+  "license": "MIT",
+  "keywords": [
+    "coding-agents",
+    "harness-engineering",
+    "context-engineering",
+    "claude-code",
+    "codex",
+    "copilot",
+    "workflow",
+    "task-capsule",
+    "AGENTS-md",
+    "CLAUDE-md",
+    "developer-tools",
+    "cli"
+  ],
+  "homepage": "https://github.com/AleksandarLabs/akrctx",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/AleksandarLabs/akrctx.git"
+  }
 }

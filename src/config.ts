@@ -1,9 +1,9 @@
-import path from "node:path";
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
+import path from "node:path";
 import { pathExists } from "./fs-utils.js";
 import { defaultConfig } from "./templates.js";
-import type { akrctxConfig, Target, Workflow, WorkflowDefault } from "./types.js";
+import type { Target, Workflow, WorkflowDefault, akrctxConfig } from "./types.js";
 import { targets, workflows } from "./types.js";
 
 const configPath = ".akrctx/config.json";
@@ -71,9 +71,7 @@ export async function setConfigValue(cwd: string, key: string, value: string, dr
   const normalizedKey = key.trim();
 
   if (!(validConfigKeys as readonly string[]).includes(normalizedKey)) {
-    throw new Error(
-      `Unsupported config key: "${normalizedKey}". Valid keys: ${validConfigKeys.join(", ")}.`,
-    );
+    throw new Error(`Unsupported config key: "${normalizedKey}". Valid keys: ${validConfigKeys.join(", ")}.`);
   }
 
   const current = (await readConfig(cwd)) ?? defaultConfig(["codex"]);
@@ -111,11 +109,7 @@ function requireWorkflowDefault(value: string): WorkflowDefault {
 export function normalizeWorkflow(value: string | undefined): Workflow | undefined {
   if (!value) return undefined;
   // Normalize separators: spaces and hyphens become underscores, then map to canonical names.
-  const normalized = value
-    .trim()
-    .toUpperCase()
-    .replace(/\s+/g, "")
-    .replace(/-/g, "_");
+  const normalized = value.trim().toUpperCase().replace(/\s+/g, "").replace(/-/g, "_");
 
   const aliases: Record<string, Workflow> = {
     FASTPATCH: "fast-patch",
@@ -145,7 +139,9 @@ export function normalizeWorkflow(value: string | undefined): Workflow | undefin
 
 function normalizeAllowedWorkflows(value: unknown): Workflow[] | undefined {
   if (!Array.isArray(value)) return undefined;
-  const normalized = value.map((item) => normalizeWorkflow(String(item))).filter((item): item is Workflow => Boolean(item));
+  const normalized = value
+    .map((item) => normalizeWorkflow(String(item)))
+    .filter((item): item is Workflow => Boolean(item));
   return normalized.length ? Array.from(new Set(normalized)) : undefined;
 }
 

@@ -9,7 +9,10 @@ export interface CompileResult {
   outputPath: string;
 }
 
-export async function runCompile(taskId: string, options: CommandOptions & { target?: Target }): Promise<CompileResult> {
+export async function runCompile(
+  taskId: string,
+  options: CommandOptions & { target?: Target },
+): Promise<CompileResult> {
   const cwd = options.cwd ?? process.cwd();
   const target = options.target ?? "codex";
   const taskDir = await findTaskDirectory(cwd, taskId);

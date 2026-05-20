@@ -1,8 +1,8 @@
-import path from "node:path";
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { detectTargets } from "./detect.js";
-import { neutralRequired, targetRequired, protectedFiles } from "./harness-files.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
 import type { CommandOptions, DoctorResult, Target } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -156,7 +156,7 @@ function buildSuggestions(
   }
 
   if (suggestions.length === 0) {
-    suggestions.push("Setup is complete. You can create a task capsule with `akrctx task \"<description>\"`.");
+    suggestions.push('Setup is complete. You can create a task capsule with `akrctx task "<description>"`.');
   }
 
   return suggestions;

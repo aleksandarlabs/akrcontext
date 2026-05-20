@@ -1,8 +1,8 @@
-import path from "node:path";
 import { rm } from "node:fs/promises";
-import { neutralRequired, targetRequired, protectedFiles } from "./harness-files.js";
+import path from "node:path";
 import { pathExists } from "./fs-utils.js";
-import type { CommandOptions, Target, TargetOption } from "./types.js";
+import { protectedFiles, targetRequired } from "./harness-files.js";
+import type { CommandOptions, Target } from "./types.js";
 import { targets } from "./types.js";
 
 export interface RemoveResult {
@@ -13,9 +13,7 @@ export interface RemoveResult {
   dryRun: boolean;
 }
 
-export async function runRemove(
-  options: CommandOptions & { all?: boolean },
-): Promise<RemoveResult> {
+export async function runRemove(options: CommandOptions & { all?: boolean }): Promise<RemoveResult> {
   const cwd = options.cwd ?? process.cwd();
   // Default to dry-run unless --force is explicitly passed.
   const dryRun = options.dryRun ?? !options.force;

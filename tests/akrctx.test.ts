@@ -2,17 +2,17 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { main } from "../src/cli.js";
 import { runCompile } from "../src/compile.js";
 import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js";
 import { detectTargets } from "../src/detect.js";
-import { pathExists } from "../src/fs-utils.js";
 import { runDoctor } from "../src/doctor.js";
+import { pathExists } from "../src/fs-utils.js";
 import { runInit } from "../src/init.js";
+import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { recommendWorkflow, runTask, slugify } from "../src/task.js";
-import { main } from "../src/cli.js";
-import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { workflows } from "../src/types.js";
 import { CLI_VERSION } from "../src/version.js";
 
@@ -89,9 +89,7 @@ describe("akrctx init", () => {
   it("dry-run reports planned writes without creating files", async () => {
     const result = await runInit({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
 
-    expect(result.writes.some((write) => write.path === ".akrctx/config.json" && write.kind === "create")).toBe(
-      true,
-    );
+    expect(result.writes.some((write) => write.path === ".akrctx/config.json" && write.kind === "create")).toBe(true);
     expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
   });
 
@@ -194,7 +192,9 @@ describe("task and compile", () => {
   it("compile throws when task id does not exist", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
-    await expect(runCompile("TASK-999", { cwd: tmp, nonInteractive: true })).rejects.toThrow("Task not found: TASK-999");
+    await expect(runCompile("TASK-999", { cwd: tmp, nonInteractive: true })).rejects.toThrow(
+      "Task not found: TASK-999",
+    );
   });
 
   it("accepts an explicit workflow override", async () => {
