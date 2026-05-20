@@ -1,8 +1,18 @@
 # akrctx
 
-akrctx v0.1 is a local CLI that installs an agentic workflow harness into a repository. It is not a coding agent, web app, telemetry service, or LLM integration.
+A workflow discipline specification for AI coding agents, with a reference CLI implementation.
 
-The harness gives your chosen coding agent a disciplined workflow for context gathering, task capsules, merge safety, security policy, and quality gates.
+**Built by [AleksandarLabs](https://aleksandarlabs.com)**
+
+---
+
+Coding agents are powerful reasoners but poor process followers. Each session starts from zero — no memory of why a file exists, no agreed methodology, no quality gates. The agent guesses. Sometimes it gets it right. Sometimes it doesn't.
+
+akrctx installs a harness into your repository that gives your coding agent structured workflows (SDD, TDD, EDD, research-first, fast-patch), task capsules, context budgets, merge safety, and an optional independent judge — all persisted across sessions and portable across agents.
+
+It is not a coding agent, web app, telemetry service, or LLM integration. It is an installer that generates files your agent reads in the next session.
+
+**Supports:** Codex · Claude Code · GitHub Copilot · Pi Code
 
 ## Install
 
