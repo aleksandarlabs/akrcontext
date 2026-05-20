@@ -3,7 +3,16 @@ export const targets = ["codex", "claude", "copilot", "pi"] as const;
 export type Target = (typeof targets)[number];
 export type TargetOption = Target | "all";
 
-export const workflows = ["fast-patch", "research-first", "SDD", "TDD", "EDD", "SDD+TDD", "SDD+EDD", "TDD+EDD"] as const;
+export const workflows = [
+  "fast-patch",
+  "research-first",
+  "SDD",
+  "TDD",
+  "EDD",
+  "SDD+TDD",
+  "SDD+EDD",
+  "TDD+EDD",
+] as const;
 export type Workflow = (typeof workflows)[number];
 export type WorkflowDefault = Workflow | "task-fit";
 

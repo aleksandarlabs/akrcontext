@@ -1,4 +1,4 @@
-import type { akrctxConfig, Target } from "../types.js";
+import type { Target, akrctxConfig } from "../types.js";
 import { workflows } from "../types.js";
 import { CLI_VERSION } from "../version.js";
 
@@ -56,11 +56,7 @@ export function policyTemplate(): string {
         doNotReadAllByDefault: true,
       },
       writePolicy: {
-        doctor: [
-          ".akrctx/wiki/agent-setup.md",
-          ".akrctx/wiki/gaps.md",
-          ".akrctx/wiki/recommendations.md",
-        ],
+        doctor: [".akrctx/wiki/agent-setup.md", ".akrctx/wiki/gaps.md", ".akrctx/wiki/recommendations.md"],
         task: [".akrctx/tasks/TASK-XXX/"],
         compile: [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
         decisions: [".akrctx/wiki/decisions.md"],

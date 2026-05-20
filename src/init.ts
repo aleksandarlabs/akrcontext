@@ -1,6 +1,6 @@
-import { select } from "@inquirer/prompts";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { select } from "@inquirer/prompts";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import {
@@ -127,11 +127,7 @@ async function resolveTarget(
   return { target: "codex", selectedTargets: ["codex"], fallbackUsed: true };
 }
 
-async function installTarget(
-  cwd: string,
-  target: Target,
-  options: CommandOptions,
-): Promise<WriteResult[]> {
+async function installTarget(cwd: string, target: Target, options: CommandOptions): Promise<WriteResult[]> {
   const writes: WriteResult[] = [];
   const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
     writePlannedFile(cwd, relativePath, String(content), {
@@ -143,7 +139,12 @@ async function installTarget(
 
   if (target === "codex") {
     const [main, ...skills] = await Promise.all([
-      writeFile("AGENTS.md", mainInstructionTemplate("codex"), true, "Existing AGENTS.md preserved; wrote suggested Codex harness."),
+      writeFile(
+        "AGENTS.md",
+        mainInstructionTemplate("codex"),
+        true,
+        "Existing AGENTS.md preserved; wrote suggested Codex harness.",
+      ),
       ...Object.entries(codexSkills).map(([relativePath, content]) =>
         writeFile(relativePath, content, false, "Codex akrctx skill."),
       ),
@@ -154,7 +155,12 @@ async function installTarget(
 
   if (target === "claude") {
     const [main, ...rest] = await Promise.all([
-      writeFile("CLAUDE.md", mainInstructionTemplate("claude"), true, "Existing CLAUDE.md preserved; wrote suggested Claude harness."),
+      writeFile(
+        "CLAUDE.md",
+        mainInstructionTemplate("claude"),
+        true,
+        "Existing CLAUDE.md preserved; wrote suggested Claude harness.",
+      ),
       ...Object.entries(claudeCommands).map(([relativePath, content]) =>
         writeFile(relativePath, content, false, "Claude akrctx command."),
       ),

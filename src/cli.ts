@@ -2,7 +2,7 @@ import { Command, Option } from "commander";
 import { runCompile } from "./compile.js";
 import { readConfig, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import { b, bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
+import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
 import { runInit } from "./init.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
@@ -36,12 +36,12 @@ export async function main(argv = process.argv): Promise<void> {
         "  akrctx status                                  quick install summary",
         "",
         "Normal coding flow (agent-first, no CLI needed):",
-        "  Open your agent → ask \"create X\" or \"fix Y\"",
+        '  Open your agent → ask "create X" or "fix Y"',
         "  → Agent creates the task capsule with real codebase context, then implements.",
         "",
         "CLI task (headless fallback for scripts/CI only):",
-        "  akrctx task \"Add invoice API\"                  create empty capsule skeleton",
-        "  akrctx task \"Fix auth bug\" --workflow TDD      force a specific workflow",
+        '  akrctx task "Add invoice API"                  create empty capsule skeleton',
+        '  akrctx task "Fix auth bug" --workflow TDD      force a specific workflow',
         "  akrctx compile TASK-001 --target codex         generate agent brief from capsule",
         "",
         "Config:",
@@ -145,7 +145,9 @@ export async function main(argv = process.argv): Promise<void> {
     if (uninstalledDetected.length) {
       log(`${dim("Detected:    ")} ${gray(uninstalledDetected.join(", "))} ${dim("(not installed)")}`);
     }
-    log(`${bold("Tasks:       ")} ${result.taskCount}${result.recentTaskIds.length ? dim(` (${result.recentTaskIds.join(", ")})`) : ""}`);
+    log(
+      `${bold("Tasks:       ")} ${result.taskCount}${result.recentTaskIds.length ? dim(` (${result.recentTaskIds.join(", ")})`) : ""}`,
+    );
     log(`${bold("Workflow:    ")} ${result.defaultWorkflow}`);
     log(`${bold("Context:     ")} ${result.contextBudget}`);
 
@@ -170,7 +172,10 @@ export async function main(argv = process.argv): Promise<void> {
     config
       .command("set")
       .description("Set a akrctx config default.")
-      .argument("<key>", "config key (defaultWorkflow | defaultTarget | requireTaskCapsule | requireWorkflowReason | contextBudget)")
+      .argument(
+        "<key>",
+        "config key (defaultWorkflow | defaultTarget | requireTaskCapsule | requireWorkflowReason | contextBudget)",
+      )
       .argument("<value>", "new value"),
     false,
   ).action(async (key: string, value: string, raw) => {
@@ -196,7 +201,7 @@ export async function main(argv = process.argv): Promise<void> {
           "This command is a HEADLESS FALLBACK for scripting and CI.",
           "During normal agent-assisted work you do NOT need this command.",
           "",
-          "Normal flow: just ask your agent \"create X\" or \"fix Y\".",
+          'Normal flow: just ask your agent "create X" or "fix Y".',
           "  → The agent reads AGENTS.md / CLAUDE.md and creates the task capsule",
           "    itself, intelligently filling context from your actual codebase.",
           "",
@@ -288,7 +293,7 @@ export async function main(argv = process.argv): Promise<void> {
           "    model: <model-id>",
           "",
           "  Codex — add to the TOML file:",
-          "    model = \"<model-id>\"",
+          '    model = "<model-id>"',
           "",
           "Check your platform's documentation for valid model identifiers.",
           "They are platform-specific and change over time.",
@@ -297,7 +302,10 @@ export async function main(argv = process.argv): Promise<void> {
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
     const result = await runJudgeEnable(options);
-    if (options.json) { console.log(JSON.stringify(result, null, 2)); return; }
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
     const verb = options.dryRun ? "Would install" : "Installed";
     log(`${bold("Judge:")} ${green("enabled")}`);
     if (result.writes.length) {
@@ -315,42 +323,45 @@ export async function main(argv = process.argv): Promise<void> {
   });
 
   addCommon(
-    judge
-      .command("disable")
-      .description("Disable the judge. Agent files are kept — remove them manually if needed."),
+    judge.command("disable").description("Disable the judge. Agent files are kept — remove them manually if needed."),
     false,
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
     await runJudgeDisable(options);
-    if (options.json) { console.log(JSON.stringify({ enabled: false })); return; }
+    if (options.json) {
+      console.log(JSON.stringify({ enabled: false }));
+      return;
+    }
     log(`${bold("Judge:")} ${yellow("disabled")}`);
     log(dim("  Agent files were not removed. Delete them manually if you no longer need them."));
   });
 
-  addCommon(
-    judge.command("status").description("Show judge configuration and installed agent files."),
-    false,
-  ).action(async (raw) => {
-    const options = normalizeOptions(raw);
-    const result = await runJudgeStatus(options);
-    if (options.json) { console.log(JSON.stringify(result, null, 2)); return; }
-    const enabledLabel = result.enabled ? green("enabled") : yellow("disabled");
-    log(`${bold("Judge:")} ${enabledLabel}  ${dim(`trigger: ${result.trigger}`)}`);
-    if (result.presentFiles.length) {
-      ln();
-      log(`  ${dim("Agent files present:")}`);
-      for (const f of result.presentFiles) log(`    ${plus()} ${file(f)}`);
-    }
-    if (result.missingFiles.length) {
-      ln();
-      log(`  ${yellow("Agent files missing (run `akrctx judge enable`):")}`);
-      for (const f of result.missingFiles) log(`    ${minus()} ${file(f)}`);
-    }
-    if (!result.enabled) {
-      ln();
-      log(`  Run ${cmd("akrctx judge enable")} to activate.`);
-    }
-  });
+  addCommon(judge.command("status").description("Show judge configuration and installed agent files."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runJudgeStatus(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const enabledLabel = result.enabled ? green("enabled") : yellow("disabled");
+      log(`${bold("Judge:")} ${enabledLabel}  ${dim(`trigger: ${result.trigger}`)}`);
+      if (result.presentFiles.length) {
+        ln();
+        log(`  ${dim("Agent files present:")}`);
+        for (const f of result.presentFiles) log(`    ${plus()} ${file(f)}`);
+      }
+      if (result.missingFiles.length) {
+        ln();
+        log(`  ${yellow("Agent files missing (run `akrctx judge enable`):")}`);
+        for (const f of result.missingFiles) log(`    ${minus()} ${file(f)}`);
+      }
+      if (!result.enabled) {
+        ln();
+        log(`  Run ${cmd("akrctx judge enable")} to activate.`);
+      }
+    },
+  );
 
   // ── upgrade ───────────────────────────────────────────────────────────────
   addCommon(
@@ -448,7 +459,7 @@ function printInit(result: InitResult, options: CommandOptions): void {
 
   const verb = options.dryRun ? "Planned" : "Installed";
   const targetList = result.selectedTargets.map((t) => bold(t)).join(", ");
-  log(`${bold(verb + ":")} akrctx → ${targetList}`);
+  log(`${bold(`${verb}:`)} akrctx → ${targetList}`);
 
   if (result.fallbackUsed) {
     log(gray("  No target specified and none detected — defaulted to codex."));
@@ -553,7 +564,9 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   log(`${bold("Readiness")}  ${bold(String(result.readiness))}/100  ${bar}`);
   ln();
   log(`  ${dim("Detected: ")} ${result.detectedTargets.length ? result.detectedTargets.join(", ") : gray("none")}`);
-  log(`  ${dim("Installed:")} ${result.installedTargets.length ? bold(result.installedTargets.join(", ")) : gray("none")}`);
+  log(
+    `  ${dim("Installed:")} ${result.installedTargets.length ? bold(result.installedTargets.join(", ")) : gray("none")}`,
+  );
 
   if (result.missing.length > 0) {
     ln();
