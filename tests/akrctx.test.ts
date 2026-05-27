@@ -395,6 +395,33 @@ describe("status", () => {
 // ── remove ────────────────────────────────────────────────────────────────────
 
 describe("remove", () => {
+  it("defaults to dry-run when --force is not passed", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runRemove({ cwd: tmp, target: "codex", dryRun: false, force: false, nonInteractive: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.planned).toContain(".agents/skills/akrctx-doctor/SKILL.md");
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
+  it("CLI remove defaults to dry-run without --force", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    console.log = () => {};
+
+    try {
+      process.chdir(tmp);
+      await main(["node", "akrctx", "remove", "--target", "codex"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
   it("dry-run lists files to remove without deleting them", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -415,9 +442,22 @@ describe("remove", () => {
 
     expect(result.dryRun).toBe(false);
     expect(result.planned).toContain(".agents/skills/akrctx-doctor/SKILL.md");
+    expect(result.planned).toContain(".agents/skills/akrctx-doctor/");
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor"))).toBe(false);
     // Protected file must survive.
     expect(await pathExists(path.join(tmp, "AGENTS.md"))).toBe(true);
+  });
+
+  it("does not prune directories that contain non-akrctx user files", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await writeFile(path.join(tmp, ".github/skills/akrctx-doctor/notes.md"), "# Keep me\n", "utf8");
+
+    await runRemove({ cwd: tmp, target: "copilot", force: true, nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".github/skills/akrctx-doctor/SKILL.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".github/skills/akrctx-doctor/notes.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".github/skills/akrctx-doctor"))).toBe(true);
   });
 
   it("--all --force removes .akrctx directory", async () => {

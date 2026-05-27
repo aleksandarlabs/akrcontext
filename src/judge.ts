@@ -5,11 +5,17 @@ import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "./templates.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
 
-const judgeFilesByTarget: Partial<Record<Target, Record<string, string>>> = {
+type JudgeTarget = Exclude<Target, "pi">;
+
+const judgeFilesByTarget: Record<JudgeTarget, Record<string, string>> = {
   claude: claudeJudgeFile,
   copilot: copilotJudgeFile,
   codex: codexJudgeFile,
 };
+
+function hasJudgeFiles(target: Target): target is JudgeTarget {
+  return target in judgeFilesByTarget;
+}
 
 export interface JudgeEnableResult {
   dryRun: boolean;
@@ -31,12 +37,12 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
 
-  const installedTargets = config.targets.filter((t): t is Target => t in judgeFilesByTarget);
-  const skippedTargets = config.targets.filter((t) => !(t in judgeFilesByTarget));
+  const installedTargets = config.targets.filter(hasJudgeFiles);
+  const skippedTargets = config.targets.filter((t) => !hasJudgeFiles(t));
 
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
-    const files = judgeFilesByTarget[target]!;
+    const files = judgeFilesByTarget[target];
     for (const [relativePath, content] of Object.entries(files)) {
       writes.push(
         await writePlannedFile(cwd, relativePath, content, {
@@ -74,8 +80,8 @@ export async function runJudgeStatus(options: CommandOptions): Promise<JudgeStat
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
 
-  const installedTargets = config.targets.filter((t): t is Target => t in judgeFilesByTarget);
-  const allFiles = installedTargets.flatMap((t) => Object.keys(judgeFilesByTarget[t]!));
+  const installedTargets = config.targets.filter(hasJudgeFiles);
+  const allFiles = installedTargets.flatMap((t) => Object.keys(judgeFilesByTarget[t]));
 
   const [presentFiles, missingFiles] = await Promise.all([
     Promise.all(allFiles.map(async (f) => ({ f, exists: await pathExists(path.join(cwd, f)) }))).then((results) =>
@@ -98,8 +104,8 @@ export async function runJudgeStatus(options: CommandOptions): Promise<JudgeStat
 export async function removeJudgeFiles(cwd: string, targets: Target[]): Promise<string[]> {
   const removed: string[] = [];
   for (const target of targets) {
+    if (!hasJudgeFiles(target)) continue;
     const files = judgeFilesByTarget[target];
-    if (!files) continue;
     for (const relativePath of Object.keys(files)) {
       const absolute = path.join(cwd, relativePath);
       if (await pathExists(absolute)) {

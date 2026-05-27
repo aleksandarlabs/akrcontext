@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm, rmdir } from "node:fs/promises";
 import path from "node:path";
 import { pathExists } from "./fs-utils.js";
 import { protectedFiles, targetRequired } from "./harness-files.js";
@@ -16,7 +16,7 @@ export interface RemoveResult {
 export async function runRemove(options: CommandOptions & { all?: boolean }): Promise<RemoveResult> {
   const cwd = options.cwd ?? process.cwd();
   // Default to dry-run unless --force is explicitly passed.
-  const dryRun = options.dryRun ?? !options.force;
+  const dryRun = options.dryRun || !options.force;
 
   const candidates = collectCandidates(options);
 
@@ -37,6 +37,8 @@ export async function runRemove(options: CommandOptions & { all?: boolean }): Pr
     planned.push(file);
     if (!dryRun) {
       await rm(path.join(cwd, file), { recursive: true, force: true });
+      const prunedDirs = await pruneEmptyAncestors(cwd, file);
+      planned.push(...prunedDirs);
     }
   }
 
@@ -52,6 +54,30 @@ export async function runRemove(options: CommandOptions & { all?: boolean }): Pr
   }
 
   return { planned, protected: skippedProtected, dryRun };
+}
+
+async function pruneEmptyAncestors(cwd: string, relativePath: string): Promise<string[]> {
+  const removed: string[] = [];
+  let relativeDir = path.posix.dirname(relativePath);
+
+  while (relativeDir && relativeDir !== ".") {
+    const absoluteDir = path.join(cwd, relativeDir);
+    if (!(await isEmptyDirectory(absoluteDir))) break;
+
+    await rmdir(absoluteDir);
+    removed.push(`${relativeDir}/`);
+    relativeDir = path.posix.dirname(relativeDir);
+  }
+
+  return removed;
+}
+
+async function isEmptyDirectory(directoryPath: string): Promise<boolean> {
+  try {
+    return (await readdir(directoryPath)).length === 0;
+  } catch {
+    return false;
+  }
 }
 
 function collectCandidates(options: CommandOptions & { all?: boolean }): string[] {
