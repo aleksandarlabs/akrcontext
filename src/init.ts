@@ -25,6 +25,7 @@ import { CLI_VERSION } from "./version.js";
 
 export async function runInit(options: CommandOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
+  const profile = options.profile ?? "default";
   const detection = await detectTargets(cwd);
   const { target, selectedTargets, fallbackUsed } = await resolveTarget(options, detection.detected);
   const writes: WriteResult[] = [];
@@ -38,8 +39,12 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
-  writes.push(await writeFile(".akrctx/config.json", configTemplate(selectedTargets), false, "akrctx config."));
-  writes.push(await writeFile(".akrctx/policy.json", policyTemplate(), false, "akrctx security and merge policy."));
+  writes.push(
+    await writeFile(".akrctx/config.json", configTemplate(selectedTargets, profile), false, "akrctx config."),
+  );
+  writes.push(
+    await writeFile(".akrctx/policy.json", policyTemplate(profile), false, "akrctx security and merge policy."),
+  );
 
   const projectName = await readProjectName(cwd);
 

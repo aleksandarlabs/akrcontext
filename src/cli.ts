@@ -8,7 +8,7 @@ import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
 import { runTask } from "./task.js";
-import type { CommandOptions, DoctorResult, InitResult, Target, TargetOption, WriteResult } from "./types.js";
+import type { CommandOptions, DoctorResult, InitResult, Profile, Target, TargetOption, WriteResult } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
 export async function main(argv = process.argv): Promise<void> {
@@ -52,6 +52,8 @@ export async function main(argv = process.argv): Promise<void> {
         "Supported workflows:",
         "  fast-patch   research-first   SDD   TDD   EDD   SDD+TDD   SDD+EDD   TDD+EDD",
         "",
+        "Supported profiles: default | strict | regulated",
+        "",
         "Supported targets: codex | claude | copilot | pi | all",
       ].join("\n"),
     );
@@ -73,6 +75,7 @@ export async function main(argv = process.argv): Promise<void> {
     program
       .command("init")
       .description("Install a akrctx harness into the current repository.")
+      .addOption(new Option("--profile <profile>", "installation profile").choices(["default", "strict", "regulated"]))
       .addHelpText(
         "after",
         [
@@ -82,7 +85,8 @@ export async function main(argv = process.argv): Promise<void> {
           "  2. Asks which agent to target if none is detected.",
           "  3. Creates .akrctx/ — the neutral source of truth.",
           "  4. Installs target-specific harness files (skills, prompts, instructions).",
-          "  5. Preserves any existing AGENTS.md / CLAUDE.md (writes .suggested instead).",
+          "  5. Applies the selected profile (default, strict, or regulated).",
+          "  6. Preserves any existing AGENTS.md / CLAUDE.md (writes .suggested instead).",
           "",
           "Run akrctx doctor after init to finish setup with your agent.",
         ].join("\n"),
@@ -448,6 +452,7 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
     force: Boolean(raw.force),
     json: Boolean(raw.json),
     ci: Boolean(raw.ci),
+    profile: raw.profile as Profile | undefined,
     nonInteractive: !process.stdin.isTTY || !process.stdout.isTTY,
     ...(raw.all !== undefined ? { all: Boolean(raw.all) } : {}),
   } as CommandOptions & { all?: boolean };

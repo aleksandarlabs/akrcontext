@@ -1,15 +1,16 @@
-import type { Target, akrctxConfig, akrctxPolicy } from "../types.js";
+import type { Profile, Target, akrctxConfig, akrctxPolicy } from "../types.js";
 import { workflows } from "../types.js";
 import { CLI_VERSION } from "../version.js";
 
-export function configTemplate(targets: Target[]): string {
-  return JSON.stringify(defaultConfig(targets), null, 2);
+export function configTemplate(targets: Target[], profile: Profile = "default"): string {
+  return JSON.stringify(defaultConfig(targets, profile), null, 2);
 }
 
-export function defaultConfig(targets: Target[]): akrctxConfig {
-  return {
+export function defaultConfig(targets: Target[], profile: Profile = "default"): akrctxConfig {
+  const config: akrctxConfig = {
     version: 1,
     installedVersion: CLI_VERSION,
+    profile,
     judge: { enabled: false, trigger: "post-implementation" },
     targets,
     sourceOfTruth: ".akrctx",
@@ -32,15 +33,27 @@ export function defaultConfig(targets: Target[]): akrctxConfig {
       unknownArea: "research-first",
     },
   };
+
+  if (profile === "strict" || profile === "regulated") {
+    config.defaults.contextBudget = "thorough";
+  }
+
+  if (profile === "regulated") {
+    config.workflowRules.smallSafePatch = "TDD";
+    config.workflowRules.default = "research-first";
+  }
+
+  return config;
 }
 
-export function policyTemplate(): string {
-  return JSON.stringify(defaultPolicy(), null, 2);
+export function policyTemplate(profile: Profile = "default"): string {
+  return JSON.stringify(defaultPolicy(profile), null, 2);
 }
 
-export function defaultPolicy(): akrctxPolicy {
-  return {
+export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
+  const policy: akrctxPolicy = {
     version: 1,
+    profile,
     mergeStrategy: "preserve-and-suggest",
     protectedFiles: ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
     blockedReadPatterns: [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/", "private/"],
@@ -62,5 +75,35 @@ export function defaultPolicy(): akrctxPolicy {
       decisions: [".akrctx/wiki/decisions.md"],
       implementationNotes: [".akrctx/tasks/TASK-XXX/log.md"],
     },
+  };
+
+  if (profile === "strict" || profile === "regulated") {
+    policy.blockedReadPatterns = [
+      ...policy.blockedReadPatterns,
+      ".npmrc",
+      ".netrc",
+      ".ssh/",
+      "id_rsa",
+      "id_dsa",
+      "id_ecdsa",
+      "id_ed25519",
+    ];
+  }
+
+  if (profile === "regulated") {
+    policy.blockedReadPatterns = [
+      ...policy.blockedReadPatterns,
+      "*.mobileprovision",
+      "*.keystore",
+      "*.jks",
+      "*.asc",
+      "*.gpg",
+      "compliance/",
+    ];
+  }
+
+  return {
+    ...policy,
+    blockedReadPatterns: Array.from(new Set(policy.blockedReadPatterns)),
   };
 }

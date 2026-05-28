@@ -3,6 +3,9 @@ export const targets = ["codex", "claude", "copilot", "pi"] as const;
 export type Target = (typeof targets)[number];
 export type TargetOption = Target | "all";
 
+export const profiles = ["default", "strict", "regulated"] as const;
+export type Profile = (typeof profiles)[number];
+
 export const workflows = [
   "fast-patch",
   "research-first",
@@ -30,6 +33,7 @@ export interface JudgeConfig {
 export interface akrctxConfig {
   version: number;
   installedVersion?: string;
+  profile?: Profile;
   judge?: JudgeConfig;
   targets: Target[];
   sourceOfTruth: ".akrctx";
@@ -55,6 +59,7 @@ export interface akrctxConfig {
 
 export interface akrctxPolicy {
   version: number;
+  profile?: Profile;
   mergeStrategy: "preserve-and-suggest";
   protectedFiles: string[];
   blockedReadPatterns: string[];
@@ -93,6 +98,7 @@ export interface CommandOptions {
   force?: boolean;
   json?: boolean;
   ci?: boolean;
+  profile?: Profile;
   cwd?: string;
   nonInteractive?: boolean;
 }

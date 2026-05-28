@@ -4,7 +4,7 @@ import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
 import { defaultPolicy } from "./templates.js";
-import type { CommandOptions, DoctorResult, Target } from "./types.js";
+import { type CommandOptions, type DoctorResult, type Profile, type Target, profiles } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
 export async function runDoctor(options: CommandOptions): Promise<DoctorResult> {
@@ -44,8 +44,13 @@ async function getPolicyGaps(cwd: string): Promise<string[]> {
 
   try {
     const policy = JSON.parse(await readFile(policyPath, "utf8"));
-    const expected = defaultPolicy();
+    const profile = policyProfile(policy.profile);
+    const expected = defaultPolicy(profile);
     const gaps: string[] = [];
+
+    if (policy.profile !== undefined && profile !== policy.profile) {
+      gaps.push(".akrctx/policy.json — profile must be default, strict, or regulated");
+    }
 
     if (policy.mergeStrategy !== expected.mergeStrategy) {
       gaps.push(".akrctx/policy.json — mergeStrategy must be preserve-and-suggest");
@@ -93,6 +98,10 @@ async function getPolicyGaps(cwd: string): Promise<string[]> {
 
 function arrayIncludes(value: unknown, expected: string): boolean {
   return Array.isArray(value) && value.includes(expected);
+}
+
+function policyProfile(value: unknown): Profile {
+  return profiles.includes(value as Profile) ? (value as Profile) : "default";
 }
 
 async function getInstalledTargets(cwd: string): Promise<Target[]> {

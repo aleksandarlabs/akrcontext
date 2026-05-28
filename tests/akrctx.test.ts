@@ -88,6 +88,31 @@ describe("akrctx init", () => {
     expect(policy.enforcement.requireReviewChecklist).toBe(true);
   });
 
+  it("strict profile records stricter config and policy defaults", async () => {
+    await runInit({ cwd: tmp, target: "copilot", profile: "strict", nonInteractive: true });
+
+    const config = await readConfig(tmp);
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+    expect(config?.profile).toBe("strict");
+    expect(config?.defaults.contextBudget).toBe("thorough");
+    expect(policy.profile).toBe("strict");
+    expect(policy.blockedReadPatterns).toContain(".ssh/");
+    expect(policy.blockedReadPatterns).toContain(".netrc");
+  });
+
+  it("regulated profile avoids fast-patch for small patches and adds regulated blocked reads", async () => {
+    await runInit({ cwd: tmp, target: "codex", profile: "regulated", nonInteractive: true });
+
+    const config = await readConfig(tmp);
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+    expect(config?.profile).toBe("regulated");
+    expect(config?.workflowRules.smallSafePatch).toBe("TDD");
+    expect(config?.workflowRules.default).toBe("research-first");
+    expect(policy.profile).toBe("regulated");
+    expect(policy.blockedReadPatterns).toContain("compliance/");
+    expect(policy.blockedReadPatterns).toContain("*.jks");
+  });
+
   it("installs target workflow surfaces for all supported targets", async () => {
     await runInit({ cwd: tmp, target: "all", nonInteractive: true });
 
@@ -195,6 +220,19 @@ describe("doctor", () => {
     expect(result.missing).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
     expect(result.missing).toContain(".akrctx/policy.json — protectedFiles missing AGENTS.md");
     expect(result.suggestions.some((suggestion) => suggestion.includes("file(s) missing"))).toBe(true);
+  });
+
+  it("reports profile-specific policy gaps", async () => {
+    await runInit({ cwd: tmp, target: "codex", profile: "regulated", nonInteractive: true });
+
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.blockedReadPatterns = policy.blockedReadPatterns.filter((pattern: string) => pattern !== "compliance/");
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/policy.json — blockedReadPatterns missing compliance/");
   });
 
   it("doctor --ci fails when akrctx is not installed", async () => {
