@@ -20,7 +20,7 @@
   },
   "files": ["dist", "README.md", "docs"],
   "dependencies": {
-    "@inquirer/prompts": "^7.3.2",
+    "@inquirer/select": "^4.4.2",
     "commander": "^13.1.0"
   },
   "devDependencies": {
