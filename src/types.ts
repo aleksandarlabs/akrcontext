@@ -99,6 +99,8 @@ export interface CommandOptions {
   json?: boolean;
   ci?: boolean;
   profile?: Profile;
+  template?: string;
+  templatePack?: string;
   cwd?: string;
   nonInteractive?: boolean;
 }

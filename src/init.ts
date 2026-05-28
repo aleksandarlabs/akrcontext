@@ -3,18 +3,19 @@ import path from "node:path";
 import select from "@inquirer/select";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
 import {
   claudeCommands,
   claudeSkills,
   codexSkills,
-  configTemplate,
   copilotFiles,
   copilotSkills,
+  defaultConfig,
+  defaultPolicy,
   mainInstructionTemplate,
   overviewTemplate,
   piFiles,
   piSkills,
-  policyTemplate,
   targetReferenceTemplates,
   taskTemplateFiles,
   wikiTemplates,
@@ -28,6 +29,17 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   const profile = options.profile ?? "default";
   const detection = await detectTargets(cwd);
   const { target, selectedTargets, fallbackUsed } = await resolveTarget(options, detection.detected);
+  if (options.template && options.templatePack) {
+    throw new Error("Use either --template or --template-pack, not both.");
+  }
+  if ((options.template || options.templatePack) && selectedTargets.length !== 1) {
+    throw new Error("Templates require a single --target. They cannot be used with --target all.");
+  }
+  const templatePack = options.templatePack
+    ? await loadTemplatePack(cwd, options.templatePack, selectedTargets[0])
+    : options.template
+      ? await loadBundledTemplatePack(options.template, selectedTargets[0])
+      : undefined;
   const writes: WriteResult[] = [];
 
   const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
@@ -39,16 +51,26 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
+  const config = mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config);
+  config.targets = selectedTargets;
+  config.defaults.target = selectedTargets[0];
+  writes.push(await writeFile(".akrctx/config.json", JSON.stringify(config, null, 2), false, "akrctx config."));
+  const policy = mergeTemplateJson(defaultPolicy(profile), templatePack?.policy);
+  policy.profile = profile;
   writes.push(
-    await writeFile(".akrctx/config.json", configTemplate(selectedTargets, profile), false, "akrctx config."),
-  );
-  writes.push(
-    await writeFile(".akrctx/policy.json", policyTemplate(profile), false, "akrctx security and merge policy."),
+    await writeFile(".akrctx/policy.json", JSON.stringify(policy, null, 2), false, "akrctx security and merge policy."),
   );
 
   const projectName = await readProjectName(cwd);
 
   // Wiki, task templates, and target references are independent — write in parallel.
+  const wikiFiles = {
+    ...wikiTemplates,
+    ...Object.fromEntries(
+      Object.entries(templatePack?.wikiFiles ?? {}).map(([name, content]) => [`wiki/${name}`, content]),
+    ),
+  };
+
   const [overviewResult, wikiResults, taskResults, targetResults] = await Promise.all([
     writeFile(
       ".akrctx/wiki/overview.md",
@@ -57,7 +79,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       "akrctx wiki file.",
     ),
     Promise.all(
-      Object.entries(wikiTemplates).map(([relativePath, content]) =>
+      Object.entries(wikiFiles).map(([relativePath, content]) =>
         writeFile(path.posix.join(".akrctx", relativePath), content, false, "akrctx wiki file."),
       ),
     ),
@@ -81,8 +103,12 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
 
   // Target-specific harness files.
   for (const targetName of selectedTargets) {
-    const targetWrites = await installTarget(cwd, targetName, options);
+    const targetWrites = await installTarget(cwd, targetName, options, templatePack);
     writes.push(...targetWrites);
+  }
+
+  for (const [relativePath, content] of Object.entries(templatePack?.targetFiles ?? {})) {
+    writes.push(await writeFile(relativePath, content, false, "akrctx template pack target file."));
   }
 
   return {
@@ -132,7 +158,12 @@ async function resolveTarget(
   return { target: "codex", selectedTargets: ["codex"], fallbackUsed: true };
 }
 
-async function installTarget(cwd: string, target: Target, options: CommandOptions): Promise<WriteResult[]> {
+async function installTarget(
+  cwd: string,
+  target: Target,
+  options: CommandOptions,
+  templatePack?: TemplatePack,
+): Promise<WriteResult[]> {
   const writes: WriteResult[] = [];
   const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
     writePlannedFile(cwd, relativePath, String(content), {
@@ -146,7 +177,7 @@ async function installTarget(cwd: string, target: Target, options: CommandOption
     const [main, ...skills] = await Promise.all([
       writeFile(
         "AGENTS.md",
-        mainInstructionTemplate("codex"),
+        templatePack?.rootInstructions ?? mainInstructionTemplate("codex"),
         true,
         "Existing AGENTS.md preserved; wrote suggested Codex harness.",
       ),
@@ -162,7 +193,7 @@ async function installTarget(cwd: string, target: Target, options: CommandOption
     const [main, ...rest] = await Promise.all([
       writeFile(
         "CLAUDE.md",
-        mainInstructionTemplate("claude"),
+        templatePack?.rootInstructions ?? mainInstructionTemplate("claude"),
         true,
         "Existing CLAUDE.md preserved; wrote suggested Claude harness.",
       ),
@@ -181,7 +212,7 @@ async function installTarget(cwd: string, target: Target, options: CommandOption
     const [main, ...rest] = await Promise.all([
       writeFile(
         ".github/copilot-instructions.md",
-        mainInstructionTemplate("copilot"),
+        templatePack?.rootInstructions ?? mainInstructionTemplate("copilot"),
         true,
         "Existing Copilot instructions preserved; wrote suggested harness.",
       ),
@@ -197,6 +228,12 @@ async function installTarget(cwd: string, target: Target, options: CommandOption
   }
 
   // pi
+  if (templatePack?.rootInstructions) {
+    writes.push(
+      await writeFile(".pi/README.md", templatePack.rootInstructions, false, "Pi template pack root instructions."),
+    );
+  }
+
   const piResults = await Promise.all([
     ...Object.entries(piFiles).map(([relativePath, content]) =>
       writeFile(relativePath, content, false, "Pi akrctx prompt."),

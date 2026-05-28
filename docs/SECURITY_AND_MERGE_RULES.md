@@ -70,6 +70,20 @@ After init, the selected programming agent owns research and implementation thro
 
 Agent-facing policy must not disable normal implementation. It should only define merge safety, blocked secret reads, context budget, and where durable akrctx notes belong.
 
+`akrctx doctor` validates policy integrity. In CI mode, weakened policy fails the run:
+
+```bash
+akrctx doctor --ci
+```
+
+Examples of policy gaps:
+
+- `mergeStrategy` is not `preserve-and-suggest`
+- protected files are removed from `protectedFiles`
+- required blocked-read patterns are removed
+- enforcement flags such as `requireTaskCapsule` are set to `false`
+- profile-specific blocked reads are missing
+
 ## Ignore patterns
 
 Default ignore list:
@@ -105,13 +119,21 @@ With at least:
 {
   "version": 1,
   "mergeStrategy": "preserve-and-suggest",
-  "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "secrets/", "credentials/"],
+  "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+  "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/"],
   "contextBudget": {
     "rootInstructions": "minimal",
     "loadWorkflowsOnDemand": true,
-    "doNotReadAllContextforgeByDefault": true
+    "doNotReadAllByDefault": true
+  },
+  "enforcement": {
+    "requireTaskCapsule": true,
+    "requireWorkflowReason": true,
+    "requireAcceptanceCriteria": true,
+    "requireReviewChecklist": true
   },
   "writePolicy": {
+    "doctor": [".akrctx/wiki/agent-setup.md"],
     "task": [".akrctx/tasks/TASK-XXX/"],
     "compile": [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
     "decisions": [".akrctx/wiki/decisions.md"]

@@ -8,6 +8,7 @@ import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
 import { runTask } from "./task.js";
+import { listBundledTemplatePacks } from "./template-pack.js";
 import type { CommandOptions, DoctorResult, InitResult, Profile, Target, TargetOption, WriteResult } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -44,6 +45,10 @@ export async function main(argv = process.argv): Promise<void> {
         '  akrctx task "Fix auth bug" --workflow TDD      force a specific workflow',
         "  akrctx compile TASK-001 --target codex         generate agent brief from capsule",
         "",
+        "Templates:",
+        "  akrctx templates list                         list bundled template packs",
+        "  akrctx init --target copilot --template NAME  install bundled template",
+        "",
         "Config:",
         "  akrctx config show                             print current config",
         "  akrctx config set defaultWorkflow SDD+TDD      set project default",
@@ -76,6 +81,8 @@ export async function main(argv = process.argv): Promise<void> {
       .command("init")
       .description("Install a akrctx harness into the current repository.")
       .addOption(new Option("--profile <profile>", "installation profile").choices(["default", "strict", "regulated"]))
+      .option("--template <name>", "apply a bundled enterprise template pack")
+      .option("--template-pack <path>", "apply a target-relative enterprise template pack")
       .addHelpText(
         "after",
         [
@@ -86,7 +93,8 @@ export async function main(argv = process.argv): Promise<void> {
           "  3. Creates .akrctx/ — the neutral source of truth.",
           "  4. Installs target-specific harness files (skills, prompts, instructions).",
           "  5. Applies the selected profile (default, strict, or regulated).",
-          "  6. Preserves any existing AGENTS.md / CLAUDE.md (writes .suggested instead).",
+          "  6. Applies a template pack when --template-pack is provided.",
+          "  7. Preserves any existing AGENTS.md / CLAUDE.md (writes .suggested instead).",
           "",
           "Run akrctx doctor after init to finish setup with your agent.",
         ].join("\n"),
@@ -101,6 +109,28 @@ export async function main(argv = process.argv): Promise<void> {
     }
     const result = await runInit(options);
     printInit(result, options);
+  });
+
+  // ── templates ─────────────────────────────────────────────────────────────
+  const templates = program.command("templates").description("List bundled akrctx enterprise template packs.");
+
+  addCommon(templates.command("list").description("List bundled template packs."), false).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await listBundledTemplatePacks();
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+
+    if (result.length === 0) {
+      log(gray("No bundled template packs found."));
+      return;
+    }
+
+    log(bold("Available templates:"));
+    for (const template of result) {
+      log(`  ${template.name} ${dim(`v${template.version}`)}`);
+    }
   });
 
   // ── doctor ────────────────────────────────────────────────────────────────
@@ -453,6 +483,8 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
     json: Boolean(raw.json),
     ci: Boolean(raw.ci),
     profile: raw.profile as Profile | undefined,
+    template: raw.template as string | undefined,
+    templatePack: raw.templatePack as string | undefined,
     nonInteractive: !process.stdin.isTTY || !process.stdout.isTTY,
     ...(raw.all !== undefined ? { all: Boolean(raw.all) } : {}),
   } as CommandOptions & { all?: boolean };

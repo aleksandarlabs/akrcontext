@@ -1,0 +1,3 @@
+{
+  "blockedReadPatterns": ["terraform.tfstate", "prod-secrets/"]
+}

@@ -52,6 +52,39 @@ Do not read all of `.akrctx/` by default.
 
 ---
 
+## Profiles
+
+Profiles are installation presets stored in `.akrctx/config.json` and `.akrctx/policy.json`.
+
+```bash
+akrctx init --target codex --profile default
+akrctx init --target copilot --profile strict
+akrctx init --target copilot --profile regulated
+```
+
+- `default`: standard akrctx behavior.
+- `strict`: uses `contextBudget: thorough` and adds stricter blocked-read patterns.
+- `regulated`: inherits strict policy, adds regulated-material blocked reads, and routes small safe patches to `TDD` instead of `fast-patch`.
+
+Example config fields:
+
+```json
+{
+  "profile": "regulated",
+  "defaults": {
+    "contextBudget": "thorough"
+  },
+  "workflowRules": {
+    "smallSafePatch": "TDD",
+    "default": "research-first"
+  }
+}
+```
+
+`akrctx doctor` validates profile-specific policy requirements.
+
+---
+
 ## Judge
 
 The judge is an optional subagent that independently reviews implementation against the task capsule. It is disabled by default.
@@ -85,6 +118,7 @@ Each platform's judge agent file is installed in the native subagent location fo
 {
   "version": 1,
   "installedVersion": "0.1.0",
+  "profile": "default",
   "targets": ["codex"],
   "judge": {
     "enabled": false,

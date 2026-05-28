@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -111,6 +111,77 @@ describe("akrctx init", () => {
     expect(policy.profile).toBe("regulated");
     expect(policy.blockedReadPatterns).toContain("compliance/");
     expect(policy.blockedReadPatterns).toContain("*.jks");
+  });
+
+  it("applies a target-relative template pack", async () => {
+    const pack = path.join(tmp, "pepe-template");
+    await mkdir(path.join(pack, "wiki"), { recursive: true });
+    await mkdir(path.join(pack, "target/skills/pepe-front"), { recursive: true });
+    await mkdir(path.join(pack, "target/prompts"), { recursive: true });
+    await mkdir(path.join(pack, "target/instructions"), { recursive: true });
+    await writeFile(
+      path.join(pack, "akrctx-pack.json"),
+      JSON.stringify({ name: "pepe-template", version: "1.0.0", akrctxPackVersion: 1 }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(pack, "config.json"),
+      JSON.stringify({ defaults: { workflow: "SDD+TDD", contextBudget: "thorough" } }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(pack, "policy.json"),
+      JSON.stringify({ blockedReadPatterns: ["terraform.tfstate", "prod-secrets/"] }),
+      "utf8",
+    );
+    await writeFile(path.join(pack, "wiki/testing.md"), "# Company Testing\n", "utf8");
+    await writeFile(path.join(pack, "target/root-instructions.md"), "# Company Copilot Instructions\n", "utf8");
+    await writeFile(path.join(pack, "target/skills/pepe-front/SKILL.md"), "# pepe-front\n", "utf8");
+    await writeFile(path.join(pack, "target/prompts/pepe-review.md"), "# Pepe Review\n", "utf8");
+    await writeFile(path.join(pack, "target/instructions/pepe.instructions.md"), "# Pepe Instructions\n", "utf8");
+
+    await runInit({ cwd: tmp, target: "copilot", templatePack: pack, nonInteractive: true });
+
+    const config = await readConfig(tmp);
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+    expect(config?.defaults.workflow).toBe("SDD+TDD");
+    expect(config?.defaults.contextBudget).toBe("thorough");
+    expect(policy.blockedReadPatterns).toContain("terraform.tfstate");
+    expect(policy.blockedReadPatterns).toContain(".env");
+    expect(await readFile(path.join(tmp, ".akrctx/wiki/testing.md"), "utf8")).toContain("Company Testing");
+    expect(await readFile(path.join(tmp, ".github/copilot-instructions.md"), "utf8")).toContain(
+      "Company Copilot Instructions",
+    );
+    expect(await readFile(path.join(tmp, ".github/skills/pepe-front/SKILL.md"), "utf8")).toContain("pepe-front");
+    expect(await pathExists(path.join(tmp, ".github/prompts/pepe-review.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".github/instructions/pepe.instructions.md"))).toBe(true);
+  });
+
+  it("rejects root-level template pack skills", async () => {
+    const pack = path.join(tmp, "bad-template");
+    await mkdir(path.join(pack, "skills/pepe-front"), { recursive: true });
+    await writeFile(
+      path.join(pack, "akrctx-pack.json"),
+      JSON.stringify({ name: "bad-template", version: "1.0.0", akrctxPackVersion: 1 }),
+      "utf8",
+    );
+    await writeFile(path.join(pack, "skills/pepe-front/SKILL.md"), "# nope\n", "utf8");
+
+    await expect(runInit({ cwd: tmp, target: "copilot", templatePack: pack, nonInteractive: true })).rejects.toThrow(
+      "root-level skills/ is not supported",
+    );
+  });
+
+  it("applies a bundled template by name", async () => {
+    await runInit({ cwd: tmp, target: "copilot", template: "test-template", nonInteractive: true });
+
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+    expect(policy.blockedReadPatterns).toContain("terraform.tfstate");
+    expect(await readFile(path.join(tmp, ".akrctx/wiki/testing.md"), "utf8")).toContain("Test Template Testing");
+    expect(await readFile(path.join(tmp, ".github/copilot-instructions.md"), "utf8")).toContain(
+      "Test Template Instructions",
+    );
+    expect(await readFile(path.join(tmp, ".github/skills/test-front/SKILL.md"), "utf8")).toContain("test-front");
   });
 
   it("installs target workflow surfaces for all supported targets", async () => {
@@ -560,6 +631,27 @@ describe("status", () => {
     expect(result.taskCount).toBe(2);
     expect(result.recentTaskIds).toContain("TASK-001");
     expect(result.recentTaskIds).toContain("TASK-002");
+  });
+});
+
+// ── templates ────────────────────────────────────────────────────────────────
+
+describe("templates", () => {
+  it("lists bundled template packs", async () => {
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      await main(["node", "akrctx", "templates", "list", "--json"]);
+    } finally {
+      console.log = originalLog;
+    }
+
+    const parsed = JSON.parse(writes.join("\n"));
+    expect(parsed.some((template: { name: string }) => template.name === "test-template")).toBe(true);
   });
 });
 

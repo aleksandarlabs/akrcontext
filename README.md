@@ -39,7 +39,10 @@ akrctx init --target codex
 akrctx init                             # detect agent and install harness
 akrctx init --target codex             # install for specific target
 akrctx init --target all               # install for all targets
+akrctx init --target copilot --profile regulated
+akrctx init --target copilot --template test-template
 akrctx doctor                          # audit setup and write wiki readiness report
+akrctx doctor --ci                     # fail CI when setup has actionable gaps
 akrctx status                          # quick summary of installed targets and tasks
 akrctx upgrade                         # update harness files to current CLI version
 akrctx config show
@@ -49,6 +52,7 @@ akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
 akrctx judge status
 akrctx remove --target codex --force   # remove harness for a target
+akrctx templates list                  # list bundled enterprise templates
 ```
 
 Common flags:
@@ -102,6 +106,7 @@ More detail:
 
 - [Configuration](docs/CONFIGURATION.md)
 - [Workflows](docs/WORKFLOWS.md)
+- [Enterprise usage](docs/ENTERPRISE.md)
 - [Release checklist](docs/RELEASE_CHECKLIST.md)
 
 ## What Init Creates

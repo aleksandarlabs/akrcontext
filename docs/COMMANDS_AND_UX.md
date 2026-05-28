@@ -9,6 +9,9 @@ akrctx init
 akrctx init --target codex
 akrctx init --target all
 akrctx init --target copilot --dry-run
+akrctx init --target copilot --profile regulated
+akrctx init --target copilot --template test-template
+akrctx init --target copilot --template-pack ./company-template
 akrctx init --force          # update akrctx-owned files that already exist
 ```
 
@@ -20,8 +23,9 @@ Flow:
 3. ask which target if ambiguous (skipped with --target)
 4. create .akrctx/ — neutral source of truth
 5. install target-specific harness files
-6. preserve existing instruction files (AGENTS.md, CLAUDE.md, etc.)
-7. report what was created, updated, or suggested
+6. apply the selected profile and template pack when provided
+7. preserve existing instruction files (AGENTS.md, CLAUDE.md, etc.)
+8. report what was created, updated, or suggested
 ```
 
 If a protected file already exists, init writes a suggested variant instead:
@@ -40,6 +44,8 @@ Audits the akrctx setup and writes a readiness report.
 ```bash
 akrctx doctor
 akrctx doctor --json
+akrctx doctor --ci
+akrctx doctor --ci --json
 ```
 
 Reports:
@@ -52,6 +58,33 @@ Reports:
 - version drift between installed harness and current CLI
 - readiness score (0–100)
 - suggested agent prompt to continue the audit intelligently
+
+`--ci` exits with `0` when the harness is healthy and `1` when there are actionable gaps. Use it in protected branches or CI pipelines.
+
+---
+
+## `akrctx templates`
+
+Lists bundled enterprise template packs shipped with the CLI package.
+
+```bash
+akrctx templates list
+akrctx templates list --json
+```
+
+Bundled templates live under `templates/<name>/` in the source package and can be applied with:
+
+```bash
+akrctx init --target copilot --template <name>
+```
+
+Path-based template packs can be applied with:
+
+```bash
+akrctx init --target copilot --template-pack ./company-template
+```
+
+See [ENTERPRISE.md](ENTERPRISE.md) for the template pack format.
 
 ---
 
