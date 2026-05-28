@@ -3,6 +3,7 @@ import path from "node:path";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
+import { defaultPolicy } from "./templates.js";
 import type { CommandOptions, DoctorResult, Target } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -15,24 +16,83 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
     ...installedTargets.flatMap((target) => targetRequired[target]),
   ]);
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
+  const policyGaps = await getPolicyGaps(cwd);
+  const allMissing = [...missing, ...configGaps, ...policyGaps];
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
-  const suggestions = buildSuggestions(installed, installedTargets, missing, conflicts, installedVersion, judgeGap);
-  const readiness = scoreReadiness(installed, installedTargets, missing, conflicts);
+  const suggestions = buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap);
+  const readiness = scoreReadiness(installed, installedTargets, allMissing, conflicts);
 
   const result: DoctorResult = {
     installed,
     readiness,
     detectedTargets: detection.detected,
     installedTargets,
-    missing: [...missing, ...configGaps],
+    missing: allMissing,
     conflicts,
     suggestions,
   };
 
   await writeDoctorWiki(cwd, result, options);
   return result;
+}
+
+async function getPolicyGaps(cwd: string): Promise<string[]> {
+  const policyPath = path.join(cwd, ".akrctx/policy.json");
+  if (!(await pathExists(policyPath))) return [];
+
+  try {
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    const expected = defaultPolicy();
+    const gaps: string[] = [];
+
+    if (policy.mergeStrategy !== expected.mergeStrategy) {
+      gaps.push(".akrctx/policy.json — mergeStrategy must be preserve-and-suggest");
+    }
+
+    for (const file of expected.protectedFiles) {
+      if (!arrayIncludes(policy.protectedFiles, file)) {
+        gaps.push(`.akrctx/policy.json — protectedFiles missing ${file}`);
+      }
+    }
+
+    for (const pattern of expected.blockedReadPatterns) {
+      if (!arrayIncludes(policy.blockedReadPatterns, pattern)) {
+        gaps.push(`.akrctx/policy.json — blockedReadPatterns missing ${pattern}`);
+      }
+    }
+
+    if (policy.contextBudget?.rootInstructions !== expected.contextBudget.rootInstructions) {
+      gaps.push(".akrctx/policy.json — contextBudget.rootInstructions must be minimal");
+    }
+    if (policy.contextBudget?.loadWorkflowsOnDemand !== true) {
+      gaps.push(".akrctx/policy.json — contextBudget.loadWorkflowsOnDemand must be true");
+    }
+    if (policy.contextBudget?.doNotReadAllByDefault !== true) {
+      gaps.push(".akrctx/policy.json — contextBudget.doNotReadAllByDefault must be true");
+    }
+
+    for (const [key, value] of Object.entries(expected.enforcement)) {
+      if (policy.enforcement?.[key] !== value) {
+        gaps.push(`.akrctx/policy.json — enforcement.${key} must be ${String(value)}`);
+      }
+    }
+
+    for (const key of Object.keys(expected.writePolicy)) {
+      if (!Array.isArray(policy.writePolicy?.[key]) || policy.writePolicy[key].length === 0) {
+        gaps.push(`.akrctx/policy.json — writePolicy.${key} must list allowed paths`);
+      }
+    }
+
+    return gaps;
+  } catch {
+    return [".akrctx/policy.json — invalid JSON (run akrctx init to regenerate)"];
+  }
+}
+
+function arrayIncludes(value: unknown, expected: string): boolean {
+  return Array.isArray(value) && value.includes(expected);
 }
 
 async function getInstalledTargets(cwd: string): Promise<Target[]> {
@@ -168,10 +228,12 @@ function scoreReadiness(
   missing: string[],
   conflicts: string[],
 ): number {
-  let score = installed ? 55 : 15;
-  score += Math.min(installedTargets.length, 2) * 15;
-  score -= Math.min(missing.length, 10) * 3;
-  score -= Math.min(conflicts.length, 4) * 5;
+  if (!installed) return 0;
+
+  let score = 100;
+  if (installedTargets.length === 0) score -= 25;
+  score -= Math.min(missing.length, 20) * 5;
+  score -= Math.min(conflicts.length, 4) * 10;
   return Math.max(0, Math.min(100, score));
 }
 

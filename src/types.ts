@@ -53,6 +53,31 @@ export interface akrctxConfig {
   };
 }
 
+export interface akrctxPolicy {
+  version: number;
+  mergeStrategy: "preserve-and-suggest";
+  protectedFiles: string[];
+  blockedReadPatterns: string[];
+  contextBudget: {
+    rootInstructions: "minimal" | "proportional" | "thorough";
+    loadWorkflowsOnDemand: boolean;
+    doNotReadAllByDefault: boolean;
+  };
+  enforcement: {
+    requireTaskCapsule: boolean;
+    requireWorkflowReason: boolean;
+    requireAcceptanceCriteria: boolean;
+    requireReviewChecklist: boolean;
+  };
+  writePolicy: {
+    doctor: string[];
+    task: string[];
+    compile: string[];
+    decisions: string[];
+    implementationNotes: string[];
+  };
+}
+
 export type WriteKind = "create" | "update" | "preserve" | "suggest" | "skip";
 
 export interface WriteResult {

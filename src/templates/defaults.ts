@@ -1,4 +1,4 @@
-import type { Target, akrctxConfig } from "../types.js";
+import type { Target, akrctxConfig, akrctxPolicy } from "../types.js";
 import { workflows } from "../types.js";
 import { CLI_VERSION } from "../version.js";
 
@@ -35,35 +35,32 @@ export function defaultConfig(targets: Target[]): akrctxConfig {
 }
 
 export function policyTemplate(): string {
-  return JSON.stringify(
-    {
-      version: 1,
-      mergeStrategy: "preserve-and-suggest",
-      blockedReadPatterns: [
-        ".env",
-        ".env.*",
-        "*.pem",
-        "*.key",
-        "*.p12",
-        "*.pfx",
-        "secrets/",
-        "credentials/",
-        "private/",
-      ],
-      contextBudget: {
-        rootInstructions: "minimal",
-        loadWorkflowsOnDemand: true,
-        doNotReadAllByDefault: true,
-      },
-      writePolicy: {
-        doctor: [".akrctx/wiki/agent-setup.md", ".akrctx/wiki/gaps.md", ".akrctx/wiki/recommendations.md"],
-        task: [".akrctx/tasks/TASK-XXX/"],
-        compile: [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
-        decisions: [".akrctx/wiki/decisions.md"],
-        implementationNotes: [".akrctx/tasks/TASK-XXX/log.md"],
-      },
+  return JSON.stringify(defaultPolicy(), null, 2);
+}
+
+export function defaultPolicy(): akrctxPolicy {
+  return {
+    version: 1,
+    mergeStrategy: "preserve-and-suggest",
+    protectedFiles: ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+    blockedReadPatterns: [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/", "private/"],
+    contextBudget: {
+      rootInstructions: "minimal",
+      loadWorkflowsOnDemand: true,
+      doNotReadAllByDefault: true,
     },
-    null,
-    2,
-  );
+    enforcement: {
+      requireTaskCapsule: true,
+      requireWorkflowReason: true,
+      requireAcceptanceCriteria: true,
+      requireReviewChecklist: true,
+    },
+    writePolicy: {
+      doctor: [".akrctx/wiki/agent-setup.md", ".akrctx/wiki/gaps.md", ".akrctx/wiki/recommendations.md"],
+      task: [".akrctx/tasks/TASK-XXX/"],
+      compile: [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
+      decisions: [".akrctx/wiki/decisions.md"],
+      implementationNotes: [".akrctx/tasks/TASK-XXX/log.md"],
+    },
+  };
 }

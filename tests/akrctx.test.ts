@@ -75,6 +75,19 @@ describe("akrctx init", () => {
     expect(policy.blockedReadPatterns).toContain("*.pfx");
   });
 
+  it("policy records protected files and enforcement defaults", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+    expect(policy.protectedFiles).toContain("AGENTS.md");
+    expect(policy.protectedFiles).toContain("CLAUDE.md");
+    expect(policy.protectedFiles).toContain(".github/copilot-instructions.md");
+    expect(policy.enforcement.requireTaskCapsule).toBe(true);
+    expect(policy.enforcement.requireWorkflowReason).toBe(true);
+    expect(policy.enforcement.requireAcceptanceCriteria).toBe(true);
+    expect(policy.enforcement.requireReviewChecklist).toBe(true);
+  });
+
   it("installs target workflow surfaces for all supported targets", async () => {
     await runInit({ cwd: tmp, target: "all", nonInteractive: true });
 
@@ -129,6 +142,16 @@ describe("doctor", () => {
     expect(await pathExists(path.join(tmp, ".akrctx/wiki/agent-setup.md"))).toBe(true);
   });
 
+  it("reports 100 readiness for a complete single-target install", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.installed).toBe(true);
+    expect(result.installedTargets).toEqual(["copilot"]);
+    expect(result.readiness).toBe(100);
+  });
+
   it("prints the installed target in the suggested doctor prompt", async () => {
     await runInit({ cwd: tmp, target: "pi", nonInteractive: true });
     const previousCwd = process.cwd();
@@ -154,7 +177,24 @@ describe("doctor", () => {
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
     expect(result.installed).toBe(false);
+    expect(result.readiness).toBe(0);
     expect(result.suggestions[0]).toContain("akrctx init");
+  });
+
+  it("reports policy gaps when required enforcement is relaxed", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.enforcement.requireTaskCapsule = false;
+    policy.protectedFiles = policy.protectedFiles.filter((file: string) => file !== "AGENTS.md");
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
+    expect(result.missing).toContain(".akrctx/policy.json — protectedFiles missing AGENTS.md");
+    expect(result.suggestions.some((suggestion) => suggestion.includes("file(s) missing"))).toBe(true);
   });
 
   it("doctor --ci fails when akrctx is not installed", async () => {
