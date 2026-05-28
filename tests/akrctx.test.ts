@@ -156,6 +156,99 @@ describe("doctor", () => {
     expect(result.installed).toBe(false);
     expect(result.suggestions[0]).toContain("akrctx init");
   });
+
+  it("doctor --ci fails when akrctx is not installed", async () => {
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(process.exitCode).toBe(1);
+    expect(writes.join("\n")).toContain("akrctx doctor CI failed");
+    process.exitCode = previousExitCode;
+  });
+
+  it("doctor --ci passes for a complete install", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(writes.join("\n")).toContain("akrctx doctor CI passed");
+    process.exitCode = previousExitCode;
+  });
+
+  it("doctor --ci fails when required files are missing", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), { force: true });
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const originalLog = console.log;
+    console.log = () => {};
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(process.exitCode).toBe(1);
+    process.exitCode = previousExitCode;
+  });
+
+  it("doctor --ci --json includes CI status", async () => {
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci", "--json"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    const parsed = JSON.parse(writes.join("\n"));
+    expect(parsed.ci.passed).toBe(false);
+    expect(parsed.ci.failureCount).toBeGreaterThan(0);
+    expect(process.exitCode).toBe(1);
+    process.exitCode = previousExitCode;
+  });
 });
 
 // ── task and compile ─────────────────────────────────────────────────────────

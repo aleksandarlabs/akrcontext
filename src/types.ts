@@ -67,6 +67,7 @@ export interface CommandOptions {
   dryRun?: boolean;
   force?: boolean;
   json?: boolean;
+  ci?: boolean;
   cwd?: string;
   nonInteractive?: boolean;
 }

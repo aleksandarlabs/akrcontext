@@ -104,6 +104,7 @@ export async function main(argv = process.argv): Promise<void> {
     program
       .command("doctor")
       .description("Audit the akrctx setup and write a readiness report to .akrctx/wiki/.")
+      .option("--ci", "fail with exit code 1 when the harness is incomplete or has actionable issues", false)
       .addHelpText(
         "after",
         [
@@ -122,6 +123,11 @@ export async function main(argv = process.argv): Promise<void> {
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
     const result = await runDoctor(options);
+    if (options.ci) {
+      printDoctorCi(result, options);
+      if (doctorCiFailed(result)) process.exitCode = 1;
+      return;
+    }
     printDoctor(result, options);
   });
 
@@ -441,6 +447,7 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
     dryRun: Boolean(raw.dryRun),
     force: Boolean(raw.force),
     json: Boolean(raw.json),
+    ci: Boolean(raw.ci),
     nonInteractive: !process.stdin.isTTY || !process.stdout.isTTY,
     ...(raw.all !== undefined ? { all: Boolean(raw.all) } : {}),
   } as CommandOptions & { all?: boolean };
@@ -592,6 +599,73 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   } else {
     log(gray('  Suggested: "Run akrctx doctor after installing a target harness."'));
   }
+}
+
+function printDoctorCi(result: DoctorResult, options: CommandOptions): void {
+  const failures = doctorCiFailures(result);
+  if (options.json) {
+    console.log(
+      JSON.stringify(
+        {
+          ...result,
+          ci: {
+            passed: failures.length === 0,
+            failureCount: failures.length,
+            failures,
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    return;
+  }
+
+  if (failures.length === 0) {
+    log(`${green("akrctx doctor CI passed")}`);
+    log(`Readiness: ${result.readiness}/100`);
+    log(`Installed targets: ${result.installedTargets.length ? result.installedTargets.join(", ") : "none"}`);
+    return;
+  }
+
+  log(`${yellow("akrctx doctor CI failed")}`);
+  log(`Readiness: ${result.readiness}/100`);
+
+  if (result.missing.length > 0) {
+    ln();
+    log(`Missing (${result.missing.length}):`);
+    for (const m of result.missing) log(`- ${m}`);
+  }
+
+  if (result.conflicts.length > 0) {
+    ln();
+    log(`Conflicts (${result.conflicts.length}):`);
+    for (const c of result.conflicts) log(`- ${c}`);
+  }
+
+  if (result.suggestions.length > 0) {
+    ln();
+    log("Suggestions:");
+    for (const s of result.suggestions) log(`- ${s}`);
+  }
+}
+
+function doctorCiFailed(result: DoctorResult): boolean {
+  return doctorCiFailures(result).length > 0;
+}
+
+function doctorCiFailures(result: DoctorResult): string[] {
+  const failures: string[] = [];
+  if (!result.installed) failures.push("akrctx is not installed.");
+  if (result.installedTargets.length === 0) failures.push("No target adapter is installed.");
+  if (result.missing.length > 0) failures.push(`${result.missing.length} required file(s) are missing.`);
+  if (result.conflicts.length > 0) failures.push(`${result.conflicts.length} pending merge conflict(s) need review.`);
+
+  const actionableSuggestions = result.suggestions.filter((suggestion) => !suggestion.startsWith("Setup is complete."));
+  if (actionableSuggestions.length > 0)
+    failures.push(`${actionableSuggestions.length} actionable suggestion(s) remain.`);
+
+  return Array.from(new Set(failures));
 }
 
 /** Colored readiness bar: green when high, yellow mid, red low. */
