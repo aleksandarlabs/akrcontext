@@ -582,6 +582,7 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
     force: Boolean(raw.force),
     json: Boolean(raw.json),
     ci: Boolean(raw.ci),
+    fix: Boolean(raw.fix),
     profile: raw.profile as Profile | undefined,
     template: raw.template as string | undefined,
     templatePack: raw.templatePack as string | undefined,
