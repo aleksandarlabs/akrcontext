@@ -2,6 +2,7 @@ import path from "node:path";
 import { readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { listDirs, pathExists } from "./fs-utils.js";
+import { taskNumber } from "./task.js";
 import type { CommandOptions, Target } from "./types.js";
 
 export interface StatusResult {
@@ -30,14 +31,16 @@ export async function runStatus(options: CommandOptions): Promise<StatusResult> 
     const dirs = await listDirs(tasksRoot);
     const taskDirs = dirs.filter((d) => /^TASK-\d+/.test(d));
     taskCount = taskDirs.length;
-    // Return the last 5 task IDs (e.g. "TASK-003") without the slug.
+    // Return the 5 most recent task IDs (e.g. "TASK-003") without the slug,
+    // sorted numerically (descending) rather than relying on readdir order.
     recentTaskIds = taskDirs
-      .slice(-5)
+      .slice()
+      .sort((a, b) => taskNumber(b) - taskNumber(a))
+      .slice(0, 5)
       .map((d) => {
         const match = /^(TASK-\d+)/.exec(d);
         return match ? match[1] : d;
-      })
-      .reverse();
+      });
   }
 
   return {

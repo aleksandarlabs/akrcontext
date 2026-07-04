@@ -79,6 +79,12 @@ async function nextTaskId(tasksRoot: string, _description: string): Promise<stri
   return `TASK-${String(next).padStart(3, "0")}`;
 }
 
+/** Extract the numeric TASK-XXX id for sorting; non-matching dirs sort last. */
+export function taskNumber(dir: string): number {
+  const match = /^TASK-(\d+)/.exec(dir);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -302,7 +308,7 @@ export async function listTasks(cwd: string): Promise<TaskSummary[]> {
       description: taskMd ? parseDescription(taskMd) : "",
     });
   }
-  return summaries.sort((a, b) => a.taskId.localeCompare(b.taskId));
+  return summaries.sort((a, b) => taskNumber(a.taskId) - taskNumber(b.taskId));
 }
 
 export async function showTask(cwd: string, taskId: string): Promise<TaskShowResult> {

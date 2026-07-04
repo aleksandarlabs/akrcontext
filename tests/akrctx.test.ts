@@ -12,7 +12,7 @@ import { runInit } from "../src/init.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
-import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify } from "../src/task.js";
+import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
 import { workflows } from "../src/types.js";
 import { CLI_VERSION } from "../src/version.js";
 import { lintWiki } from "../src/wiki-lint.js";
@@ -712,6 +712,22 @@ describe("task and compile", () => {
     expect(tasks[1].description).toContain("Create invoice endpoint");
   });
 
+  it("listTasks sorts numerically for TASK-002/010/1000", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    for (const n of [10, 1000, 2]) {
+      await mkdir(path.join(tmp, ".akrctx/tasks", `TASK-${String(n).padStart(3, "0")}-x`), { recursive: true });
+    }
+
+    const tasks = await listTasks(tmp);
+
+    expect(tasks.map((t) => t.taskId)).toEqual(["TASK-002", "TASK-010", "TASK-1000"]);
+  });
+
+  it("taskNumber extracts the numeric id", () => {
+    expect(taskNumber("TASK-002-fix-bug")).toBe(2);
+    expect(taskNumber("TASK-1000-x")).toBe(1000);
+  });
+
   it("showTask returns task files and workflow", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
@@ -966,6 +982,17 @@ describe("status", () => {
 
     expect(result.installed).toBe(false);
     expect(result.taskCount).toBe(0);
+  });
+
+  it("orders recentTaskIds numerically (not lexicographically) for TASK-002/010/1000", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    for (const n of [2, 10, 1000]) {
+      await mkdir(path.join(tmp, ".akrctx/tasks", `TASK-${String(n).padStart(3, "0")}-x`), { recursive: true });
+    }
+
+    const result = await runStatus({ cwd: tmp, nonInteractive: true });
+
+    expect(result.recentTaskIds).toEqual(["TASK-1000", "TASK-010", "TASK-002"]);
   });
 
   it("shows installed targets and task count after init and task creation", async () => {
