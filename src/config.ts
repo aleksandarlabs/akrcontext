@@ -33,6 +33,24 @@ export async function readConfig(cwd: string): Promise<akrctxConfig | undefined>
   }
 }
 
+/**
+ * Like readConfig, but distinguishes a missing config (returns undefined)
+ * from a corrupt one (throws). Use this wherever following the "not found"
+ * advice (running `akrctx init`) could clobber a broken config that a human
+ * needs to inspect first.
+ */
+export async function readConfigStrict(cwd: string): Promise<akrctxConfig | undefined> {
+  const absolute = path.join(cwd, configPath);
+  if (!(await pathExists(absolute))) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(absolute, "utf8"));
+  } catch {
+    throw new Error(".akrctx/config.json is invalid JSON — fix it manually or restore from git before running init.");
+  }
+  return normalizeConfig(raw);
+}
+
 export async function writeConfig(cwd: string, config: akrctxConfig, dryRun = false): Promise<void> {
   if (dryRun) return;
   const absolute = path.join(cwd, configPath);
@@ -76,7 +94,7 @@ export async function setConfigValue(cwd: string, key: string, value: string, dr
     throw new Error(`Unsupported config key: "${normalizedKey}". Valid keys: ${validConfigKeys.join(", ")}.`);
   }
 
-  const current = (await readConfig(cwd)) ?? defaultConfig(["codex"]);
+  const current = (await readConfigStrict(cwd)) ?? defaultConfig(["codex"]);
   const next = structuredClone(current);
 
   if (normalizedKey === "defaultWorkflow" || normalizedKey === "defaults.workflow") {

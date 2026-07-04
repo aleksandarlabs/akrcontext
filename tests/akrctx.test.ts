@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli.js";
 import { runCompile } from "../src/compile.js";
-import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js";
+import { normalizeWorkflow, readConfig, readConfigStrict, setConfigValue } from "../src/config.js";
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
@@ -739,6 +739,40 @@ describe("config", () => {
 
     const config = await readConfig(tmp);
     expect(config).toBeUndefined();
+  });
+
+  it("readConfigStrict throws on corrupt JSON instead of returning undefined", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+
+    await expect(readConfigStrict(tmp)).rejects.toThrow("invalid JSON");
+  });
+
+  it("readConfigStrict returns undefined when config.json is simply missing", async () => {
+    await expect(readConfigStrict(tmp)).resolves.toBeUndefined();
+  });
+
+  it("setConfigValue throws instead of silently overwriting a corrupt config", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+
+    await expect(setConfigValue(tmp, "defaultWorkflow", "TDD")).rejects.toThrow("invalid JSON");
+  });
+
+  it("CLI config show throws a clear error on corrupt JSON", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    console.log = () => {};
+
+    try {
+      process.chdir(tmp);
+      await expect(main(["node", "akrctx", "config", "show"])).rejects.toThrow("invalid JSON");
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
   });
 });
 
