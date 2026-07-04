@@ -149,6 +149,11 @@ function selectWorkflow(
   }
 
   const recommended = recommendWorkflow(description);
+  // "UI review" is a task-level recommendation, not a selectable config default
+  // (see types.ts TaskWorkflow), so allowedWorkflows never filters it out.
+  if (recommended.workflow === "UI review") {
+    return recommended;
+  }
   if (isWorkflowAllowed(recommended.workflow, allowed)) {
     return recommended;
   }

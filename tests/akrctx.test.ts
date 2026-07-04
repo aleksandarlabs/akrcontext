@@ -537,6 +537,22 @@ describe("task and compile", () => {
     expect(task.workflow).toBe("SDD+TDD");
   });
 
+  it("recommends UI review for UI-shaped descriptions", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("redesign the settings page", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("UI review");
+  });
+
+  it("keeps UI review even when allowedWorkflows excludes it", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "allowedWorkflows", "TDD");
+
+    const task = await runTask("redesign the settings page", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("UI review");
+  });
+
   it("uses TDD+EDD for game tasks under task-fit fallback", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Create Tetris game", { cwd: tmp, nonInteractive: true });
