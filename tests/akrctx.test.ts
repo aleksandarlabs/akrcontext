@@ -1253,6 +1253,14 @@ describe("doctor --fix", () => {
     expect(await pathExists(path.join(tmp, ".pi/skills/akrctx-doctor/SKILL.md"))).toBe(true);
   });
 
+  it("reports nothing fixed for a healthy setup", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed).toEqual([]);
+  });
+
   it("dry-run fix does not write files but reports what would be fixed", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await rm(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), { force: true });

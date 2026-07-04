@@ -47,12 +47,22 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
     }
   }
 
-  // Merge missing config keys with defaults.
-  const config = await readConfig(cwd);
-  if (config) {
-    const normalized = normalizeConfigForFix(config);
-    await writeConfig(cwd, normalized, options.dryRun);
-    if (!options.dryRun) fixed.push(".akrctx/config.json");
+  // Merge missing config keys with defaults — only write and report "fixed"
+  // when the merge actually changes something.
+  const configPath = path.join(cwd, ".akrctx/config.json");
+  if (await pathExists(configPath)) {
+    try {
+      const rawText = await readFile(configPath, "utf8");
+      const raw = JSON.parse(rawText);
+      const normalized = normalizeConfigForFix(raw);
+      const nextText = `${JSON.stringify(normalized, null, 2)}\n`;
+      if (nextText !== rawText) {
+        await writeConfig(cwd, normalized, options.dryRun);
+        if (!options.dryRun) fixed.push(".akrctx/config.json");
+      }
+    } catch {
+      // Invalid JSON — leave untouched here; getConfigGaps surfaces the issue.
+    }
   }
 
   // Merge missing policy keys with defaults.
@@ -70,7 +80,7 @@ async function readProfile(cwd: string): Promise<Profile> {
 }
 
 function normalizeConfigForFix(config: import("./types.js").akrctxConfig): import("./types.js").akrctxConfig {
-  const base = defaultConfig(config.targets.length ? config.targets : ["codex"], config.profile);
+  const base = defaultConfig(config.targets?.length ? config.targets : ["codex"], config.profile);
   return {
     ...base,
     ...config,
@@ -110,8 +120,11 @@ async function fixPolicy(cwd: string, dryRun?: boolean): Promise<boolean> {
       }
     }
 
+    const nextText = `${JSON.stringify(merged, null, 2)}\n`;
+    if (nextText === `${JSON.stringify(raw, null, 2)}\n`) return false;
+
     if (!dryRun) {
-      await writeFile(policyPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      await writeFile(policyPath, nextText, "utf8");
     }
     return true;
   } catch {
