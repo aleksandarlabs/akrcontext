@@ -41,8 +41,9 @@ akrctx init --target codex             # install for specific target
 akrctx init --target all               # install for all targets
 akrctx init --target copilot --profile regulated
 akrctx init --target copilot --template test-template
-akrctx doctor                          # audit setup and write wiki readiness report
+akrctx doctor                          # audit setup, lint wiki, write readiness reports
 akrctx doctor --ci                     # fail CI when setup has actionable gaps
+akrctx doctor --fix                    # recreate missing files and repair config/policy gaps
 akrctx status                          # quick summary of installed targets and tasks
 akrctx upgrade                         # update harness files to current CLI version
 akrctx config show
@@ -119,6 +120,18 @@ Every target gets the neutral source of truth:
   config.json
   policy.json
   wiki/
+    overview.md
+    index.md
+    architecture.md
+    conventions.md
+    testing.md
+    workflows.md
+    decisions.md
+    agent-setup.md
+    gaps.md
+    recommendations.md
+    write-policy.md
+    log.md
   tasks/_template/
   targets/
 ```
@@ -144,10 +157,16 @@ akrctx keeps root instruction files small. Detailed workflows live in target ski
 Durable notes go in explicit homes:
 
 ```txt
-doctor findings -> .akrctx/wiki/
-task capsules   -> .akrctx/tasks/TASK-XXX/
-compiled briefs -> .akrctx/tasks/TASK-XXX/exports/
-decisions       -> .akrctx/wiki/decisions.md
+doctor findings   -> .akrctx/wiki/agent-setup.md
+                    .akrctx/wiki/gaps.md
+                    .akrctx/wiki/recommendations.md
+wiki catalog      -> .akrctx/wiki/index.md
+task capsules     -> .akrctx/tasks/TASK-XXX/
+compiled briefs   -> .akrctx/tasks/TASK-XXX/exports/
+decisions         -> .akrctx/wiki/decisions.md
+architecture      -> .akrctx/wiki/architecture.md
+conventions       -> .akrctx/wiki/conventions.md
+testing commands  -> .akrctx/wiki/testing.md
 ```
 
 ## Merge Safety

@@ -19,3 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `akrctx compile --target all` to compile a brief for every installed target at once.
 - Documentation for `allowedWorkflows` and the new commands in `docs/CONFIGURATION.md`, `docs/COMMANDS_AND_UX.md`, and `README.md`.
 - `CHANGELOG.md` and versioning/release process in `docs/RELEASE_CHECKLIST.md`.
+- OKF-style YAML frontmatter on every `.akrctx/wiki/` page (`type`, `title`, `description`, `tags`, `timestamp`).
+- `akrctx doctor` now writes `.akrctx/wiki/gaps.md` and `.akrctx/wiki/recommendations.md` alongside `.akrctx/wiki/agent-setup.md`.
+- New `.akrctx/wiki/index.md` catalog with bundle-relative links to all wiki pages.
+- `.akrctx/wiki/log.md` now uses ISO-date headings.
+- Wiki lint integrated into `akrctx doctor`: reports broken links, orphan pages, and missing or invalid frontmatter timestamps.
+- Doctor and write-policy skills now instruct agents to keep the wiki alive by recording architecture, conventions, testing commands, and decisions as they are discovered.
+- `.akrctx/wiki/write-policy.md` recommends bundle-relative links (`/wiki/decisions.md`) for cross-page references.
+- `DoctorResult` exposes a new `wikiLint` field, included in `akrctx doctor --json` output.

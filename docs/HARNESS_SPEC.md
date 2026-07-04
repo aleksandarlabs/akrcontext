@@ -56,6 +56,7 @@ Purpose:
 - inspect current agent instructions
 - inspect project structure
 - update `.akrctx/wiki/`
+- lint `.akrctx/wiki/` for broken links, orphan pages, and invalid frontmatter
 - identify missing docs/rules
 - detect contradictions
 - recommend improvements

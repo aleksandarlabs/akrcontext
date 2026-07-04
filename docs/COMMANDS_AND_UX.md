@@ -56,8 +56,10 @@ Reports:
 - missing harness files
 - pending suggested merges
 - config gaps
+- policy gaps
 - judge misconfiguration (enabled but files missing)
 - version drift between installed harness and current CLI
+- wiki lint: broken links, orphan pages, and missing or invalid frontmatter timestamps
 - readiness score (0–100)
 - suggested agent prompt to continue the audit intelligently
 
