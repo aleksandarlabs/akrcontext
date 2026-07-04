@@ -1,5 +1,18 @@
+import type { DoctorResult, WikiLintResult } from "../types.js";
+
+export function wikiFrontmatter(
+  type: string,
+  title: string,
+  description: string,
+  tags: string[] = [],
+  timestamp: string = new Date().toISOString(),
+): string {
+  const tagList = tags.map((tag) => JSON.stringify(tag)).join(", ");
+  return `---\ntype: ${type}\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\ntags: [${tagList}]\ntimestamp: ${timestamp}\n---\n\n`;
+}
+
 export function overviewTemplate(projectName: string, targets: string[], installedVersion: string): string {
-  return `# Overview
+  return `${wikiFrontmatter("akrctx-wiki-overview", "Overview", `Project overview for ${projectName}.`, ["overview", "akrctx"])}# Overview
 
 **Project:** ${projectName}
 **akrctx version:** ${installedVersion}
@@ -20,11 +33,89 @@ Ask your agent: "Run akrctx doctor." It will audit this setup and populate the w
 `;
 }
 
+export function agentSetupTemplate(result: DoctorResult): string {
+  return `${wikiFrontmatter("akrctx-wiki-agent-setup", "Agent Setup", "Readiness report for the akrctx harness.", ["agent-setup", "doctor"])}# Agent Setup
+
+Agent readiness: ${result.readiness}/100
+
+## Detected Targets
+
+${result.detectedTargets.length ? result.detectedTargets.map((target) => `- ${target}`).join("\n") : "- None"}
+
+## Installed Targets
+
+${result.installedTargets.length ? result.installedTargets.map((target) => `- ${target}`).join("\n") : "- None"}
+
+## Missing Files
+
+${result.missing.length ? result.missing.map((file) => `- ${file}`).join("\n") : "- None"}
+
+## Human-Approved Merge Needed
+
+${result.conflicts.length ? result.conflicts.map((conflict) => `- ${conflict}`).join("\n") : "- None"}
+
+## Suggested Safe Next Steps
+
+${result.suggestions.map((suggestion) => `- ${suggestion}`).join("\n")}
+`;
+}
+
+export interface GapSection {
+  heading: string;
+  items: string[];
+}
+
+export function gapsTemplate(sections: GapSection[], wikiLint?: WikiLintResult): string {
+  let body = "";
+  for (const section of sections) {
+    if (section.items.length === 0) continue;
+    body += `## ${section.heading}\n\n${section.items.map((item) => `- ${item}`).join("\n")}\n\n`;
+  }
+  if (wikiLint?.brokenLinks.length) {
+    body += `## Wiki lint: broken links\n\n${wikiLint.brokenLinks.map((issue) => `- ${issue.file}: ${issue.message}`).join("\n")}\n\n`;
+  }
+  if (wikiLint?.missingTimestamps.length) {
+    body += `## Wiki lint: missing timestamps\n\n${wikiLint.missingTimestamps.map((issue) => `- ${issue.file}: ${issue.message}`).join("\n")}\n\n`;
+  }
+  if (!body) body = "- No gaps detected.\n";
+  return `${wikiFrontmatter("akrctx-wiki-gaps", "Gaps", "Identified gaps in the akrctx harness.", ["gaps", "doctor"])}# Gaps
+
+${body}`;
+}
+
+export function recommendationsTemplate(recommendations: string[]): string {
+  const body = recommendations.length
+    ? recommendations.map((recommendation) => `- ${recommendation}`).join("\n")
+    : "- No actionable recommendations.";
+  return `${wikiFrontmatter("akrctx-wiki-recommendations", "Recommendations", "Suggested next steps for the akrctx harness.", ["recommendations", "doctor"])}# Recommendations
+
+${body}
+`;
+}
+
 export const wikiTemplates: Record<string, string> = {
-  "wiki/architecture.md": "# Architecture\n\nDocument the project architecture here as the agent learns it.\n",
-  "wiki/conventions.md": "# Conventions\n\nDocument coding, naming, and review conventions here.\n",
-  "wiki/testing.md": "# Testing\n\nDocument build, test, lint, and validation commands here.\n",
-  "wiki/workflows.md": `# Workflows
+  "wiki/architecture.md": `${wikiFrontmatter("akrctx-wiki-architecture", "Architecture", "Project architecture discovered by the agent.", ["architecture"])}# Architecture
+
+Document the project architecture here as the agent learns it.
+
+When you discover a significant pattern, dependency, or boundary, add it to this page. Keep it concise and cross-link to relevant files or decisions.
+`,
+
+  "wiki/conventions.md": `${wikiFrontmatter("akrctx-wiki-conventions", "Conventions", "Coding, naming, and review conventions discovered by the agent.", ["conventions"])}# Conventions
+
+Document coding, naming, and review conventions here.
+
+When you identify a convention the project follows, add it with a short example. Do not invent conventions that are not evidenced in the codebase.
+`,
+
+  "wiki/testing.md": `${wikiFrontmatter("akrctx-wiki-testing", "Testing", "Build, test, lint, and validation commands for the project.", ["testing"])}# Testing
+
+Document build, test, lint, and validation commands here.
+
+When you verify a command works, record it here with its purpose. Prefer commands from package.json scripts when they exist.
+`,
+
+  "wiki/workflows.md": `${wikiFrontmatter("akrctx-wiki-workflows", "Workflows", "Supported akrctx workflows and selection policy.", ["workflows", "akrctx"])}# Workflows
 
 Use akrctx task capsules before implementation.
 
@@ -59,20 +150,36 @@ The project default lives in .akrctx/config.json:
 - Use research-first when the relevant area is unknown.
 - Use UI review for UI validation tasks (discovers stylelint, storybook, playwright, etc.).
 `,
-  "wiki/decisions.md": "# Decisions\n\nRecord important project and agent-workflow decisions here.\n",
-  "wiki/agent-setup.md":
-    "# Agent Setup\n\nakrctx preserves existing agent instructions and writes suggested files when conflicts exist.\n",
-  "wiki/write-policy.md": `# Write Policy
+
+  "wiki/decisions.md": `${wikiFrontmatter("akrctx-wiki-decisions", "Decisions", "Important project and agent-workflow decisions.", ["decisions"])}# Decisions
+
+Record important project and agent-workflow decisions here.
+
+Include the date, the decision, the context, and the consequences. Link to relevant issues, PRs, or wiki pages when possible.
+`,
+
+  "wiki/agent-setup.md": `${wikiFrontmatter("akrctx-wiki-agent-setup", "Agent Setup", "Readiness report for the akrctx harness.", ["agent-setup", "doctor"])}# Agent Setup
+
+akrctx preserves existing agent instructions and writes suggested files when conflicts exist.
+`,
+
+  // biome-ignore format: preserve markdown in template literal
+  "wiki/write-policy.md": `${wikiFrontmatter("akrctx-wiki-write-policy", "Write Policy", "Where akrctx and agents should persist durable context.", ["write-policy", "akrctx"])}# Write Policy
 
 akrctx keeps root instructions small and writes durable context only when it has a clear home.
 
 ## Where To Write
 
+- Wiki index: .akrctx/wiki/index.md
 - Doctor findings: .akrctx/wiki/agent-setup.md, gaps.md, recommendations.md
 - Task capsules: .akrctx/tasks/TASK-XXX/
 - Compiled briefs: .akrctx/tasks/TASK-XXX/exports/<target>.md
 - Architecture or process decisions: .akrctx/wiki/decisions.md
 - Implementation notes for a task: .akrctx/tasks/TASK-XXX/log.md
+
+## Cross-Links
+
+Use bundle-relative links (\`/wiki/decisions.md\`) when linking between wiki pages. They remain valid if a page is moved between directories.
 
 ## Context Budget
 
@@ -82,7 +189,37 @@ akrctx keeps root instructions small and writes durable context only when it has
 - Read only wiki pages that are relevant to the current task.
 - Load target workflow skills or prompts only when the task calls for them.
 `,
-  "wiki/log.md": "# Log\n\n- akrctx initialized.\n",
+
+  "wiki/log.md": `${wikiFrontmatter("akrctx-wiki-log", "Log", "Chronological history of akrctx events.", ["log"])}# Log
+
+## ${new Date().toISOString().slice(0, 10)}
+- akrctx initialized.
+`,
+
+  "wiki/gaps.md": `${wikiFrontmatter("akrctx-wiki-gaps", "Gaps", "Identified gaps in the akrctx harness.", ["gaps", "doctor"])}# Gaps
+
+- No gaps detected.
+`,
+
+  "wiki/recommendations.md": `${wikiFrontmatter("akrctx-wiki-recommendations", "Recommendations", "Suggested next steps for the akrctx harness.", ["recommendations", "doctor"])}# Recommendations
+
+- No actionable recommendations.
+`,
+
+  "wiki/index.md": `${wikiFrontmatter("akrctx-wiki-index", "Wiki Index", "Directory of akrctx wiki pages.", ["index", "akrctx"])}# Wiki Index
+
+- [Overview](/wiki/overview.md) — Project overview and quick reference.
+- [Architecture](/wiki/architecture.md) — Project architecture.
+- [Conventions](/wiki/conventions.md) — Coding and review conventions.
+- [Testing](/wiki/testing.md) — Build, test, lint, and validation commands.
+- [Workflows](/wiki/workflows.md) — Supported workflows and selection policy.
+- [Decisions](/wiki/decisions.md) — Project and agent-workflow decisions.
+- [Agent Setup](/wiki/agent-setup.md) — Doctor readiness report.
+- [Gaps](/wiki/gaps.md) — Identified harness gaps.
+- [Recommendations](/wiki/recommendations.md) — Suggested next steps.
+- [Write Policy](/wiki/write-policy.md) — Where to persist durable context.
+- [Log](/wiki/log.md) — Chronological history.
+`,
 };
 
 export const taskTemplateFiles: Record<string, string> = {

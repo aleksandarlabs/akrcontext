@@ -129,4 +129,16 @@ export interface DoctorResult {
   conflicts: string[];
   suggestions: string[];
   fixed?: string[];
+  wikiLint?: WikiLintResult;
+}
+
+export interface WikiLintIssue {
+  file: string;
+  message: string;
+}
+
+export interface WikiLintResult {
+  brokenLinks: WikiLintIssue[];
+  orphans: string[];
+  missingTimestamps: WikiLintIssue[];
 }

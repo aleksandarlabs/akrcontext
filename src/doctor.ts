@@ -5,9 +5,23 @@ import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
 import { runInit } from "./init.js";
-import { defaultConfig, defaultPolicy } from "./templates.js";
-import { type CommandOptions, type DoctorResult, type Profile, type Target, profiles } from "./types.js";
+import {
+  agentSetupTemplate,
+  defaultConfig,
+  defaultPolicy,
+  gapsTemplate,
+  recommendationsTemplate,
+} from "./templates.js";
+import {
+  type CommandOptions,
+  type DoctorResult,
+  type Profile,
+  type Target,
+  type WikiLintResult,
+  profiles,
+} from "./types.js";
 import { CLI_VERSION } from "./version.js";
+import { lintWiki } from "./wiki-lint.js";
 
 export async function runDoctor(options: CommandOptions): Promise<DoctorResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -110,11 +124,19 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   ]);
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const policyGaps = await getPolicyGaps(cwd);
-  const allMissing = [...missing, ...configGaps, ...policyGaps];
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
-  const suggestions = buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap);
+  const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
+  const wikiLintMissing = [
+    ...wikiLint.brokenLinks.map((issue) => `${issue.file} — ${issue.message}`),
+    ...wikiLint.missingTimestamps.map((issue) => `${issue.file} — ${issue.message}`),
+  ];
+  const allMissing = [...missing, ...configGaps, ...policyGaps, ...wikiLintMissing];
+  const suggestions = [
+    ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
+    ...(wikiLint.orphans.length ? [`Wiki orphan pages: ${wikiLint.orphans.join(", ")}`] : []),
+  ];
   const readiness = scoreReadiness(installed, installedTargets, allMissing, conflicts);
 
   const result: DoctorResult = {
@@ -125,9 +147,10 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
     missing: allMissing,
     conflicts,
     suggestions,
+    wikiLint,
   };
 
-  await writeDoctorWiki(cwd, result, options);
+  await writeDoctorWiki(cwd, result, { missing, configGaps, policyGaps }, wikiLint, options);
   return result;
 }
 
@@ -339,35 +362,28 @@ function scoreReadiness(
   return Math.max(0, Math.min(100, score));
 }
 
-async function writeDoctorWiki(cwd: string, result: DoctorResult, options: CommandOptions): Promise<void> {
-  const report = `# Agent Setup
+async function writeDoctorWiki(
+  cwd: string,
+  result: DoctorResult,
+  gapGroups: { missing: string[]; configGaps: string[]; policyGaps: string[] },
+  wikiLint: WikiLintResult,
+  options: CommandOptions,
+): Promise<void> {
+  const sections = [
+    { heading: "Missing files", items: gapGroups.missing },
+    { heading: "Config gaps", items: gapGroups.configGaps },
+    { heading: "Policy gaps", items: gapGroups.policyGaps },
+  ];
 
-Agent readiness: ${result.readiness}/100
-
-## Detected Targets
-
-${result.detectedTargets.length ? result.detectedTargets.map((target) => `- ${target}`).join("\n") : "- None"}
-
-## Installed Targets
-
-${result.installedTargets.length ? result.installedTargets.map((target) => `- ${target}`).join("\n") : "- None"}
-
-## Missing Files
-
-${result.missing.length ? result.missing.map((file) => `- ${file}`).join("\n") : "- None"}
-
-## Human-Approved Merge Needed
-
-${result.conflicts.length ? result.conflicts.map((conflict) => `- ${conflict}`).join("\n") : "- None"}
-
-## Suggested Safe Next Steps
-
-${result.suggestions.map((suggestion) => `- ${suggestion}`).join("\n")}
-`;
-
-  await writePlannedFile(cwd, ".akrctx/wiki/agent-setup.md", report, {
+  const wikiOptions = {
     dryRun: options.dryRun,
     force: true,
     reason: "Doctor readiness report.",
-  });
+  };
+
+  await Promise.all([
+    writePlannedFile(cwd, ".akrctx/wiki/agent-setup.md", agentSetupTemplate(result), wikiOptions),
+    writePlannedFile(cwd, ".akrctx/wiki/gaps.md", gapsTemplate(sections, wikiLint), wikiOptions),
+    writePlannedFile(cwd, ".akrctx/wiki/recommendations.md", recommendationsTemplate(result.suggestions), wikiOptions),
+  ]);
 }

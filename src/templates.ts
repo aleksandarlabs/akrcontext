@@ -2,7 +2,16 @@
 // the implementation into focused sub-modules.
 
 export { configTemplate, defaultConfig, defaultPolicy, policyTemplate } from "./templates/defaults.js";
-export { overviewTemplate, wikiTemplates, taskTemplateFiles } from "./templates/wiki.js";
+export {
+  agentSetupTemplate,
+  gapsTemplate,
+  recommendationsTemplate,
+  overviewTemplate,
+  wikiFrontmatter,
+  wikiTemplates,
+  taskTemplateFiles,
+  type GapSection,
+} from "./templates/wiki.js";
 export {
   targetReferenceTemplates,
   mainInstructionTemplate,
