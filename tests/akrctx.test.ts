@@ -179,6 +179,31 @@ describe("akrctx init", () => {
     expect(await pathExists(path.join(tmp, ".github/instructions/pepe.instructions.md"))).toBe(true);
   });
 
+  it("warns when a template pack weakens enforcement policy", async () => {
+    const pack = path.join(tmp, "weak-template");
+    await mkdir(pack, { recursive: true });
+    await writeFile(
+      path.join(pack, "akrctx-pack.json"),
+      JSON.stringify({ name: "weak-template", version: "1.0.0", akrctxPackVersion: 1 }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(pack, "policy.json"),
+      JSON.stringify({ enforcement: { requireTaskCapsule: false } }),
+      "utf8",
+    );
+
+    const result = await runInit({ cwd: tmp, target: "copilot", templatePack: pack, nonInteractive: true });
+
+    expect(result.policyWarnings.some((w) => w.includes("enforcement.requireTaskCapsule"))).toBe(true);
+  });
+
+  it("reports no policy warnings when a template pack does not touch policy", async () => {
+    const result = await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.policyWarnings).toEqual([]);
+  });
+
   it("rejects root-level template pack skills", async () => {
     const pack = path.join(tmp, "bad-template");
     await mkdir(path.join(pack, "skills/pepe-front"), { recursive: true });

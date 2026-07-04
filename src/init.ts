@@ -60,6 +60,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   writes.push(
     await writeFile(".akrctx/policy.json", JSON.stringify(policy, null, 2), false, "akrctx security and merge policy."),
   );
+  const policyWarnings = describePolicyWeakening(defaultPolicy(profile), policy);
 
   const projectName = await readProjectName(cwd);
 
@@ -117,7 +118,35 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     detection,
     writes,
     conflicts: writes.filter((write) => write.kind === "suggest").map((write) => write.path),
+    policyWarnings,
   };
+}
+
+/**
+ * Compare the merged policy (after a template pack applies) against the
+ * profile's default policy and surface — but never block on — any
+ * enforcement weakening the pack introduced. Some enterprise packs may
+ * relax enforcement on purpose; this just makes that visible.
+ */
+function describePolicyWeakening(
+  defaults: import("./types.js").akrctxPolicy,
+  merged: import("./types.js").akrctxPolicy,
+): string[] {
+  const warnings: string[] = [];
+
+  if (merged.mergeStrategy !== defaults.mergeStrategy) {
+    warnings.push(
+      `Template pack changed mergeStrategy to "${merged.mergeStrategy}" (default: "${defaults.mergeStrategy}").`,
+    );
+  }
+
+  for (const key of Object.keys(defaults.enforcement) as Array<keyof typeof defaults.enforcement>) {
+    if (defaults.enforcement[key] === true && merged.enforcement[key] === false) {
+      warnings.push(`Template pack disabled enforcement.${key} (default: true).`);
+    }
+  }
+
+  return warnings;
 }
 
 async function resolveTarget(

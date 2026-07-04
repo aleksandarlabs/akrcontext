@@ -613,6 +613,11 @@ function printInit(result: InitResult, options: CommandOptions): void {
   if (result.detection.detected.length > 0) {
     log(gray(`  Detected existing setup: ${result.detection.detected.join(", ")}`));
   }
+  if (result.policyWarnings.length > 0) {
+    ln();
+    log(`  ${yellow(bold(`Policy weakened by template pack (${result.policyWarnings.length}):`))}`);
+    for (const w of result.policyWarnings) log(`    ${warn()} ${yellow(w)}`);
+  }
 
   // Group writes by category.
   const created = result.writes.filter((w) => w.kind === "create");

@@ -117,6 +117,7 @@ export interface InitResult {
   detection: DetectionResult;
   writes: WriteResult[];
   conflicts: string[];
+  policyWarnings: string[];
 }
 
 export type SuggestionSeverity = "info" | "warning" | "error";
