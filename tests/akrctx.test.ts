@@ -941,6 +941,16 @@ describe("recommendWorkflow — word boundary correctness", () => {
     expect(workflow).toBe("fast-patch");
   });
 
+  it("prioritizes bug signals over domain keywords: 'fix the api bug' matches TDD, not SDD", () => {
+    const { workflow } = recommendWorkflow("fix the api bug");
+    expect(workflow).toBe("TDD");
+  });
+
+  it("no longer treats 'tetris' as a game/interactive keyword on its own", () => {
+    const { workflow } = recommendWorkflow("build a tetris clone");
+    expect(workflow).toBe("fast-patch");
+  });
+
   it("matches standalone 'api'", () => {
     const { workflow } = recommendWorkflow("create user api endpoint");
     expect(workflow).toBe("SDD");
