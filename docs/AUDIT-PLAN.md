@@ -422,7 +422,7 @@ target ni detección.
 1. `pnpm lint && pnpm test && pnpm build` en verde.
 2. Smoke manual en un dir temporal:
    `node dist/index.js init --target claude` → `doctor` → `doctor --fix` →
-   `task "fix login page component"` (debe dar UI review) →
+   `task "redesign the settings page"` (debe dar UI review) →
    `compile TASK-001` dos veces con edición intermedia (debe regenerar) →
    `remove --all` (tasks sobreviven) → `remove --all --purge-tasks --force`.
 3. `node dist/index.js init` con stdin no-TTY en dir vacío → error claro, exit 1.
