@@ -13,6 +13,8 @@ const validConfigKeys = [
   "defaults.workflow",
   "defaultTarget",
   "defaults.target",
+  "allowedWorkflows",
+  "defaults.allowedWorkflows",
   "requireTaskCapsule",
   "defaults.requireTaskCapsule",
   "requireWorkflowReason",
@@ -81,6 +83,8 @@ export async function setConfigValue(cwd: string, key: string, value: string, dr
     next.defaults.workflow = requireWorkflowDefault(value);
   } else if (normalizedKey === "defaultTarget" || normalizedKey === "defaults.target") {
     next.defaults.target = requireTarget(value);
+  } else if (normalizedKey === "allowedWorkflows" || normalizedKey === "defaults.allowedWorkflows") {
+    next.defaults.allowedWorkflows = parseAllowedWorkflows(value);
   } else if (normalizedKey === "requireTaskCapsule" || normalizedKey === "defaults.requireTaskCapsule") {
     next.defaults.requireTaskCapsule = parseBoolean(value);
   } else if (normalizedKey === "requireWorkflowReason" || normalizedKey === "defaults.requireWorkflowReason") {
@@ -159,4 +163,25 @@ function parseBoolean(value: string): boolean {
 function requireContextBudget(value: string): "minimal" | "proportional" | "thorough" {
   if (value === "minimal" || value === "proportional" || value === "thorough") return value;
   throw new Error(`contextBudget must be "minimal", "proportional", or "thorough".`);
+}
+
+function parseAllowedWorkflows(value: string): Workflow[] {
+  const items = value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  if (items.length === 0) {
+    throw new Error(`allowedWorkflows must contain at least one workflow. Valid values: ${workflows.join(", ")}.`);
+  }
+
+  const parsed = items.map((item) => {
+    const workflow = normalizeWorkflow(item);
+    if (!workflow) {
+      throw new Error(`Unsupported workflow in allowedWorkflows: "${item}". Valid values: ${workflows.join(", ")}.`);
+    }
+    return workflow;
+  });
+
+  return Array.from(new Set(parsed));
 }

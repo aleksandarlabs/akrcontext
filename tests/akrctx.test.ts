@@ -475,6 +475,40 @@ describe("task and compile", () => {
     const capsule = await readFile(path.join(tmp, task.taskDir, "task.md"), "utf8");
     expect(capsule).toContain("project default");
   });
+
+  it("falls back to an allowed workflow when task-fit recommends a disallowed one", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "allowedWorkflows", "SDD, fast-patch");
+
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("SDD");
+    expect(task.workflowReason).toContain("not in allowedWorkflows");
+    expect(task.workflowReason).toContain("fell back to SDD");
+  });
+
+  it("rejects an explicit --workflow that is not in allowedWorkflows", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "allowedWorkflows", "SDD, TDD");
+
+    await expect(runTask("Fix auth bug", { cwd: tmp, workflow: "EDD", nonInteractive: true })).rejects.toThrow(
+      'Workflow "EDD" is not in allowedWorkflows',
+    );
+  });
+
+  it("rejects a project default workflow that is not in allowedWorkflows", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "allowedWorkflows", "SDD, TDD");
+    // Bypass setConfigValue validation to simulate a manually edited inconsistent config.
+    const config = await readConfig(tmp);
+    if (!config) throw new Error("config missing");
+    config.defaults.workflow = "EDD";
+    await writeFile(path.join(tmp, ".akrctx/config.json"), JSON.stringify(config, null, 2), "utf8");
+
+    await expect(runTask("Fix auth bug", { cwd: tmp, nonInteractive: true })).rejects.toThrow(
+      'Workflow "EDD" is not in allowedWorkflows',
+    );
+  });
 });
 
 // ── config ───────────────────────────────────────────────────────────────────
@@ -491,6 +525,36 @@ describe("config", () => {
 
     const result = await setConfigValue(tmp, "defaultWorkflow", "TDD");
     expect(result.defaults.workflow).toBe("TDD");
+  });
+
+  it("setConfigValue updates allowedWorkflows from a comma-separated list", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await setConfigValue(tmp, "allowedWorkflows", "SDD, TDD, fast-patch");
+    expect(result.defaults.allowedWorkflows).toEqual(["SDD", "TDD", "fast-patch"]);
+  });
+
+  it("setConfigValue normalizes and deduplicates allowedWorkflows", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await setConfigValue(tmp, "allowedWorkflows", "sdd+tdd, TDD, sdd-tdd");
+    expect(result.defaults.allowedWorkflows).toEqual(["SDD+TDD", "TDD"]);
+  });
+
+  it("setConfigValue rejects invalid workflows in allowedWorkflows", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    await expect(setConfigValue(tmp, "allowedWorkflows", "SDD, fake-workflow")).rejects.toThrow(
+      'Unsupported workflow in allowedWorkflows: "fake-workflow"',
+    );
+  });
+
+  it("setConfigValue rejects an empty allowedWorkflows list", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    await expect(setConfigValue(tmp, "allowedWorkflows", "   ")).rejects.toThrow(
+      "allowedWorkflows must contain at least one workflow",
+    );
   });
 
   it("readConfig returns undefined (not throws) when config.json is corrupted", async () => {

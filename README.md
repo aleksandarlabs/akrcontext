@@ -96,6 +96,7 @@ Workflow defaults live in `.akrctx/config.json` so the agent and CLI share the s
 akrctx config show
 akrctx config set defaultWorkflow task-fit
 akrctx config set defaultWorkflow SDD+TDD
+akrctx config set allowedWorkflows SDD,TDD,fast-patch
 akrctx config set requireWorkflowReason true
 akrctx config set contextBudget proportional
 ```

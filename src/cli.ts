@@ -214,7 +214,7 @@ export async function main(argv = process.argv): Promise<void> {
       .description("Set a akrctx config default.")
       .argument(
         "<key>",
-        "config key (defaultWorkflow | defaultTarget | requireTaskCapsule | requireWorkflowReason | contextBudget)",
+        "config key (defaultWorkflow | defaultTarget | allowedWorkflows | requireTaskCapsule | requireWorkflowReason | contextBudget)",
       )
       .argument("<value>", "new value"),
     false,

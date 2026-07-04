@@ -20,6 +20,7 @@ akrctx config show
 akrctx config set defaultWorkflow task-fit
 akrctx config set defaultWorkflow SDD+TDD
 akrctx config set defaultTarget codex
+akrctx config set allowedWorkflows SDD,TDD,fast-patch
 akrctx config set requireTaskCapsule true
 akrctx config set requireWorkflowReason true
 akrctx config set contextBudget proportional
@@ -38,6 +39,31 @@ Use a concrete workflow when the whole project should bias toward that process u
     "requireTaskCapsule": true,
     "requireWorkflowReason": true,
     "contextBudget": "proportional"
+  }
+}
+```
+
+## Allowed Workflows
+
+`defaults.allowedWorkflows` restricts which workflows the agent (and the CLI `akrctx task`) may use. By default it includes every workflow.
+
+```bash
+akrctx config set allowedWorkflows SDD,TDD
+akrctx config set allowedWorkflows "SDD+TDD, SDD+EDD, fast-patch"
+```
+
+Values are comma- or space-separated and normalized automatically. Invalid values are rejected.
+
+Behavior:
+
+- An explicit `--workflow` that is not allowed is rejected.
+- A configured `defaultWorkflow` that is not allowed is rejected as a misconfiguration.
+- When `task-fit` recommends a disallowed workflow, the CLI falls back to the first allowed workflow and records the reason in the task capsule.
+
+```json
+{
+  "defaults": {
+    "allowedWorkflows": ["SDD", "TDD", "fast-patch"]
   }
 }
 ```

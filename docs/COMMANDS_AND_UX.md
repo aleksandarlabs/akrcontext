@@ -171,12 +171,15 @@ akrctx config show
 akrctx config set defaultWorkflow task-fit
 akrctx config set defaultWorkflow SDD+TDD
 akrctx config set defaultTarget codex
+akrctx config set allowedWorkflows SDD,TDD,fast-patch
 akrctx config set requireTaskCapsule true
 akrctx config set requireWorkflowReason true
 akrctx config set contextBudget proportional
 ```
 
 Valid `contextBudget` values: `minimal` | `proportional` | `thorough`.
+
+`allowedWorkflows` accepts a comma- or space-separated list of workflows (e.g. `SDD,TDD,fast-patch`). The list is normalized and deduplicated; invalid workflows are rejected.
 
 ---
 

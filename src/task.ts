@@ -2,6 +2,7 @@ import path from "node:path";
 import { normalizeWorkflow as normalizeConfigWorkflow, readConfig } from "./config.js";
 import { listDirs, pathExists, writePlannedFile } from "./fs-utils.js";
 import type { CommandOptions, TaskWorkflow, Workflow, akrctxConfig } from "./types.js";
+import { workflows } from "./types.js";
 
 export interface TaskResult {
   taskId: string;
@@ -114,11 +115,39 @@ function selectWorkflow(
   explicitWorkflow: string | undefined,
   config: akrctxConfig | undefined,
 ): WorkflowSelection {
+  const allowed = config?.defaults.allowedWorkflows ?? [...workflows];
+
   const explicit = normalizeWorkflow(explicitWorkflow);
-  if (explicit) return { workflow: explicit, reason: "explicit CLI override" };
-  if (config?.defaults.workflow && config.defaults.workflow !== "task-fit")
+  if (explicit) {
+    assertWorkflowAllowed(explicit, allowed);
+    return { workflow: explicit, reason: "explicit CLI override" };
+  }
+
+  if (config?.defaults.workflow && config.defaults.workflow !== "task-fit") {
+    assertWorkflowAllowed(config.defaults.workflow, allowed);
     return { workflow: config.defaults.workflow, reason: "project default" };
-  return recommendWorkflow(description);
+  }
+
+  const recommended = recommendWorkflow(description);
+  if (isWorkflowAllowed(recommended.workflow, allowed)) {
+    return recommended;
+  }
+
+  const fallback = allowed[0];
+  return {
+    workflow: fallback,
+    reason: `${recommended.reason} (not in allowedWorkflows; fell back to ${fallback})`,
+  };
+}
+
+function isWorkflowAllowed(workflow: TaskWorkflow, allowed: Workflow[]): boolean {
+  return allowed.includes(workflow as Workflow);
+}
+
+function assertWorkflowAllowed(workflow: Workflow, allowed: Workflow[]): void {
+  if (!allowed.includes(workflow)) {
+    throw new Error(`Workflow "${workflow}" is not in allowedWorkflows. Allowed values: ${allowed.join(", ")}.`);
+  }
 }
 
 function taskMarkdown(taskId: string, description: string, selection: WorkflowSelection): string {
