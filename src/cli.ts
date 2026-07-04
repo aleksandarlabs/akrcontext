@@ -411,6 +411,7 @@ export async function main(argv = process.argv): Promise<void> {
           "They are platform-specific and change over time.",
         ].join("\n"),
       ),
+    false,
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
     const result = await runJudgeEnable(options);
