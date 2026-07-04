@@ -114,7 +114,6 @@ export interface DetectionResult {
 export interface InitResult {
   target: TargetOption;
   selectedTargets: Target[];
-  fallbackUsed: boolean;
   detection: DetectionResult;
   writes: WriteResult[];
   conflicts: string[];

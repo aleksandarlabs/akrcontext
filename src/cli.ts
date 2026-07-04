@@ -606,9 +606,6 @@ function printInit(result: InitResult, options: CommandOptions): void {
   const targetList = result.selectedTargets.map((t) => bold(t)).join(", ");
   log(`${bold(`${verb}:`)} akrctx → ${targetList}`);
 
-  if (result.fallbackUsed) {
-    log(gray("  No target specified and none detected — defaulted to codex."));
-  }
   if (result.detection.detected.length > 0) {
     log(gray(`  Detected existing setup: ${result.detection.detected.join(", ")}`));
   }

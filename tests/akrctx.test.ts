@@ -224,11 +224,19 @@ describe("akrctx init", () => {
     expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
   });
 
-  it("defaults to codex in non-interactive mode with no detected target", async () => {
-    const result = await runInit({ cwd: tmp, dryRun: true, nonInteractive: true });
+  it("fails instead of silently defaulting to codex in non-interactive mode with no detected target", async () => {
+    await expect(runInit({ cwd: tmp, dryRun: true, nonInteractive: true })).rejects.toThrow(
+      "No agent setup detected and no --target given.",
+    );
+  });
 
-    expect(result.target).toBe("codex");
-    expect(result.fallbackUsed).toBe(true);
+  it("fails in non-interactive mode when multiple targets are detected and none is given", async () => {
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Codex\n", "utf8");
+    await writeFile(path.join(tmp, "CLAUDE.md"), "# Claude\n", "utf8");
+
+    await expect(runInit({ cwd: tmp, dryRun: true, nonInteractive: true })).rejects.toThrow(
+      "Multiple agent setups detected",
+    );
   });
 });
 
