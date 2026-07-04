@@ -511,6 +511,23 @@ describe("task and compile", () => {
     expect(compiled.outputPath).toContain("codex.md");
   });
 
+  it("recompiling without --force still regenerates a stale export (derived artifact)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+    await runCompile(task.taskId, { cwd: tmp, target: "codex", nonInteractive: true });
+
+    await writeFile(
+      path.join(tmp, task.taskDir, "task.md"),
+      "# TASK-001\n\n## Goal\n\nUpdated goal text after edit\n",
+      "utf8",
+    );
+
+    await runCompile(task.taskId, { cwd: tmp, target: "codex", nonInteractive: true });
+
+    const brief = await readFile(path.join(tmp, task.taskDir, "exports/codex.md"), "utf8");
+    expect(brief).toContain("Updated goal text after edit");
+  });
+
   it("compile throws when task id does not exist", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
