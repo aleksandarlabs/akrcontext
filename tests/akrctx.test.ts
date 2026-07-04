@@ -15,6 +15,7 @@ import { runStatus } from "../src/status.js";
 import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify } from "../src/task.js";
 import { workflows } from "../src/types.js";
 import { CLI_VERSION } from "../src/version.js";
+import { lintWiki } from "../src/wiki-lint.js";
 
 let tmp: string;
 
@@ -506,6 +507,43 @@ describe("doctor", () => {
     const gaps = await readFile(path.join(tmp, ".akrctx/wiki/gaps.md"), "utf8");
     expect(gaps).toContain("Wiki lint: broken links");
     expect(gaps).toContain("Wiki lint: missing timestamps");
+  });
+});
+
+// ── wiki-lint ────────────────────────────────────────────────────────────────
+
+describe("wiki-lint", () => {
+  it("does not flag a valid timestamp when frontmatter uses CRLF line endings", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/\n/g, "\r\n"), "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.missingTimestamps.some((issue) => issue.file.includes("architecture.md"))).toBe(false);
+  });
+
+  it("does not flag a link with an anchor fragment as broken", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, `${arch}\n[Quick Reference](/wiki/overview.md#quick-reference)\n`, "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.brokenLinks.some((issue) => issue.message.includes("overview.md#quick-reference"))).toBe(false);
+  });
+
+  it("flags a link with an anchor fragment to a missing file as broken", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, `${arch}\n[Missing](/wiki/missing.md#x)\n`, "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.brokenLinks.some((issue) => issue.message.includes("missing.md#x"))).toBe(true);
   });
 });
 
