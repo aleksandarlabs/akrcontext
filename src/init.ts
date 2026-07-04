@@ -91,7 +91,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       ),
     ),
     Promise.all(
-      targets.map((targetName) =>
+      selectedTargets.map((targetName) =>
         writeFile(
           `.akrctx/targets/${targetName}.md`,
           targetReferenceTemplates[targetName],

@@ -265,6 +265,35 @@ describe("akrctx init", () => {
   });
 });
 
+describe("target reference files", () => {
+  it("writes only the selected target's reference file", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/claude.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/codex.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/copilot.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/pi.md"))).toBe(false);
+  });
+
+  it("doctor does not flag unselected targets' reference files as missing", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.readiness).toBe(100);
+    expect(result.missing).not.toContain(".akrctx/targets/codex.md");
+  });
+
+  it("doctor flags a missing target reference file for an installed target", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/targets/claude.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/targets/claude.md");
+  });
+});
+
 // ── detection ────────────────────────────────────────────────────────────────
 
 describe("target detection", () => {

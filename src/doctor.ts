@@ -3,7 +3,7 @@ import path from "node:path";
 import { readConfig, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
-import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
+import { neutralRequired, protectedFiles, targetReferenceFile, targetRequired } from "./harness-files.js";
 import { runInit } from "./init.js";
 import {
   agentSetupTemplate,
@@ -138,6 +138,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const missing = await getMissing(cwd, [
     ...neutralRequired,
     ...installedTargets.flatMap((target) => targetRequired[target]),
+    ...installedTargets.map(targetReferenceFile),
   ]);
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const policyGaps = await getPolicyGaps(cwd);
