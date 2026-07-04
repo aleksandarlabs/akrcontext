@@ -78,9 +78,18 @@ describe("CLI layer — main(argv)", () => {
     await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
     const { logs, restore } = captureLogs();
     try {
-      // Uses the backwards-compatible positional form (`akrctx task <description>`)
-      // since the `task create` subcommand shares option instances with the
-      // parent command's fallback action (see D4 dedup note).
+      await main(["node", "akrctx", "task", "create", "Fix auth bug", "--json"]);
+    } finally {
+      restore();
+    }
+    const parsed = JSON.parse(logs.join("\n"));
+    expect(parsed.taskId).toBe("TASK-001");
+  });
+
+  it("task <description> --json (backwards-compatible positional form) creates a task capsule", async () => {
+    await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
+    const { logs, restore } = captureLogs();
+    try {
       await main(["node", "akrctx", "task", "Fix auth bug", "--json"]);
     } finally {
       restore();

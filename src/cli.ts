@@ -268,13 +268,17 @@ export async function main(argv = process.argv): Promise<void> {
 
   addCommon(
     taskCmd
-      .command("create <description>")
+      .command("create [description]", { isDefault: true })
       .description("Create a akrctx task capsule for the given description.")
       .option(
         "--workflow <workflow>",
         "override workflow: fast-patch | research-first | SDD | TDD | EDD | SDD+TDD | SDD+EDD | TDD+EDD",
       ),
-  ).action(async (description: string, raw) => {
+  ).action(async (description: string | undefined, raw) => {
+    if (!description) {
+      taskCmd.help();
+      return;
+    }
     await handleTaskCreate(description, raw);
   });
 
@@ -332,23 +336,6 @@ export async function main(argv = process.argv): Promise<void> {
       log(`${minus()} ${file(result.taskDir)}`);
     },
   );
-
-  // Backwards-compatible parent command: akrctx task "description"
-  addCommon(
-    taskCmd
-      .argument("[description]", "what you want to build or fix")
-      .option(
-        "--workflow <workflow>",
-        "override workflow: fast-patch | research-first | SDD | TDD | EDD | SDD+TDD | SDD+EDD | TDD+EDD",
-      ),
-    false,
-  ).action(async (description: string | undefined, raw) => {
-    if (!description) {
-      taskCmd.help();
-      return;
-    }
-    await handleTaskCreate(description, raw);
-  });
 
   // ── compile ───────────────────────────────────────────────────────────────
   addCommon(
