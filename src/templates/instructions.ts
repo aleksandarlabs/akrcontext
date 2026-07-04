@@ -72,7 +72,7 @@ ${body}
 const initBody =
   "Detect existing Codex, Claude, Copilot, and Pi Code setup. Preserve all user-authored instruction files. Add missing akrctx structure and create suggested files for conflicts.";
 const doctorBody =
-  "Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Do not implement product features during doctor.";
+  "Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Treat the wiki as a living artifact: add architecture patterns, conventions, testing commands, and decisions as you discover them. Do not implement product features during doctor.";
 const taskBody =
   "Turn the request into a task capsule with goal, scope, context, explicit workflow choice, acceptance criteria, validation commands, and an implementation brief. Do not invent unknowns; record open questions.";
 const reviewBody =
@@ -147,7 +147,7 @@ offer the user the option to invoke the \`akrctx-judge\` subagent for independen
 The judge reads the task capsule and the changed code and reports APPROVED / NEEDS CHANGES / BLOCKED.
 Do not invoke the judge automatically — always wait for explicit user confirmation.`;
 const writePolicyBody =
-  "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
+  "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Keep the wiki alive: update architecture.md, conventions.md, testing.md, and decisions.md as the project evolves. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
 
 const sharedSkills = {
   "akrctx-init": ["Use when installing or reviewing the akrctx harness in a repository.", initBody],

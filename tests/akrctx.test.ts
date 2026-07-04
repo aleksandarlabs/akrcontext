@@ -46,6 +46,27 @@ describe("akrctx init", () => {
     expect(await pathExists(path.join(tmp, ".akrctx/wiki/write-policy.md"))).toBe(true);
   });
 
+  it("creates wiki pages with OKF-style frontmatter", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const architecture = await readFile(path.join(tmp, ".akrctx/wiki/architecture.md"), "utf8");
+    expect(architecture).toMatch(/^---\n/);
+    expect(architecture).toContain("type: akrctx-wiki-architecture");
+    expect(architecture).toContain("tags:");
+
+    const overview = await readFile(path.join(tmp, ".akrctx/wiki/overview.md"), "utf8");
+    expect(overview).toContain("type: akrctx-wiki-overview");
+
+    const index = await readFile(path.join(tmp, ".akrctx/wiki/index.md"), "utf8");
+    expect(index).toMatch(/^---\n/);
+    expect(index).toContain("type: akrctx-wiki-index");
+    expect(index).toContain("[Overview](/wiki/overview.md)");
+
+    const log = await readFile(path.join(tmp, ".akrctx/wiki/log.md"), "utf8");
+    expect(log).toContain("type: akrctx-wiki-log");
+    expect(log).toMatch(/^---\n[\s\S]*# Log\n\n## \d{4}-\d{2}-\d{2}\n- akrctx initialized\.\n$/);
+  });
+
   it("creates an active Codex harness when AGENTS.md does not exist", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -397,6 +418,65 @@ describe("doctor", () => {
     expect(parsed.ci.failureCount).toBeGreaterThan(0);
     expect(process.exitCode).toBe(1);
     process.exitCode = previousExitCode;
+  });
+
+  it("writes gaps.md and recommendations.md with OKF-style frontmatter", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.installed).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/wiki/gaps.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/wiki/recommendations.md"))).toBe(true);
+
+    const gaps = await readFile(path.join(tmp, ".akrctx/wiki/gaps.md"), "utf8");
+    expect(gaps).toMatch(/^---\n/);
+    expect(gaps).toContain("type: akrctx-wiki-gaps");
+    expect(gaps).toContain("# Gaps");
+
+    const recommendations = await readFile(path.join(tmp, ".akrctx/wiki/recommendations.md"), "utf8");
+    expect(recommendations).toMatch(/^---\n/);
+    expect(recommendations).toContain("type: akrctx-wiki-recommendations");
+    expect(recommendations).toContain("# Recommendations");
+  });
+
+  it("partitions gaps into missing files, config gaps, and policy gaps", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), { force: true });
+
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.enforcement.requireTaskCapsule = false;
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    const gaps = await readFile(path.join(tmp, ".akrctx/wiki/gaps.md"), "utf8");
+    expect(gaps).toContain("## Missing files");
+    expect(gaps).toContain(".agents/skills/akrctx-workflow/SKILL.md");
+    expect(gaps).toContain("## Policy gaps");
+    expect(gaps).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
+  });
+
+  it("reports wiki lint issues including broken links and missing timestamps", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    await rm(path.join(tmp, ".akrctx/wiki/overview.md"), { force: true });
+
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/^timestamp:.*\n/m, ""), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.wikiLint?.brokenLinks.length).toBeGreaterThan(0);
+    expect(result.wikiLint?.brokenLinks.some((issue) => issue.message.includes("/wiki/overview.md"))).toBe(true);
+    expect(result.wikiLint?.missingTimestamps.length).toBeGreaterThan(0);
+    expect(result.wikiLint?.missingTimestamps.some((issue) => issue.file.includes("architecture.md"))).toBe(true);
+
+    const gaps = await readFile(path.join(tmp, ".akrctx/wiki/gaps.md"), "utf8");
+    expect(gaps).toContain("Wiki lint: broken links");
+    expect(gaps).toContain("Wiki lint: missing timestamps");
   });
 });
 
