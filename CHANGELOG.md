@@ -7,6 +7,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-07-04
+
+Audit hardening release. Fixes critical and medium-severity bugs found in a
+security/quality/DX audit, tightens security-relevant defaults, and cleans up
+a few DX rough edges. See `docs/AUDIT-PLAN.md` for the full rationale behind
+each change.
+
+### Fixed — critical
+
+- `akrctx doctor --fix` actually repairs the harness now: the CLI layer was
+  dropping the `--fix` flag before it reached `runDoctor`, so `--fix` was a
+  silent no-op from the command line.
+- `selectWorkflow` no longer filters out the "UI review" task recommendation
+  against `allowedWorkflows` — it's a task-level recommendation, not a
+  selectable workflow default, so it always passes through.
+- `akrctx compile` always regenerates the export brief. Previously a stale
+  export was silently preserved without `--force` while the CLI still printed
+  "Compiled: ...".
+- `akrctx config show` and `config set` now distinguish a corrupt
+  `.akrctx/config.json` (throws a clear error) from a missing one (suggests
+  `akrctx init`) — previously both cases reported "not found", and following
+  that advice on a corrupt config would have silently overwritten it.
+- `akrctx doctor --ci` no longer fails when the installed harness version
+  drifts from the current CLI version. Doctor suggestions are now structured
+  `{ text, severity }` objects (`"error" | "warning" | "info"`), and `--ci`
+  only fails on `severity: "error"`. **Breaking for JSON consumers:**
+  `DoctorResult.suggestions` changed from `string[]` to `Suggestion[]`.
+
+### Fixed — medium
+
+- `doctor --fix` repairs every installed target, not just the first.
+- `doctor --fix` only reports `.akrctx/config.json` / `.akrctx/policy.json`
+  as "fixed" when the merge actually changed something.
+- Wiki lint handles CRLF frontmatter and links with an anchor fragment
+  (`file.md#anchor`) or a markdown title (`file.md "Title"`).
+- `akrctx init` fails with a clear error instead of silently defaulting to
+  `codex` when run non-interactively with no `--target` and no (or multiple)
+  detected setups. **Breaking:** scripts relying on the old silent-fallback
+  behavior must now pass an explicit `--target`.
+- Task capsules (`listTasks`, `runStatus`) sort numerically by `TASK-XXX`
+  instead of lexicographically (`TASK-010` no longer sorts before `TASK-002`).
+- `judge enable --dry-run` prints "would enable (dry-run)" instead of
+  claiming the judge was enabled; `runJudgeStatus` no longer scans the
+  filesystem twice.
+- `akrctx remove` dry-run preview now matches what `--force` actually does,
+  including directories that would be pruned once empty. Clarified
+  `--target all` (files for every target) vs `--all` (also removes
+  `.akrctx/`) in the command's help text.
+
+### Security
+
+- Documented in `README.md` that `policy.json`, `blockedReadPatterns`, and
+  `protectedFiles` are prompt-level/convention controls, not technical
+  enforcement — they do not resist prompt injection or a malicious agent.
+- `akrctx init` now warns (`InitResult.policyWarnings`) when a template pack
+  weakens enforcement (changes `mergeStrategy` or flips an `enforcement.*`
+  flag from `true` to `false`). It does not block the pack — some enterprise
+  packs relax enforcement on purpose — it just makes the change visible.
+- `akrctx remove --all` no longer deletes task capsules under
+  `.akrctx/tasks/`. **Breaking:** if you relied on `--all` fully wiping
+  `.akrctx/`, pass the new `--purge-tasks` flag alongside it.
+
+### Changed — DX
+
+- `akrctx upgrade` flags akrctx-owned files whose content differs from the
+  current template with `reason: "overwritten (had local modifications)"`
+  and lists them in a "review with git diff" warning. There is no stored
+  hash of the previous template version, so this can't distinguish a
+  genuine local edit from an old template version — commit before upgrading.
+- Removed the leftover "tetris" keyword from workflow recommendation and
+  reordered precedence so bug/test signals (TDD) are checked before domain
+  keywords (SDD) — "fix the api bug" now recommends TDD instead of SDD.
+- `akrctx init` writes `.akrctx/targets/<t>.md` only for the selected
+  target(s) instead of all four; `akrctx doctor` requires it only for
+  installed targets.
+- Deduplicated the `task create <description>` / `task <description>`
+  handlers in the CLI (no behavior change).
+- `judge enable` no longer accepts a `--target` flag it never used.
+- `akrctx doctor`'s readiness score is now weighted by issue category
+  instead of a flat per-item penalty: missing harness file (-5, cap 40),
+  config/policy gap (-3, cap 20), wiki-lint issue (-1, cap 10), conflict
+  (-10, cap 40), no target installed (-25). Wiki-lint issues no longer
+  appear in `DoctorResult.missing` (they're `warning`-severity suggestions
+  instead), so they no longer fail `doctor --ci`.
+
 ### Added
 
 - `akrctx config set allowedWorkflows` to restrict which workflows the CLI and agent may use.

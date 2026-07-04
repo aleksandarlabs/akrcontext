@@ -104,6 +104,7 @@ export interface CommandOptions {
   templatePack?: string;
   cwd?: string;
   nonInteractive?: boolean;
+  upgrade?: boolean;
 }
 
 export interface DetectionResult {
@@ -114,10 +115,17 @@ export interface DetectionResult {
 export interface InitResult {
   target: TargetOption;
   selectedTargets: Target[];
-  fallbackUsed: boolean;
   detection: DetectionResult;
   writes: WriteResult[];
   conflicts: string[];
+  policyWarnings: string[];
+}
+
+export type SuggestionSeverity = "info" | "warning" | "error";
+
+export interface Suggestion {
+  text: string;
+  severity: SuggestionSeverity;
 }
 
 export interface DoctorResult {
@@ -127,7 +135,7 @@ export interface DoctorResult {
   installedTargets: Target[];
   missing: string[];
   conflicts: string[];
-  suggestions: string[];
+  suggestions: Suggestion[];
   fixed?: string[];
   wikiLint?: WikiLintResult;
 }

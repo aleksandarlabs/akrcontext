@@ -83,14 +83,9 @@ export async function runJudgeStatus(options: CommandOptions): Promise<JudgeStat
   const installedTargets = config.targets.filter(hasJudgeFiles);
   const allFiles = installedTargets.flatMap((t) => Object.keys(judgeFilesByTarget[t]));
 
-  const [presentFiles, missingFiles] = await Promise.all([
-    Promise.all(allFiles.map(async (f) => ({ f, exists: await pathExists(path.join(cwd, f)) }))).then((results) =>
-      results.filter((r) => r.exists).map((r) => r.f),
-    ),
-    Promise.all(allFiles.map(async (f) => ({ f, exists: await pathExists(path.join(cwd, f)) }))).then((results) =>
-      results.filter((r) => !r.exists).map((r) => r.f),
-    ),
-  ]);
+  const checked = await Promise.all(allFiles.map(async (f) => ({ f, exists: await pathExists(path.join(cwd, f)) })));
+  const presentFiles = checked.filter((r) => r.exists).map((r) => r.f);
+  const missingFiles = checked.filter((r) => !r.exists).map((r) => r.f);
 
   return {
     enabled: config.judge?.enabled ?? false,

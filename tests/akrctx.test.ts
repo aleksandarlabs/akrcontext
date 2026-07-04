@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli.js";
 import { runCompile } from "../src/compile.js";
-import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js";
+import { normalizeWorkflow, readConfig, readConfigStrict, setConfigValue } from "../src/config.js";
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
@@ -12,9 +12,10 @@ import { runInit } from "../src/init.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
-import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify } from "../src/task.js";
+import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
 import { workflows } from "../src/types.js";
 import { CLI_VERSION } from "../src/version.js";
+import { lintWiki } from "../src/wiki-lint.js";
 
 let tmp: string;
 
@@ -178,6 +179,31 @@ describe("akrctx init", () => {
     expect(await pathExists(path.join(tmp, ".github/instructions/pepe.instructions.md"))).toBe(true);
   });
 
+  it("warns when a template pack weakens enforcement policy", async () => {
+    const pack = path.join(tmp, "weak-template");
+    await mkdir(pack, { recursive: true });
+    await writeFile(
+      path.join(pack, "akrctx-pack.json"),
+      JSON.stringify({ name: "weak-template", version: "1.0.0", akrctxPackVersion: 1 }),
+      "utf8",
+    );
+    await writeFile(
+      path.join(pack, "policy.json"),
+      JSON.stringify({ enforcement: { requireTaskCapsule: false } }),
+      "utf8",
+    );
+
+    const result = await runInit({ cwd: tmp, target: "copilot", templatePack: pack, nonInteractive: true });
+
+    expect(result.policyWarnings.some((w) => w.includes("enforcement.requireTaskCapsule"))).toBe(true);
+  });
+
+  it("reports no policy warnings when a template pack does not touch policy", async () => {
+    const result = await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.policyWarnings).toEqual([]);
+  });
+
   it("rejects root-level template pack skills", async () => {
     const pack = path.join(tmp, "bad-template");
     await mkdir(path.join(pack, "skills/pepe-front"), { recursive: true });
@@ -223,11 +249,48 @@ describe("akrctx init", () => {
     expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
   });
 
-  it("defaults to codex in non-interactive mode with no detected target", async () => {
-    const result = await runInit({ cwd: tmp, dryRun: true, nonInteractive: true });
+  it("fails instead of silently defaulting to codex in non-interactive mode with no detected target", async () => {
+    await expect(runInit({ cwd: tmp, dryRun: true, nonInteractive: true })).rejects.toThrow(
+      "No agent setup detected and no --target given.",
+    );
+  });
 
-    expect(result.target).toBe("codex");
-    expect(result.fallbackUsed).toBe(true);
+  it("fails in non-interactive mode when multiple targets are detected and none is given", async () => {
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Codex\n", "utf8");
+    await writeFile(path.join(tmp, "CLAUDE.md"), "# Claude\n", "utf8");
+
+    await expect(runInit({ cwd: tmp, dryRun: true, nonInteractive: true })).rejects.toThrow(
+      "Multiple agent setups detected",
+    );
+  });
+});
+
+describe("target reference files", () => {
+  it("writes only the selected target's reference file", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/claude.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/codex.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/copilot.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx/targets/pi.md"))).toBe(false);
+  });
+
+  it("doctor does not flag unselected targets' reference files as missing", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.readiness).toBe(100);
+    expect(result.missing).not.toContain(".akrctx/targets/codex.md");
+  });
+
+  it("doctor flags a missing target reference file for an installed target", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/targets/claude.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/targets/claude.md");
   });
 });
 
@@ -295,7 +358,7 @@ describe("doctor", () => {
 
     expect(result.installed).toBe(false);
     expect(result.readiness).toBe(0);
-    expect(result.suggestions[0]).toContain("akrctx init");
+    expect(result.suggestions[0].text).toContain("akrctx init");
   });
 
   it("reports policy gaps when required enforcement is relaxed", async () => {
@@ -311,7 +374,7 @@ describe("doctor", () => {
 
     expect(result.missing).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
     expect(result.missing).toContain(".akrctx/policy.json — protectedFiles missing AGENTS.md");
-    expect(result.suggestions.some((suggestion) => suggestion.includes("file(s) missing"))).toBe(true);
+    expect(result.suggestions.some((suggestion) => suggestion.text.includes("file(s) missing"))).toBe(true);
   });
 
   it("reports profile-specific policy gaps", async () => {
@@ -352,6 +415,35 @@ describe("doctor", () => {
 
   it("doctor --ci passes for a complete install", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(writes.join("\n")).toContain("akrctx doctor CI passed");
+    process.exitCode = previousExitCode;
+  });
+
+  it("doctor --ci passes even when installedVersion drifts from CLI_VERSION (warning, not error)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.installedVersion = "0.0.1";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
     const previousCwd = process.cwd();
     const previousExitCode = process.exitCode;
     const writes: string[] = [];
@@ -420,6 +512,46 @@ describe("doctor", () => {
     process.exitCode = previousExitCode;
   });
 
+  it("doctor --ci passes when the only issue is a wiki-lint warning, not an error", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/^timestamp:.*\n/m, ""), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(result.missing.some((m) => m.includes("architecture.md"))).toBe(false);
+    expect(result.suggestions.some((s) => s.severity === "warning" && s.text.includes("Wiki lint"))).toBe(true);
+
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const originalLog = console.log;
+    console.log = () => {};
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+    expect(process.exitCode).toBeUndefined();
+    process.exitCode = previousExitCode;
+  });
+
+  it("weights readiness score by category: wiki-lint issues cost less than missing harness files", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/^timestamp:.*\n/m, ""), "utf8");
+
+    const wikiLintOnly = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(wikiLintOnly.readiness).toBe(99);
+
+    await rm(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), { force: true });
+    const withMissingHarnessFile = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(withMissingHarnessFile.readiness).toBeLessThan(wikiLintOnly.readiness);
+  });
+
   it("writes gaps.md and recommendations.md with OKF-style frontmatter", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -480,6 +612,43 @@ describe("doctor", () => {
   });
 });
 
+// ── wiki-lint ────────────────────────────────────────────────────────────────
+
+describe("wiki-lint", () => {
+  it("does not flag a valid timestamp when frontmatter uses CRLF line endings", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/\n/g, "\r\n"), "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.missingTimestamps.some((issue) => issue.file.includes("architecture.md"))).toBe(false);
+  });
+
+  it("does not flag a link with an anchor fragment as broken", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, `${arch}\n[Quick Reference](/wiki/overview.md#quick-reference)\n`, "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.brokenLinks.some((issue) => issue.message.includes("overview.md#quick-reference"))).toBe(false);
+  });
+
+  it("flags a link with an anchor fragment to a missing file as broken", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, `${arch}\n[Missing](/wiki/missing.md#x)\n`, "utf8");
+
+    const result = await lintWiki(tmp);
+
+    expect(result.brokenLinks.some((issue) => issue.message.includes("missing.md#x"))).toBe(true);
+  });
+});
+
 // ── task and compile ─────────────────────────────────────────────────────────
 
 describe("task and compile", () => {
@@ -511,6 +680,23 @@ describe("task and compile", () => {
     expect(compiled.outputPath).toContain("codex.md");
   });
 
+  it("recompiling without --force still regenerates a stale export (derived artifact)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+    await runCompile(task.taskId, { cwd: tmp, target: "codex", nonInteractive: true });
+
+    await writeFile(
+      path.join(tmp, task.taskDir, "task.md"),
+      "# TASK-001\n\n## Goal\n\nUpdated goal text after edit\n",
+      "utf8",
+    );
+
+    await runCompile(task.taskId, { cwd: tmp, target: "codex", nonInteractive: true });
+
+    const brief = await readFile(path.join(tmp, task.taskDir, "exports/codex.md"), "utf8");
+    expect(brief).toContain("Updated goal text after edit");
+  });
+
   it("compile throws when task id does not exist", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -535,6 +721,22 @@ describe("task and compile", () => {
     const task = await runTask("Define contract", { cwd: tmp, workflow: "sdd-tdd", nonInteractive: true });
 
     expect(task.workflow).toBe("SDD+TDD");
+  });
+
+  it("recommends UI review for UI-shaped descriptions", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("redesign the settings page", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("UI review");
+  });
+
+  it("keeps UI review even when allowedWorkflows excludes it", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "allowedWorkflows", "TDD");
+
+    const task = await runTask("redesign the settings page", { cwd: tmp, nonInteractive: true });
+
+    expect(task.workflow).toBe("UI review");
   });
 
   it("uses TDD+EDD for game tasks under task-fit fallback", async () => {
@@ -602,6 +804,22 @@ describe("task and compile", () => {
     expect(tasks[0].description).toContain("Fix auth bug");
     expect(tasks[1].taskId).toBe("TASK-002");
     expect(tasks[1].description).toContain("Create invoice endpoint");
+  });
+
+  it("listTasks sorts numerically for TASK-002/010/1000", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    for (const n of [10, 1000, 2]) {
+      await mkdir(path.join(tmp, ".akrctx/tasks", `TASK-${String(n).padStart(3, "0")}-x`), { recursive: true });
+    }
+
+    const tasks = await listTasks(tmp);
+
+    expect(tasks.map((t) => t.taskId)).toEqual(["TASK-002", "TASK-010", "TASK-1000"]);
+  });
+
+  it("taskNumber extracts the numeric id", () => {
+    expect(taskNumber("TASK-002-fix-bug")).toBe(2);
+    expect(taskNumber("TASK-1000-x")).toBe(1000);
   });
 
   it("showTask returns task files and workflow", async () => {
@@ -707,6 +925,40 @@ describe("config", () => {
     const config = await readConfig(tmp);
     expect(config).toBeUndefined();
   });
+
+  it("readConfigStrict throws on corrupt JSON instead of returning undefined", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+
+    await expect(readConfigStrict(tmp)).rejects.toThrow("invalid JSON");
+  });
+
+  it("readConfigStrict returns undefined when config.json is simply missing", async () => {
+    await expect(readConfigStrict(tmp)).resolves.toBeUndefined();
+  });
+
+  it("setConfigValue throws instead of silently overwriting a corrupt config", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+
+    await expect(setConfigValue(tmp, "defaultWorkflow", "TDD")).rejects.toThrow("invalid JSON");
+  });
+
+  it("CLI config show throws a clear error on corrupt JSON", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    console.log = () => {};
+
+    try {
+      process.chdir(tmp);
+      await expect(main(["node", "akrctx", "config", "show"])).rejects.toThrow("invalid JSON");
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+  });
 });
 
 // ── normalizeWorkflow ────────────────────────────────────────────────────────
@@ -755,6 +1007,16 @@ describe("recommendWorkflow — word boundary correctness", () => {
 
   it("does not match 'test' inside 'latest'", () => {
     const { workflow } = recommendWorkflow("upgrade to latest version");
+    expect(workflow).toBe("fast-patch");
+  });
+
+  it("prioritizes bug signals over domain keywords: 'fix the api bug' matches TDD, not SDD", () => {
+    const { workflow } = recommendWorkflow("fix the api bug");
+    expect(workflow).toBe("TDD");
+  });
+
+  it("no longer treats 'tetris' as a game/interactive keyword on its own", () => {
+    const { workflow } = recommendWorkflow("build a tetris clone");
     expect(workflow).toBe("fast-patch");
   });
 
@@ -824,6 +1086,17 @@ describe("status", () => {
 
     expect(result.installed).toBe(false);
     expect(result.taskCount).toBe(0);
+  });
+
+  it("orders recentTaskIds numerically (not lexicographically) for TASK-002/010/1000", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    for (const n of [2, 10, 1000]) {
+      await mkdir(path.join(tmp, ".akrctx/tasks", `TASK-${String(n).padStart(3, "0")}-x`), { recursive: true });
+    }
+
+    const result = await runStatus({ cwd: tmp, nonInteractive: true });
+
+    expect(result.recentTaskIds).toEqual(["TASK-1000", "TASK-010", "TASK-002"]);
   });
 
   it("shows installed targets and task count after init and task creation", async () => {
@@ -930,11 +1203,52 @@ describe("remove", () => {
     expect(await pathExists(path.join(tmp, ".github/skills/akrctx-doctor"))).toBe(true);
   });
 
+  it("dry-run planned matches the actual run's planned for a real target", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const dryRunResult = await runRemove({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+    const realResult = await runRemove({ cwd: tmp, target: "codex", force: true, nonInteractive: true });
+
+    expect(dryRunResult.planned.slice().sort()).toEqual(realResult.planned.slice().sort());
+  });
+
   it("--all --force removes .akrctx directory", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
     await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true } as Parameters<typeof runRemove>[0]);
 
+    expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
+  });
+
+  it("--all --force preserves .akrctx/tasks/ when task capsules exist", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await runRemove({
+      cwd: tmp,
+      force: true,
+      all: true,
+      nonInteractive: true,
+    } as Parameters<typeof runRemove>[0]);
+
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
+    expect(result.protected.some((p) => p.includes(".akrctx/tasks/"))).toBe(true);
+  });
+
+  it("--all --purge-tasks --force removes everything including task capsules", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    await runRemove({
+      cwd: tmp,
+      force: true,
+      all: true,
+      purgeTasks: true,
+      nonInteractive: true,
+    } as Parameters<typeof runRemove>[0]);
+
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(false);
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
   });
 });
@@ -997,6 +1311,28 @@ describe("upgrade", () => {
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
   });
 
+  it("flags an overwritten skill file that had local edits, with its write reason", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const skillPath = path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md");
+    await writeFile(skillPath, `${await readFile(skillPath, "utf8")}\n<!-- local edit -->\n`, "utf8");
+
+    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+
+    const overwritten = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
+    expect(overwritten?.kind).toBe("update");
+    expect(overwritten?.reason).toBe("overwritten (had local modifications)");
+    expect(await readFile(skillPath, "utf8")).not.toContain("local edit");
+  });
+
+  it("preserves an unchanged skill file during upgrade (no spurious update)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+
+    const unchanged = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
+    expect(unchanged?.kind).toBe("preserve");
+  });
+
   it("doctor detects version drift and suggests upgrade", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -1007,8 +1343,8 @@ describe("upgrade", () => {
 
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
-    expect(result.suggestions.some((s) => s.includes("akrctx upgrade"))).toBe(true);
-    expect(result.suggestions.some((s) => s.includes("0.0.1"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("akrctx upgrade"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("0.0.1"))).toBe(true);
   });
 });
 
@@ -1052,6 +1388,29 @@ describe("judge", () => {
     expect(codexFile).not.toMatch(/^model\s*=/m);
   });
 
+  it("CLI judge enable --dry-run reports 'would enable' instead of claiming success", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.chdir(tmp);
+      await main(["node", "akrctx", "judge", "enable", "--dry-run"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(writes.join("\n")).toContain("would enable (dry-run)");
+    expect(writes.join("\n")).not.toContain("Judge: enabled");
+    const config = await readConfig(tmp);
+    expect(config?.judge?.enabled).toBe(false);
+  });
+
   it("disable sets enabled to false without removing files", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await runJudgeEnable({ cwd: tmp, nonInteractive: true });
@@ -1092,7 +1451,7 @@ describe("judge", () => {
 
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
-    expect(result.suggestions.some((s) => s.includes("akrctx judge enable"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("akrctx judge enable"))).toBe(true);
   });
 });
 
@@ -1142,6 +1501,27 @@ describe("doctor --fix", () => {
     expect(fixed.writePolicy).toBeDefined();
     expect(fixed.blockedReadPatterns).toContain(".env");
     expect(fixed.blockedReadPatterns).toContain("*.pem");
+  });
+
+  it("repairs missing files across all installed targets, not just the first", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    await rm(path.join(tmp, ".claude/skills/akrctx-doctor/SKILL.md"), { force: true });
+    await rm(path.join(tmp, ".pi/skills/akrctx-doctor/SKILL.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed?.some((f) => f.includes(".claude/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(result.fixed?.some((f) => f.includes(".pi/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".claude/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".pi/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
+  it("reports nothing fixed for a healthy setup", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed).toEqual([]);
   });
 
   it("dry-run fix does not write files but reports what would be fixed", async () => {

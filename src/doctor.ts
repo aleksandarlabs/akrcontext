@@ -3,7 +3,7 @@ import path from "node:path";
 import { readConfig, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
-import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
+import { neutralRequired, protectedFiles, targetReferenceFile, targetRequired } from "./harness-files.js";
 import { runInit } from "./init.js";
 import {
   agentSetupTemplate,
@@ -16,6 +16,7 @@ import {
   type CommandOptions,
   type DoctorResult,
   type Profile,
+  type Suggestion,
   type Target,
   type WikiLintResult,
   profiles,
@@ -33,22 +34,35 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
 
   const fixed: string[] = [];
 
-  // Re-create missing harness files for installed targets.
-  const initResult = await runInit({
-    ...options,
-    target: initial.installedTargets[0] ?? "codex",
-    profile: await readProfile(cwd),
-  });
-  for (const write of initResult.writes) {
-    if (write.kind === "create") fixed.push(write.path);
+  // Re-create missing harness files for every installed target. Neutral
+  // files (config.json, wiki, etc.) already exist and are preserved
+  // idempotently by writePlannedFile since --force is not implied here.
+  if (initial.installedTargets.length > 0) {
+    const profile = await readProfile(cwd);
+    for (const target of initial.installedTargets) {
+      const initResult = await runInit({ ...options, target, profile });
+      for (const write of initResult.writes) {
+        if (write.kind === "create") fixed.push(write.path);
+      }
+    }
   }
 
-  // Merge missing config keys with defaults.
-  const config = await readConfig(cwd);
-  if (config) {
-    const normalized = normalizeConfigForFix(config);
-    await writeConfig(cwd, normalized, options.dryRun);
-    if (!options.dryRun) fixed.push(".akrctx/config.json");
+  // Merge missing config keys with defaults — only write and report "fixed"
+  // when the merge actually changes something.
+  const configPath = path.join(cwd, ".akrctx/config.json");
+  if (await pathExists(configPath)) {
+    try {
+      const rawText = await readFile(configPath, "utf8");
+      const raw = JSON.parse(rawText);
+      const normalized = normalizeConfigForFix(raw);
+      const nextText = `${JSON.stringify(normalized, null, 2)}\n`;
+      if (nextText !== rawText) {
+        await writeConfig(cwd, normalized, options.dryRun);
+        if (!options.dryRun) fixed.push(".akrctx/config.json");
+      }
+    } catch {
+      // Invalid JSON — leave untouched here; getConfigGaps surfaces the issue.
+    }
   }
 
   // Merge missing policy keys with defaults.
@@ -66,7 +80,7 @@ async function readProfile(cwd: string): Promise<Profile> {
 }
 
 function normalizeConfigForFix(config: import("./types.js").akrctxConfig): import("./types.js").akrctxConfig {
-  const base = defaultConfig(config.targets.length ? config.targets : ["codex"], config.profile);
+  const base = defaultConfig(config.targets?.length ? config.targets : ["codex"], config.profile);
   return {
     ...base,
     ...config,
@@ -106,8 +120,11 @@ async function fixPolicy(cwd: string, dryRun?: boolean): Promise<boolean> {
       }
     }
 
+    const nextText = `${JSON.stringify(merged, null, 2)}\n`;
+    if (nextText === `${JSON.stringify(raw, null, 2)}\n`) return false;
+
     if (!dryRun) {
-      await writeFile(policyPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+      await writeFile(policyPath, nextText, "utf8");
     }
     return true;
   } catch {
@@ -121,6 +138,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const missing = await getMissing(cwd, [
     ...neutralRequired,
     ...installedTargets.flatMap((target) => targetRequired[target]),
+    ...installedTargets.map(targetReferenceFile),
   ]);
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const policyGaps = await getPolicyGaps(cwd);
@@ -128,16 +146,34 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
   const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
-  const wikiLintMissing = [
-    ...wikiLint.brokenLinks.map((issue) => `${issue.file} — ${issue.message}`),
-    ...wikiLint.missingTimestamps.map((issue) => `${issue.file} — ${issue.message}`),
-  ];
-  const allMissing = [...missing, ...configGaps, ...policyGaps, ...wikiLintMissing];
-  const suggestions = [
+  const wikiLintIssueCount = wikiLint.brokenLinks.length + wikiLint.missingTimestamps.length;
+  // Wiki-lint issues are surfaced via wikiLint/gaps.md and a dedicated
+  // warning-severity suggestion — they no longer count as "missing" (that
+  // would make them CI-failing errors, which is too strict for wiki content).
+  const configPolicyGaps = [...configGaps, ...policyGaps];
+  const allMissing = [...missing, ...configPolicyGaps];
+  const suggestions: Suggestion[] = [
     ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
-    ...(wikiLint.orphans.length ? [`Wiki orphan pages: ${wikiLint.orphans.join(", ")}`] : []),
+    ...(wikiLintIssueCount > 0
+      ? [
+          {
+            text: `Wiki lint found ${wikiLintIssueCount} issue(s) (broken links / missing timestamps). See .akrctx/wiki/gaps.md.`,
+            severity: "warning" as const,
+          },
+        ]
+      : []),
+    ...(wikiLint.orphans.length
+      ? [{ text: `Wiki orphan pages: ${wikiLint.orphans.join(", ")}`, severity: "info" as const }]
+      : []),
   ];
-  const readiness = scoreReadiness(installed, installedTargets, allMissing, conflicts);
+  const readiness = scoreReadiness(
+    installed,
+    installedTargets,
+    missing,
+    configPolicyGaps,
+    wikiLintIssueCount,
+    conflicts,
+  );
 
   const result: DoctorResult = {
     installed,
@@ -302,63 +338,80 @@ function buildSuggestions(
   conflicts: string[],
   installedVersion?: string,
   judgeGap?: string,
-): string[] {
-  const suggestions: string[] = [];
+): Suggestion[] {
+  const suggestions: Suggestion[] = [];
 
   if (!installed) {
-    suggestions.push(
-      "akrctx is not installed. Run `akrctx init --target codex` (or choose interactively with `akrctx init`).",
-    );
+    suggestions.push({
+      text: "akrctx is not installed. Run `akrctx init --target codex` (or choose interactively with `akrctx init`).",
+      severity: "error",
+    });
     return suggestions;
   }
 
   if (installedTargets.length === 0) {
-    suggestions.push(
-      "No target adapter found. Run `akrctx init --target <target>` to install one (codex, claude, copilot, or pi).",
-    );
+    suggestions.push({
+      text: "No target adapter found. Run `akrctx init --target <target>` to install one (codex, claude, copilot, or pi).",
+      severity: "error",
+    });
   }
 
   if (missing.length > 0) {
-    suggestions.push(
-      `${missing.length} file(s) missing. Run \`akrctx init --target ${installedTargets[0] ?? "codex"}\` to restore them.`,
-    );
+    suggestions.push({
+      text: `${missing.length} file(s) missing. Run \`akrctx init --target ${installedTargets[0] ?? "codex"}\` to restore them.`,
+      severity: "error",
+    });
   }
 
   if (conflicts.length > 0) {
-    suggestions.push(
-      "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
-    );
+    suggestions.push({
+      text: "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
+      severity: "error",
+    });
   }
 
   if (judgeGap) {
-    suggestions.push(judgeGap);
+    suggestions.push({ text: judgeGap, severity: "error" });
   }
 
   if (installedVersion && installedVersion !== CLI_VERSION) {
-    suggestions.push(
-      `Harness was installed with akrctx v${installedVersion}. Current CLI is v${CLI_VERSION}. Run \`akrctx upgrade\` to update skill files.`,
-    );
+    suggestions.push({
+      text: `Harness was installed with akrctx v${installedVersion}. Current CLI is v${CLI_VERSION}. Run \`akrctx upgrade\` to update skill files.`,
+      severity: "warning",
+    });
   }
 
   if (suggestions.length === 0) {
-    suggestions.push('Setup is complete. You can create a task capsule with `akrctx task "<description>"`.');
+    suggestions.push({
+      text: 'Setup is complete. You can create a task capsule with `akrctx task "<description>"`.',
+      severity: "info",
+    });
   }
 
   return suggestions;
 }
 
+/**
+ * Weight the readiness score by issue category rather than a single flat
+ * per-item penalty, so a pile of low-severity wiki-lint nits can't drag the
+ * score down as hard as missing harness files or unresolved merge conflicts.
+ */
 function scoreReadiness(
   installed: boolean,
   installedTargets: Target[],
-  missing: string[],
+  missingHarnessFiles: string[],
+  configPolicyGaps: string[],
+  wikiLintIssueCount: number,
   conflicts: string[],
 ): number {
   if (!installed) return 0;
 
   let score = 100;
   if (installedTargets.length === 0) score -= 25;
-  score -= Math.min(missing.length, 20) * 5;
-  score -= Math.min(conflicts.length, 4) * 10;
+  score -= Math.min(missingHarnessFiles.length * 5, 40);
+  score -= Math.min(configPolicyGaps.length * 3, 20);
+  score -= Math.min(wikiLintIssueCount * 1, 10);
+  score -= Math.min(conflicts.length * 10, 40);
   return Math.max(0, Math.min(100, score));
 }
 

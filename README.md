@@ -175,6 +175,16 @@ akrctx preserves existing agent instructions. If `AGENTS.md`, `CLAUDE.md`, or `.
 
 Use `akrctx doctor` to audit the setup and ask your chosen agent to propose a human-approved merge.
 
+## Security Model
+
+`policy.json` (`blockedReadPatterns`, `protectedFiles`, `enforcement.*`) and the write-policy skill are **prompt-level / convention-level controls, not technical enforcement**. They give a cooperative coding agent clear instructions about what not to read or overwrite — they do not sandbox the agent, and they do not resist a malicious or compromised agent, prompt injection, or a template pack designed to weaken them.
+
+Treat akrctx's policy as documentation the agent is expected to follow, not a security boundary. To actually restrict what an agent can read or write, complement it with:
+
+- Your coding agent's own permission system (e.g. Claude Code deny rules, sandboxed tool execution).
+- `.gitignore` / secret-scanning for anything under `blockedReadPatterns` (`.env`, `*.pem`, `credentials/`, etc.) so secrets are not present in the working tree at all.
+- Branch protection / code review for any change touching `.akrctx/policy.json` or a template pack, since both can relax enforcement (see `akrctx init`'s policy-weakening warning).
+
 ## Quality Gates
 
 ```bash

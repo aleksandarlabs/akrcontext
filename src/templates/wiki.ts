@@ -1,4 +1,4 @@
-import type { DoctorResult, WikiLintResult } from "../types.js";
+import type { DoctorResult, Suggestion, WikiLintResult } from "../types.js";
 
 export function wikiFrontmatter(
   type: string,
@@ -56,7 +56,7 @@ ${result.conflicts.length ? result.conflicts.map((conflict) => `- ${conflict}`).
 
 ## Suggested Safe Next Steps
 
-${result.suggestions.map((suggestion) => `- ${suggestion}`).join("\n")}
+${result.suggestions.map((suggestion) => `- [${suggestion.severity}] ${suggestion.text}`).join("\n")}
 `;
 }
 
@@ -83,9 +83,9 @@ export function gapsTemplate(sections: GapSection[], wikiLint?: WikiLintResult):
 ${body}`;
 }
 
-export function recommendationsTemplate(recommendations: string[]): string {
+export function recommendationsTemplate(recommendations: Suggestion[]): string {
   const body = recommendations.length
-    ? recommendations.map((recommendation) => `- ${recommendation}`).join("\n")
+    ? recommendations.map((recommendation) => `- [${recommendation.severity}] ${recommendation.text}`).join("\n")
     : "- No actionable recommendations.";
   return `${wikiFrontmatter("akrctx-wiki-recommendations", "Recommendations", "Suggested next steps for the akrctx harness.", ["recommendations", "doctor"])}# Recommendations
 

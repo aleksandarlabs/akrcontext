@@ -79,6 +79,12 @@ async function nextTaskId(tasksRoot: string, _description: string): Promise<stri
   return `TASK-${String(next).padStart(3, "0")}`;
 }
 
+/** Extract the numeric TASK-XXX id for sorting; non-matching dirs sort last. */
+export function taskNumber(dir: string): number {
+  const match = /^TASK-(\d+)/.exec(dir);
+  return match ? Number(match[1]) : Number.POSITIVE_INFINITY;
+}
+
 export function slugify(value: string): string {
   const slug = value
     .toLowerCase()
@@ -97,21 +103,25 @@ export function slugify(value: string): string {
 export function recommendWorkflow(description: string): WorkflowSelection {
   const text = description.toLowerCase();
 
+  // Precedence: combos > game/interactive > EDD > TDD > SDD > UI > research.
+  // Bug/test signals are checked before domain (api/schema) keywords because
+  // a bug report about an API ("fix the api bug") is a testable defect first.
+  //
   // Combined workflows — check before single-method ones.
   if (/\bsdd\b.*\bedd\b|\bedd\b.*\bsdd\b/.test(text))
     return { workflow: "SDD+EDD", reason: "matched keywords: sdd + edd" };
   if (/\bsdd\b.*\btdd\b|\btdd\b.*\bsdd\b/.test(text))
     return { workflow: "SDD+TDD", reason: "matched keywords: sdd + tdd" };
-  if (/\btetris\b|\bgame\b|\bgameplay\b|\binteractive\b/.test(text))
+  if (/\bgame\b|\bgameplay\b|\binteractive\b/.test(text))
     return { workflow: "TDD+EDD", reason: "matched keywords: game/interactive" };
 
   // Single-method workflows.
   if (/\bedd\b|\bexample\b|\bedge.case\b/.test(text))
     return { workflow: "EDD", reason: "matched keywords: edd/example/edge-case" };
-  if (/\bsdd\b|\bapi\b|\bschema\b|\bcontract\b|\bspec\b/.test(text))
-    return { workflow: "SDD", reason: "matched keywords: api/schema/contract/spec" };
   if (/\btdd\b|\btest\b|\bbug\b|\bfix\b|\bregression\b/.test(text))
     return { workflow: "TDD", reason: "matched keywords: test/bug/fix/regression" };
+  if (/\bsdd\b|\bapi\b|\bschema\b|\bcontract\b|\bspec\b/.test(text))
+    return { workflow: "SDD", reason: "matched keywords: api/schema/contract/spec" };
   if (/\bui\b|\bscreen\b|\bpage\b|\bcomponent\b|\bdesign\b|\btabs\b/.test(text))
     return { workflow: "UI review", reason: "matched keywords: ui/screen/page/component" };
   if (/\bresearch\b|\binvestigate\b|\bunknown\b|\bspike\b/.test(text))
@@ -149,6 +159,11 @@ function selectWorkflow(
   }
 
   const recommended = recommendWorkflow(description);
+  // "UI review" is a task-level recommendation, not a selectable config default
+  // (see types.ts TaskWorkflow), so allowedWorkflows never filters it out.
+  if (recommended.workflow === "UI review") {
+    return recommended;
+  }
   if (isWorkflowAllowed(recommended.workflow, allowed)) {
     return recommended;
   }
@@ -297,7 +312,7 @@ export async function listTasks(cwd: string): Promise<TaskSummary[]> {
       description: taskMd ? parseDescription(taskMd) : "",
     });
   }
-  return summaries.sort((a, b) => a.taskId.localeCompare(b.taskId));
+  return summaries.sort((a, b) => taskNumber(a.taskId) - taskNumber(b.taskId));
 }
 
 export async function showTask(cwd: string, taskId: string): Promise<TaskShowResult> {

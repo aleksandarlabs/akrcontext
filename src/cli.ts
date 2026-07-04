@@ -1,6 +1,6 @@
 import { Command, Option } from "commander";
 import { runCompile } from "./compile.js";
-import { readConfig, setConfigValue } from "./config.js";
+import { readConfigStrict, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
 import { runInit } from "./init.js";
@@ -205,7 +205,7 @@ export async function main(argv = process.argv): Promise<void> {
   const config = program.command("config").description("Show or update akrctx project defaults.");
 
   addCommon(config.command("show").description("Print .akrctx/config.json."), false).action(async () => {
-    const result = await readConfig(process.cwd());
+    const result = await readConfigStrict(process.cwd());
     if (!result) {
       throw new Error("akrctx config not found. Run `akrctx init` first.");
     }
@@ -268,28 +268,18 @@ export async function main(argv = process.argv): Promise<void> {
 
   addCommon(
     taskCmd
-      .command("create <description>")
+      .command("create [description]", { isDefault: true })
       .description("Create a akrctx task capsule for the given description.")
       .option(
         "--workflow <workflow>",
         "override workflow: fast-patch | research-first | SDD | TDD | EDD | SDD+TDD | SDD+EDD | TDD+EDD",
       ),
-  ).action(async (description: string, raw) => {
-    const options = normalizeOptions(raw);
-    const result = await runTask(description, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
+  ).action(async (description: string | undefined, raw) => {
+    if (!description) {
+      taskCmd.help();
       return;
     }
-    log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
-    log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
-    ln();
-    log(`  ${dim("Files created:")}`);
-    for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
-    ln();
-    log(`  ${bold("Next:")} open your agent and ask:`);
-    log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
-    log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
+    await handleTaskCreate(description, raw);
   });
 
   addCommon(taskCmd.command("list").description("List existing akrctx task capsules."), false).action(async (raw) => {
@@ -346,37 +336,6 @@ export async function main(argv = process.argv): Promise<void> {
       log(`${minus()} ${file(result.taskDir)}`);
     },
   );
-
-  // Backwards-compatible parent command: akrctx task "description"
-  addCommon(
-    taskCmd
-      .argument("[description]", "what you want to build or fix")
-      .option(
-        "--workflow <workflow>",
-        "override workflow: fast-patch | research-first | SDD | TDD | EDD | SDD+TDD | SDD+EDD | TDD+EDD",
-      ),
-    false,
-  ).action(async (description: string | undefined, raw) => {
-    if (!description) {
-      taskCmd.help();
-      return;
-    }
-    const options = normalizeOptions(raw);
-    const result = await runTask(description, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
-    log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
-    ln();
-    log(`  ${dim("Files created:")}`);
-    for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
-    ln();
-    log(`  ${bold("Next:")} open your agent and ask:`);
-    log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
-    log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
-  });
 
   // ── compile ───────────────────────────────────────────────────────────────
   addCommon(
@@ -439,6 +398,7 @@ export async function main(argv = process.argv): Promise<void> {
           "They are platform-specific and change over time.",
         ].join("\n"),
       ),
+    false,
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
     const result = await runJudgeEnable(options);
@@ -447,7 +407,7 @@ export async function main(argv = process.argv): Promise<void> {
       return;
     }
     const verb = options.dryRun ? "Would install" : "Installed";
-    log(`${bold("Judge:")} ${green("enabled")}`);
+    log(`${bold("Judge:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
     if (result.writes.length) {
       ln();
       for (const w of result.writes) log(`  ${plus()} ${file(w.path)}`);
@@ -519,10 +479,15 @@ export async function main(argv = process.argv): Promise<void> {
           "  akrctx upgrade                    upgrade installed targets",
           "  akrctx upgrade --target codex     upgrade only codex harness files",
           "  akrctx upgrade --dry-run          preview what would change",
+          "",
+          "Commit your working tree before upgrading. akrctx cannot tell apart a file",
+          "you edited from one installed by an older template version — files whose",
+          "content differs from the current template are overwritten and flagged;",
+          "use `git diff` afterwards to review what changed.",
         ].join("\n"),
       ),
   ).action(async (raw) => {
-    const options = { ...normalizeOptions(raw), force: true };
+    const options = { ...normalizeOptions(raw), force: true, upgrade: true };
     const result = await runInit(options);
     printInit(result, options);
   });
@@ -539,16 +504,24 @@ export async function main(argv = process.argv): Promise<void> {
           "Without --force, shows a dry-run of what would be removed.",
           "Protected files (AGENTS.md, CLAUDE.md) are always skipped — remove them manually.",
           "",
+          "--target all removes harness FILES for every target (codex, claude, copilot, pi).",
+          "--all additionally removes the neutral .akrctx/ directory itself.",
+          "",
           "Examples:",
           "  akrctx remove --target codex            dry-run: list what would be removed",
           "  akrctx remove --target codex --force    actually remove codex skill files",
-          "  akrctx remove --all --force             remove .akrctx/ and all targets",
+          "  akrctx remove --target all --force      remove skill files for every target",
+          "  akrctx remove --all --force             remove .akrctx/ and all target files",
+          "                                           (task capsules under .akrctx/tasks/ are kept)",
+          "  akrctx remove --all --purge-tasks --force  also delete .akrctx/tasks/ entirely",
         ].join("\n"),
       ),
   )
     .option("--all", "remove .akrctx/ and all target files", false)
+    .option("--purge-tasks", "with --all, also delete .akrctx/tasks/ (task capsules) instead of keeping them", false)
     .action(async (raw) => {
-      const options = normalizeOptions(raw) as CommandOptions & { all?: boolean };
+      const options = normalizeOptions(raw) as CommandOptions & { all?: boolean; purgeTasks?: boolean };
+      options.purgeTasks = Boolean(raw.purgeTasks);
       if (!options.target && !options.all) {
         throw new Error("Specify a target with --target <target> or use --all to remove everything.");
       }
@@ -574,6 +547,25 @@ export async function main(argv = process.argv): Promise<void> {
   await program.parseAsync(argv);
 }
 
+/** Shared handler for `task create <description>` and `task <description>`. */
+async function handleTaskCreate(description: string, raw: Record<string, unknown>): Promise<void> {
+  const options = normalizeOptions(raw);
+  const result = await runTask(description, options);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
+  log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
+  ln();
+  log(`  ${dim("Files created:")}`);
+  for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
+  ln();
+  log(`  ${bold("Next:")} open your agent and ask:`);
+  log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
+  log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
+}
+
 function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
   return {
     target: raw.target as TargetOption | undefined,
@@ -582,6 +574,7 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
     force: Boolean(raw.force),
     json: Boolean(raw.json),
     ci: Boolean(raw.ci),
+    fix: Boolean(raw.fix),
     profile: raw.profile as Profile | undefined,
     template: raw.template as string | undefined,
     templatePack: raw.templatePack as string | undefined,
@@ -605,11 +598,13 @@ function printInit(result: InitResult, options: CommandOptions): void {
   const targetList = result.selectedTargets.map((t) => bold(t)).join(", ");
   log(`${bold(`${verb}:`)} akrctx → ${targetList}`);
 
-  if (result.fallbackUsed) {
-    log(gray("  No target specified and none detected — defaulted to codex."));
-  }
   if (result.detection.detected.length > 0) {
     log(gray(`  Detected existing setup: ${result.detection.detected.join(", ")}`));
+  }
+  if (result.policyWarnings.length > 0) {
+    ln();
+    log(`  ${yellow(bold(`Policy weakened by template pack (${result.policyWarnings.length}):`))}`);
+    for (const w of result.policyWarnings) log(`    ${warn()} ${yellow(w)}`);
   }
 
   // Group writes by category.
@@ -636,6 +631,15 @@ function printInit(result: InitResult, options: CommandOptions): void {
   if (preserved.length > 0) {
     ln();
     log(`  ${dim(`Preserved unchanged (${preserved.length}): ${preserved.map((w) => w.path).join(", ")}`)}`);
+  }
+
+  const overwrittenWithLocalEdits = updated.filter((w) => w.reason === "overwritten (had local modifications)");
+  if (overwrittenWithLocalEdits.length > 0) {
+    ln();
+    log(
+      `  ${yellow(bold(`Overwritten files had local edits — review with git diff (${overwrittenWithLocalEdits.length}):`))}`,
+    );
+    for (const w of overwrittenWithLocalEdits) log(`    ${warn()} ${file(w.path)}`);
   }
 
   // What's next.
@@ -730,7 +734,7 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   if (result.suggestions.length > 0) {
     ln();
     log(`  ${bold("Suggestions:")}`);
-    for (const s of result.suggestions) log(`    ${s}`);
+    for (const s of result.suggestions) log(`    ${s.text}`);
   }
 
   const target = result.installedTargets[0] ?? result.detectedTargets[0];
@@ -788,7 +792,7 @@ function printDoctorCi(result: DoctorResult, options: CommandOptions): void {
   if (result.suggestions.length > 0) {
     ln();
     log("Suggestions:");
-    for (const s of result.suggestions) log(`- ${s}`);
+    for (const s of result.suggestions) log(`- [${s.severity}] ${s.text}`);
   }
 }
 
@@ -803,9 +807,8 @@ function doctorCiFailures(result: DoctorResult): string[] {
   if (result.missing.length > 0) failures.push(`${result.missing.length} required file(s) are missing.`);
   if (result.conflicts.length > 0) failures.push(`${result.conflicts.length} pending merge conflict(s) need review.`);
 
-  const actionableSuggestions = result.suggestions.filter((suggestion) => !suggestion.startsWith("Setup is complete."));
-  if (actionableSuggestions.length > 0)
-    failures.push(`${actionableSuggestions.length} actionable suggestion(s) remain.`);
+  const errorSuggestions = result.suggestions.filter((suggestion) => suggestion.severity === "error");
+  if (errorSuggestions.length > 0) failures.push(`${errorSuggestions.length} actionable suggestion(s) remain.`);
 
   return Array.from(new Set(failures));
 }

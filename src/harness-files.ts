@@ -19,11 +19,12 @@ export const neutralRequired = [
   ".akrctx/tasks/_template/context.md",
   ".akrctx/tasks/_template/plan.md",
   ".akrctx/tasks/_template/review-checklist.md",
-  ".akrctx/targets/codex.md",
-  ".akrctx/targets/claude.md",
-  ".akrctx/targets/copilot.md",
-  ".akrctx/targets/pi.md",
 ];
+
+/** Given an installed target, the target reference file doctor should require. */
+export function targetReferenceFile(target: Target): string {
+  return `.akrctx/targets/${target}.md`;
+}
 
 export const targetRequired: Record<Target, string[]> = {
   codex: [

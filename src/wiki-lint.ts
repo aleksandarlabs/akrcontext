@@ -8,7 +8,9 @@ export type { WikiLintIssue, WikiLintResult };
 const markdownLinkRegex = /\[([^\]]+)\]\(([^)]+)\)/g;
 const isoTimestampRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
-function parseFrontmatter(content: string): { frontmatter: Record<string, string> | null; body: string } {
+function parseFrontmatter(rawContent: string): { frontmatter: Record<string, string> | null; body: string } {
+  // Normalize CRLF for parsing only — files on disk are never rewritten here.
+  const content = rawContent.replace(/\r\n/g, "\n");
   if (!content.startsWith("---\n")) return { frontmatter: null, body: content };
   const end = content.indexOf("\n---\n", 4);
   if (end === -1) return { frontmatter: null, body: content };
@@ -29,8 +31,12 @@ function isExternalLink(link: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(link);
 }
 
-function resolveWikiLink(link: string, sourceFile: string, wikiDir: string): string | null {
-  if (isExternalLink(link) || link.startsWith("#")) return null;
+function resolveWikiLink(rawLink: string, sourceFile: string, wikiDir: string): string | null {
+  // Markdown links can carry a "title" after the URL (`url "title"`) and/or
+  // an anchor fragment (`file.md#anchor`) — strip both before resolving.
+  const link = rawLink.split(/\s+/)[0].split("#")[0];
+  if (!link) return null;
+  if (isExternalLink(link)) return null;
   if (link.startsWith("/wiki/")) {
     return path.join(wikiDir, link.slice(6));
   }

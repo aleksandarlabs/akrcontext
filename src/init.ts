@@ -28,7 +28,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   const cwd = options.cwd ?? process.cwd();
   const profile = options.profile ?? "default";
   const detection = await detectTargets(cwd);
-  const { target, selectedTargets, fallbackUsed } = await resolveTarget(options, detection.detected);
+  const { target, selectedTargets } = await resolveTarget(options, detection.detected);
   if (options.template && options.templatePack) {
     throw new Error("Use either --template or --template-pack, not both.");
   }
@@ -48,6 +48,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       force: options.force,
       protected: protectedFile,
       reason,
+      upgrade: options.upgrade,
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
@@ -60,6 +61,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   writes.push(
     await writeFile(".akrctx/policy.json", JSON.stringify(policy, null, 2), false, "akrctx security and merge policy."),
   );
+  const policyWarnings = describePolicyWeakening(defaultPolicy(profile), policy);
 
   const projectName = await readProjectName(cwd);
 
@@ -89,7 +91,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       ),
     ),
     Promise.all(
-      targets.map((targetName) =>
+      selectedTargets.map((targetName) =>
         writeFile(
           `.akrctx/targets/${targetName}.md`,
           targetReferenceTemplates[targetName],
@@ -114,27 +116,53 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   return {
     target,
     selectedTargets,
-    fallbackUsed,
     detection,
     writes,
     conflicts: writes.filter((write) => write.kind === "suggest").map((write) => write.path),
+    policyWarnings,
   };
+}
+
+/**
+ * Compare the merged policy (after a template pack applies) against the
+ * profile's default policy and surface — but never block on — any
+ * enforcement weakening the pack introduced. Some enterprise packs may
+ * relax enforcement on purpose; this just makes that visible.
+ */
+function describePolicyWeakening(
+  defaults: import("./types.js").akrctxPolicy,
+  merged: import("./types.js").akrctxPolicy,
+): string[] {
+  const warnings: string[] = [];
+
+  if (merged.mergeStrategy !== defaults.mergeStrategy) {
+    warnings.push(
+      `Template pack changed mergeStrategy to "${merged.mergeStrategy}" (default: "${defaults.mergeStrategy}").`,
+    );
+  }
+
+  for (const key of Object.keys(defaults.enforcement) as Array<keyof typeof defaults.enforcement>) {
+    if (defaults.enforcement[key] === true && merged.enforcement[key] === false) {
+      warnings.push(`Template pack disabled enforcement.${key} (default: true).`);
+    }
+  }
+
+  return warnings;
 }
 
 async function resolveTarget(
   options: CommandOptions,
   detected: Target[],
-): Promise<{ target: TargetOption; selectedTargets: Target[]; fallbackUsed: boolean }> {
+): Promise<{ target: TargetOption; selectedTargets: Target[] }> {
   if (options.target) {
     return {
       target: options.target,
       selectedTargets: options.target === "all" ? [...targets] : [options.target],
-      fallbackUsed: false,
     };
   }
 
   if (detected.length === 1) {
-    return { target: detected[0], selectedTargets: [detected[0]], fallbackUsed: false };
+    return { target: detected[0], selectedTargets: [detected[0]] };
   }
 
   const canPrompt = !options.nonInteractive && process.stdin.isTTY && process.stdout.isTTY;
@@ -152,10 +180,16 @@ async function resolveTarget(
         { name: "All", value: "all" },
       ],
     });
-    return { target: answer, selectedTargets: answer === "all" ? [...targets] : [answer], fallbackUsed: false };
+    return { target: answer, selectedTargets: answer === "all" ? [...targets] : [answer] };
   }
 
-  return { target: "codex", selectedTargets: ["codex"], fallbackUsed: true };
+  if (detected.length > 1) {
+    throw new Error(
+      `Multiple agent setups detected (${detected.join(", ")}) and no --target given. Pass --target <codex|claude|copilot|pi|all>.`,
+    );
+  }
+
+  throw new Error("No agent setup detected and no --target given. Pass --target <codex|claude|copilot|pi|all>.");
 }
 
 async function installTarget(
@@ -171,6 +205,7 @@ async function installTarget(
       force: options.force,
       protected: protectedFile,
       reason,
+      upgrade: options.upgrade,
     });
 
   if (target === "codex") {

@@ -55,9 +55,10 @@ ${acceptance.trim()}
 ${checklist.trim()}
 `;
 
+    // Exports are derived artifacts, not user content — always regenerate them.
     await writePlannedFile(cwd, outputPath, brief, {
       dryRun: options.dryRun,
-      force: options.force,
+      force: true,
       reason: "Compiled target-specific akrctx brief.",
     });
 
