@@ -1140,6 +1140,38 @@ describe("remove", () => {
 
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
   });
+
+  it("--all --force preserves .akrctx/tasks/ when task capsules exist", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await runRemove({
+      cwd: tmp,
+      force: true,
+      all: true,
+      nonInteractive: true,
+    } as Parameters<typeof runRemove>[0]);
+
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
+    expect(result.protected.some((p) => p.includes(".akrctx/tasks/"))).toBe(true);
+  });
+
+  it("--all --purge-tasks --force removes everything including task capsules", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    await runRemove({
+      cwd: tmp,
+      force: true,
+      all: true,
+      purgeTasks: true,
+      nonInteractive: true,
+    } as Parameters<typeof runRemove>[0]);
+
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
+  });
 });
 
 // ── skill content contract ────────────────────────────────────────────────────

@@ -547,12 +547,16 @@ export async function main(argv = process.argv): Promise<void> {
           "  akrctx remove --target codex --force    actually remove codex skill files",
           "  akrctx remove --target all --force      remove skill files for every target",
           "  akrctx remove --all --force             remove .akrctx/ and all target files",
+          "                                           (task capsules under .akrctx/tasks/ are kept)",
+          "  akrctx remove --all --purge-tasks --force  also delete .akrctx/tasks/ entirely",
         ].join("\n"),
       ),
   )
     .option("--all", "remove .akrctx/ and all target files", false)
+    .option("--purge-tasks", "with --all, also delete .akrctx/tasks/ (task capsules) instead of keeping them", false)
     .action(async (raw) => {
-      const options = normalizeOptions(raw) as CommandOptions & { all?: boolean };
+      const options = normalizeOptions(raw) as CommandOptions & { all?: boolean; purgeTasks?: boolean };
+      options.purgeTasks = Boolean(raw.purgeTasks);
       if (!options.target && !options.all) {
         throw new Error("Specify a target with --target <target> or use --all to remove everything.");
       }
