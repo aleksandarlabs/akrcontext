@@ -512,6 +512,46 @@ describe("doctor", () => {
     process.exitCode = previousExitCode;
   });
 
+  it("doctor --ci passes when the only issue is a wiki-lint warning, not an error", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/^timestamp:.*\n/m, ""), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(result.missing.some((m) => m.includes("architecture.md"))).toBe(false);
+    expect(result.suggestions.some((s) => s.severity === "warning" && s.text.includes("Wiki lint"))).toBe(true);
+
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const originalLog = console.log;
+    console.log = () => {};
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+    expect(process.exitCode).toBeUndefined();
+    process.exitCode = previousExitCode;
+  });
+
+  it("weights readiness score by category: wiki-lint issues cost less than missing harness files", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const archPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const arch = await readFile(archPath, "utf8");
+    await writeFile(archPath, arch.replace(/^timestamp:.*\n/m, ""), "utf8");
+
+    const wikiLintOnly = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(wikiLintOnly.readiness).toBe(99);
+
+    await rm(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), { force: true });
+    const withMissingHarnessFile = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(withMissingHarnessFile.readiness).toBeLessThan(wikiLintOnly.readiness);
+  });
+
   it("writes gaps.md and recommendations.md with OKF-style frontmatter", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 

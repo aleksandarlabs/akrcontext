@@ -146,18 +146,34 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
   const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
-  const wikiLintMissing = [
-    ...wikiLint.brokenLinks.map((issue) => `${issue.file} — ${issue.message}`),
-    ...wikiLint.missingTimestamps.map((issue) => `${issue.file} — ${issue.message}`),
-  ];
-  const allMissing = [...missing, ...configGaps, ...policyGaps, ...wikiLintMissing];
+  const wikiLintIssueCount = wikiLint.brokenLinks.length + wikiLint.missingTimestamps.length;
+  // Wiki-lint issues are surfaced via wikiLint/gaps.md and a dedicated
+  // warning-severity suggestion — they no longer count as "missing" (that
+  // would make them CI-failing errors, which is too strict for wiki content).
+  const configPolicyGaps = [...configGaps, ...policyGaps];
+  const allMissing = [...missing, ...configPolicyGaps];
   const suggestions: Suggestion[] = [
     ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
+    ...(wikiLintIssueCount > 0
+      ? [
+          {
+            text: `Wiki lint found ${wikiLintIssueCount} issue(s) (broken links / missing timestamps). See .akrctx/wiki/gaps.md.`,
+            severity: "warning" as const,
+          },
+        ]
+      : []),
     ...(wikiLint.orphans.length
       ? [{ text: `Wiki orphan pages: ${wikiLint.orphans.join(", ")}`, severity: "info" as const }]
       : []),
   ];
-  const readiness = scoreReadiness(installed, installedTargets, allMissing, conflicts);
+  const readiness = scoreReadiness(
+    installed,
+    installedTargets,
+    missing,
+    configPolicyGaps,
+    wikiLintIssueCount,
+    conflicts,
+  );
 
   const result: DoctorResult = {
     installed,
@@ -375,18 +391,27 @@ function buildSuggestions(
   return suggestions;
 }
 
+/**
+ * Weight the readiness score by issue category rather than a single flat
+ * per-item penalty, so a pile of low-severity wiki-lint nits can't drag the
+ * score down as hard as missing harness files or unresolved merge conflicts.
+ */
 function scoreReadiness(
   installed: boolean,
   installedTargets: Target[],
-  missing: string[],
+  missingHarnessFiles: string[],
+  configPolicyGaps: string[],
+  wikiLintIssueCount: number,
   conflicts: string[],
 ): number {
   if (!installed) return 0;
 
   let score = 100;
   if (installedTargets.length === 0) score -= 25;
-  score -= Math.min(missing.length, 20) * 5;
-  score -= Math.min(conflicts.length, 4) * 10;
+  score -= Math.min(missingHarnessFiles.length * 5, 40);
+  score -= Math.min(configPolicyGaps.length * 3, 20);
+  score -= Math.min(wikiLintIssueCount * 1, 10);
+  score -= Math.min(conflicts.length * 10, 40);
   return Math.max(0, Math.min(100, score));
 }
 
