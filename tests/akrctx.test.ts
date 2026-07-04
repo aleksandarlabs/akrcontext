@@ -1240,6 +1240,19 @@ describe("doctor --fix", () => {
     expect(fixed.blockedReadPatterns).toContain("*.pem");
   });
 
+  it("repairs missing files across all installed targets, not just the first", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    await rm(path.join(tmp, ".claude/skills/akrctx-doctor/SKILL.md"), { force: true });
+    await rm(path.join(tmp, ".pi/skills/akrctx-doctor/SKILL.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed?.some((f) => f.includes(".claude/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(result.fixed?.some((f) => f.includes(".pi/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".claude/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".pi/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
   it("dry-run fix does not write files but reports what would be fixed", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await rm(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), { force: true });

@@ -34,14 +34,17 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
 
   const fixed: string[] = [];
 
-  // Re-create missing harness files for installed targets.
-  const initResult = await runInit({
-    ...options,
-    target: initial.installedTargets[0] ?? "codex",
-    profile: await readProfile(cwd),
-  });
-  for (const write of initResult.writes) {
-    if (write.kind === "create") fixed.push(write.path);
+  // Re-create missing harness files for every installed target. Neutral
+  // files (config.json, wiki, etc.) already exist and are preserved
+  // idempotently by writePlannedFile since --force is not implied here.
+  if (initial.installedTargets.length > 0) {
+    const profile = await readProfile(cwd);
+    for (const target of initial.installedTargets) {
+      const initResult = await runInit({ ...options, target, profile });
+      for (const write of initResult.writes) {
+        if (write.kind === "create") fixed.push(write.path);
+      }
+    }
   }
 
   // Merge missing config keys with defaults.
