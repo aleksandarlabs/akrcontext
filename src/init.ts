@@ -48,6 +48,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       force: options.force,
       protected: protectedFile,
       reason,
+      upgrade: options.upgrade,
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
@@ -204,6 +205,7 @@ async function installTarget(
       force: options.force,
       protected: protectedFile,
       reason,
+      upgrade: options.upgrade,
     });
 
   if (target === "codex") {

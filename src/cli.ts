@@ -519,10 +519,15 @@ export async function main(argv = process.argv): Promise<void> {
           "  akrctx upgrade                    upgrade installed targets",
           "  akrctx upgrade --target codex     upgrade only codex harness files",
           "  akrctx upgrade --dry-run          preview what would change",
+          "",
+          "Commit your working tree before upgrading. akrctx cannot tell apart a file",
+          "you edited from one installed by an older template version — files whose",
+          "content differs from the current template are overwritten and flagged;",
+          "use `git diff` afterwards to review what changed.",
         ].join("\n"),
       ),
   ).action(async (raw) => {
-    const options = { ...normalizeOptions(raw), force: true };
+    const options = { ...normalizeOptions(raw), force: true, upgrade: true };
     const result = await runInit(options);
     printInit(result, options);
   });
@@ -647,6 +652,15 @@ function printInit(result: InitResult, options: CommandOptions): void {
   if (preserved.length > 0) {
     ln();
     log(`  ${dim(`Preserved unchanged (${preserved.length}): ${preserved.map((w) => w.path).join(", ")}`)}`);
+  }
+
+  const overwrittenWithLocalEdits = updated.filter((w) => w.reason === "overwritten (had local modifications)");
+  if (overwrittenWithLocalEdits.length > 0) {
+    ln();
+    log(
+      `  ${yellow(bold(`Overwritten files had local edits — review with git diff (${overwrittenWithLocalEdits.length}):`))}`,
+    );
+    for (const w of overwrittenWithLocalEdits) log(`    ${warn()} ${file(w.path)}`);
   }
 
   // What's next.

@@ -104,6 +104,7 @@ export interface CommandOptions {
   templatePack?: string;
   cwd?: string;
   nonInteractive?: boolean;
+  upgrade?: boolean;
 }
 
 export interface DetectionResult {

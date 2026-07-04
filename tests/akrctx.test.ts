@@ -1232,6 +1232,28 @@ describe("upgrade", () => {
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
   });
 
+  it("flags an overwritten skill file that had local edits, with its write reason", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const skillPath = path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md");
+    await writeFile(skillPath, `${await readFile(skillPath, "utf8")}\n<!-- local edit -->\n`, "utf8");
+
+    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+
+    const overwritten = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
+    expect(overwritten?.kind).toBe("update");
+    expect(overwritten?.reason).toBe("overwritten (had local modifications)");
+    expect(await readFile(skillPath, "utf8")).not.toContain("local edit");
+  });
+
+  it("preserves an unchanged skill file during upgrade (no spurious update)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+
+    const unchanged = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
+    expect(unchanged?.kind).toBe("preserve");
+  });
+
   it("doctor detects version drift and suggests upgrade", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
