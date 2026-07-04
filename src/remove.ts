@@ -42,6 +42,10 @@ export async function runRemove(options: CommandOptions & { all?: boolean }): Pr
     }
   }
 
+  if (dryRun) {
+    planned.push(...(await simulatePrunedDirs(cwd, planned)));
+  }
+
   // Handle .akrctx/ removal only when --all is set.
   if ((options as { all?: boolean }).all) {
     const cfDir = path.join(cwd, ".akrctx");
@@ -78,6 +82,45 @@ async function isEmptyDirectory(directoryPath: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Dry-run only: predict which ancestor directories of the planned files would
+ * end up empty (and therefore pruned) if the removal actually ran, so the
+ * preview matches what --force would do.
+ */
+async function simulatePrunedDirs(cwd: string, plannedFiles: string[]): Promise<string[]> {
+  const removed = new Set<string>(plannedFiles);
+  const dirsToCheck = new Set<string>();
+  for (const file of plannedFiles) {
+    let dir = path.posix.dirname(file);
+    while (dir && dir !== ".") {
+      dirsToCheck.add(dir);
+      dir = path.posix.dirname(dir);
+    }
+  }
+
+  // Deepest directories first so a pruned child dir can make its parent
+  // eligible for pruning too.
+  const sortedDirs = Array.from(dirsToCheck).sort((a, b) => b.split("/").length - a.split("/").length);
+
+  const prunedDirs: string[] = [];
+  for (const dir of sortedDirs) {
+    let entries: string[];
+    try {
+      entries = await readdir(path.join(cwd, dir));
+    } catch {
+      continue;
+    }
+    if (entries.length === 0) continue;
+    const allEntriesRemoved = entries.every((entry) => removed.has(path.posix.join(dir, entry)));
+    if (allEntriesRemoved) {
+      removed.add(dir);
+      prunedDirs.push(`${dir}/`);
+    }
+  }
+
+  return prunedDirs;
 }
 
 function collectCandidates(options: CommandOptions & { all?: boolean }): string[] {

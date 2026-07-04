@@ -1099,6 +1099,15 @@ describe("remove", () => {
     expect(await pathExists(path.join(tmp, ".github/skills/akrctx-doctor"))).toBe(true);
   });
 
+  it("dry-run planned matches the actual run's planned for a real target", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const dryRunResult = await runRemove({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+    const realResult = await runRemove({ cwd: tmp, target: "codex", force: true, nonInteractive: true });
+
+    expect(dryRunResult.planned.slice().sort()).toEqual(realResult.planned.slice().sort());
+  });
+
   it("--all --force removes .akrctx directory", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
