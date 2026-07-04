@@ -1221,6 +1221,29 @@ describe("judge", () => {
     expect(codexFile).not.toMatch(/^model\s*=/m);
   });
 
+  it("CLI judge enable --dry-run reports 'would enable' instead of claiming success", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.chdir(tmp);
+      await main(["node", "akrctx", "judge", "enable", "--dry-run"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(writes.join("\n")).toContain("would enable (dry-run)");
+    expect(writes.join("\n")).not.toContain("Judge: enabled");
+    const config = await readConfig(tmp);
+    expect(config?.judge?.enabled).toBe(false);
+  });
+
   it("disable sets enabled to false without removing files", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await runJudgeEnable({ cwd: tmp, nonInteractive: true });

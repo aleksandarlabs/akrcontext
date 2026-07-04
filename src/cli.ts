@@ -447,7 +447,7 @@ export async function main(argv = process.argv): Promise<void> {
       return;
     }
     const verb = options.dryRun ? "Would install" : "Installed";
-    log(`${bold("Judge:")} ${green("enabled")}`);
+    log(`${bold("Judge:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
     if (result.writes.length) {
       ln();
       for (const w of result.writes) log(`  ${plus()} ${file(w.path)}`);
