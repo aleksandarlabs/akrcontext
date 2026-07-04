@@ -12,7 +12,7 @@ import { runInit } from "../src/init.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
-import { recommendWorkflow, runTask, slugify } from "../src/task.js";
+import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify } from "../src/task.js";
 import { workflows } from "../src/types.js";
 import { CLI_VERSION } from "../src/version.js";
 
@@ -509,6 +509,69 @@ describe("task and compile", () => {
       'Workflow "EDD" is not in allowedWorkflows',
     );
   });
+
+  it("lists task capsules", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+    await runTask("Create invoice endpoint", { cwd: tmp, nonInteractive: true });
+
+    const tasks = await listTasks(tmp);
+
+    expect(tasks).toHaveLength(2);
+    expect(tasks[0].taskId).toBe("TASK-001");
+    expect(tasks[0].description).toContain("Fix auth bug");
+    expect(tasks[1].taskId).toBe("TASK-002");
+    expect(tasks[1].description).toContain("Create invoice endpoint");
+  });
+
+  it("showTask returns task files and workflow", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await showTask(tmp, task.taskId);
+
+    expect(result.taskId).toBe(task.taskId);
+    expect(result.workflow).toBe("TDD");
+    expect(result.files["task.md"]).toContain("Fix auth bug");
+    expect(result.files["plan.md"]).toBeDefined();
+  });
+
+  it("removeTask deletes a task capsule", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await removeTask(tmp, task.taskId, { cwd: tmp });
+
+    expect(result.removed).toBe(true);
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(false);
+  });
+
+  it("removeTask respects dry-run", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await removeTask(tmp, task.taskId, { cwd: tmp, dryRun: true });
+
+    expect(result.removed).toBe(false);
+    expect(await pathExists(path.join(tmp, task.taskDir))).toBe(true);
+  });
+
+  it("compiles briefs for all installed targets", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    const result = await runCompile(task.taskId, { cwd: tmp, target: "all", nonInteractive: true });
+
+    expect(Array.isArray(result)).toBe(true);
+    const results = result as Array<{ target: string; outputPath: string }>;
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    const targets = results.map((r) => r.target).sort();
+    expect(targets).toContain("codex");
+    expect(targets).toContain("claude");
+    for (const r of results) {
+      expect(await pathExists(path.join(tmp, r.outputPath))).toBe(true);
+    }
+  });
 });
 
 // ── config ───────────────────────────────────────────────────────────────────
@@ -950,5 +1013,64 @@ describe("judge", () => {
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
     expect(result.suggestions.some((s) => s.includes("akrctx judge enable"))).toBe(true);
+  });
+});
+
+// ── doctor --fix ─────────────────────────────────────────────────────────────
+
+describe("doctor --fix", () => {
+  it("recreates missing harness files", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed?.some((f) => f.includes("akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
+  it("repairs config gaps without overwriting user values", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.workflowRules = undefined;
+    config.defaults.allowedWorkflows = undefined;
+    config.defaults.workflow = "TDD";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed).toContain(".akrctx/config.json");
+    const fixed = JSON.parse(await readFile(configPath, "utf8"));
+    expect(fixed.defaults.workflow).toBe("TDD");
+    expect(fixed.defaults.allowedWorkflows).toBeDefined();
+    expect(fixed.workflowRules).toBeDefined();
+  });
+
+  it("repairs policy gaps by merging missing keys", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.writePolicy = undefined;
+    policy.blockedReadPatterns = [".env"];
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed).toContain(".akrctx/policy.json");
+    const fixed = JSON.parse(await readFile(policyPath, "utf8"));
+    expect(fixed.writePolicy).toBeDefined();
+    expect(fixed.blockedReadPatterns).toContain(".env");
+    expect(fixed.blockedReadPatterns).toContain("*.pem");
+  });
+
+  it("dry-run fix does not write files but reports what would be fixed", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, dryRun: true, nonInteractive: true });
+
+    expect(result.fixed?.some((f) => f.includes("akrctx-doctor/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(false);
   });
 });

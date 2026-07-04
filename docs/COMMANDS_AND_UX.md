@@ -46,6 +46,8 @@ akrctx doctor
 akrctx doctor --json
 akrctx doctor --ci
 akrctx doctor --ci --json
+akrctx doctor --fix              # recreate missing files and repair config/policy gaps
+akrctx doctor --fix --dry-run    # preview what --fix would do
 ```
 
 Reports:
@@ -60,6 +62,8 @@ Reports:
 - suggested agent prompt to continue the audit intelligently
 
 `--ci` exits with `0` when the harness is healthy and `1` when there are actionable gaps. Use it in protected branches or CI pipelines.
+
+`--fix` automatically recreates missing harness files and merges missing keys into `.akrctx/config.json` and `.akrctx/policy.json`. Protected instruction files are never overwritten; pending merges still need human approval.
 
 ---
 
@@ -119,13 +123,20 @@ Run `akrctx doctor` after upgrading to verify the result.
 
 ## `akrctx task`
 
-Creates a task capsule. Intended as a headless fallback for scripts and CI. During normal agent-assisted work the agent creates the capsule itself.
+Creates, lists, shows, or removes task capsules. Intended as a headless fallback for scripts and CI. During normal agent-assisted work the agent creates the capsule itself.
 
 ```bash
 akrctx task "Fix regression in invoice calculation"
 akrctx task "Define invoice API examples" --workflow SDD+EDD
 akrctx task "Create settings screen" --workflow "UI review"
+
+akrctx task list
+akrctx task show TASK-001
+akrctx task rm TASK-001
+akrctx task rm TASK-001 --dry-run
 ```
+
+`akrctx task <description>` is a backwards-compatible shortcut for `akrctx task create <description>`.
 
 Creates under `.akrctx/tasks/TASK-XXX-<slug>/`:
 
@@ -139,6 +150,8 @@ review-checklist.md
 
 Workflow is chosen automatically from the task description unless overridden with `--workflow`.
 
+`akrctx task list` prints all task capsules with their descriptions. `akrctx task show TASK-001` prints every file in the capsule. `akrctx task rm TASK-001` removes the capsule directory.
+
 ---
 
 ## `akrctx compile`
@@ -149,6 +162,7 @@ Compiles a task capsule into a single agent-ready brief.
 akrctx compile TASK-001
 akrctx compile TASK-001 --target codex
 akrctx compile TASK-001 --target claude
+akrctx compile TASK-001 --target all
 ```
 
 Concatenates task.md + context.md + plan.md + acceptance-criteria.md into:
@@ -156,6 +170,8 @@ Concatenates task.md + context.md + plan.md + acceptance-criteria.md into:
 ```
 .akrctx/tasks/TASK-001/exports/<target>.md
 ```
+
+`--target all` compiles one brief for every target listed in `.akrctx/config.json`.
 
 Paste or reference this file in your agent session when you need a deterministic brief.
 

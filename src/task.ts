@@ -1,6 +1,7 @@
+import { rm } from "node:fs/promises";
 import path from "node:path";
 import { normalizeWorkflow as normalizeConfigWorkflow, readConfig } from "./config.js";
-import { listDirs, pathExists, writePlannedFile } from "./fs-utils.js";
+import { listDirs, pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import type { CommandOptions, TaskWorkflow, Workflow, akrctxConfig } from "./types.js";
 import { workflows } from "./types.js";
 
@@ -10,6 +11,25 @@ export interface TaskResult {
   workflow: TaskWorkflow;
   workflowReason: string;
   writes: string[];
+}
+
+export interface TaskSummary {
+  taskId: string;
+  taskDir: string;
+  description: string;
+}
+
+export interface TaskShowResult {
+  taskId: string;
+  taskDir: string;
+  workflow?: string;
+  files: Record<string, string>;
+}
+
+export interface TaskRemoveResult {
+  taskId: string;
+  taskDir: string;
+  removed: boolean;
 }
 
 export interface WorkflowSelection {
@@ -250,4 +270,66 @@ export async function findTaskDirectory(cwd: string, taskId: string): Promise<st
   if (!match) return undefined;
   const relative = `.akrctx/tasks/${match}`;
   return (await pathExists(path.join(cwd, relative))) ? relative : undefined;
+}
+
+function parseTaskId(taskDir: string): string {
+  const match = /^TASK-(\d+)/.exec(taskDir);
+  return match ? `TASK-${match[1]}` : taskDir;
+}
+
+function parseDescription(taskMarkdown: string): string {
+  const match = /## Goal\n\n(.+)/.exec(taskMarkdown);
+  return match ? match[1].trim() : "";
+}
+
+export async function listTasks(cwd: string): Promise<TaskSummary[]> {
+  const tasksRoot = path.join(cwd, ".akrctx/tasks");
+  if (!(await pathExists(tasksRoot))) return [];
+  const dirs = await listDirs(tasksRoot);
+  const summaries: TaskSummary[] = [];
+  for (const dir of dirs) {
+    if (dir === "_template") continue;
+    const taskDir = `.akrctx/tasks/${dir}`;
+    const taskMd = await readTextIfExists(path.join(cwd, taskDir, "task.md"));
+    summaries.push({
+      taskId: parseTaskId(dir),
+      taskDir,
+      description: taskMd ? parseDescription(taskMd) : "",
+    });
+  }
+  return summaries.sort((a, b) => a.taskId.localeCompare(b.taskId));
+}
+
+export async function showTask(cwd: string, taskId: string): Promise<TaskShowResult> {
+  const taskDir = await findTaskDirectory(cwd, taskId);
+  if (!taskDir) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+  const resolvedTaskId = parseTaskId(path.basename(taskDir));
+  const files: Record<string, string> = {};
+  const fileNames = ["task.md", "context.md", "plan.md", "acceptance-criteria.md", "review-checklist.md"];
+  for (const name of fileNames) {
+    const content = await readTextIfExists(path.join(cwd, taskDir, name));
+    if (content !== undefined) files[name] = content;
+  }
+  const taskMd = files["task.md"] ?? "";
+  const workflowMatch = /## Recommended Workflow\n\n(.+)/.exec(taskMd);
+  return {
+    taskId: resolvedTaskId,
+    taskDir,
+    workflow: workflowMatch ? workflowMatch[1].trim() : undefined,
+    files,
+  };
+}
+
+export async function removeTask(cwd: string, taskId: string, options: CommandOptions): Promise<TaskRemoveResult> {
+  const taskDir = await findTaskDirectory(cwd, taskId);
+  if (!taskDir) {
+    throw new Error(`Task not found: ${taskId}`);
+  }
+  if (options.dryRun) {
+    return { taskId, taskDir, removed: false };
+  }
+  await rm(path.join(cwd, taskDir), { recursive: true, force: true });
+  return { taskId, taskDir, removed: true };
 }

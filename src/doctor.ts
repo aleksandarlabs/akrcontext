@@ -1,14 +1,107 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { readConfig, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { neutralRequired, protectedFiles, targetRequired } from "./harness-files.js";
-import { defaultPolicy } from "./templates.js";
+import { runInit } from "./init.js";
+import { defaultConfig, defaultPolicy } from "./templates.js";
 import { type CommandOptions, type DoctorResult, type Profile, type Target, profiles } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
 export async function runDoctor(options: CommandOptions): Promise<DoctorResult> {
   const cwd = options.cwd ?? process.cwd();
+  const initial = await diagnose(cwd, options);
+
+  if (!options.fix || !initial.installed) {
+    return initial;
+  }
+
+  const fixed: string[] = [];
+
+  // Re-create missing harness files for installed targets.
+  const initResult = await runInit({
+    ...options,
+    target: initial.installedTargets[0] ?? "codex",
+    profile: await readProfile(cwd),
+  });
+  for (const write of initResult.writes) {
+    if (write.kind === "create") fixed.push(write.path);
+  }
+
+  // Merge missing config keys with defaults.
+  const config = await readConfig(cwd);
+  if (config) {
+    const normalized = normalizeConfigForFix(config);
+    await writeConfig(cwd, normalized, options.dryRun);
+    if (!options.dryRun) fixed.push(".akrctx/config.json");
+  }
+
+  // Merge missing policy keys with defaults.
+  const policyFixed = await fixPolicy(cwd, options.dryRun);
+  if (policyFixed) fixed.push(".akrctx/policy.json");
+
+  // Re-run diagnosis after fixes and report what changed.
+  const final = await diagnose(cwd, options);
+  return { ...final, fixed: Array.from(new Set(fixed)) };
+}
+
+async function readProfile(cwd: string): Promise<Profile> {
+  const config = await readConfig(cwd);
+  return config?.profile && profiles.includes(config.profile as Profile) ? (config.profile as Profile) : "default";
+}
+
+function normalizeConfigForFix(config: import("./types.js").akrctxConfig): import("./types.js").akrctxConfig {
+  const base = defaultConfig(config.targets.length ? config.targets : ["codex"], config.profile);
+  return {
+    ...base,
+    ...config,
+    sourceOfTruth: ".akrctx",
+    createdBy: "akrctx",
+    defaults: {
+      ...base.defaults,
+      ...config.defaults,
+      allowedWorkflows: config.defaults?.allowedWorkflows ?? base.defaults.allowedWorkflows,
+    },
+    workflowRules: {
+      ...base.workflowRules,
+      ...config.workflowRules,
+    },
+  };
+}
+
+async function fixPolicy(cwd: string, dryRun?: boolean): Promise<boolean> {
+  const policyPath = path.join(cwd, ".akrctx/policy.json");
+  if (!(await pathExists(policyPath))) return false;
+  try {
+    const raw = JSON.parse(await readFile(policyPath, "utf8"));
+    const profile = policyProfile(raw.profile);
+    const expected = defaultPolicy(profile);
+    const merged: Record<string, unknown> = { version: expected.version, profile };
+
+    for (const key of Object.keys(expected)) {
+      if (key === "profile") continue;
+      const expectedValue = expected[key as keyof typeof expected];
+      if (Array.isArray(expectedValue)) {
+        const existing = Array.isArray(raw[key]) ? raw[key] : [];
+        merged[key] = Array.from(new Set([...existing, ...expectedValue]));
+      } else if (typeof expectedValue === "object" && expectedValue !== null) {
+        merged[key] = { ...(expectedValue as object), ...(typeof raw[key] === "object" ? raw[key] : {}) };
+      } else {
+        merged[key] = raw[key] ?? expectedValue;
+      }
+    }
+
+    if (!dryRun) {
+      await writeFile(policyPath, `${JSON.stringify(merged, null, 2)}\n`, "utf8");
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorResult> {
   const detection = await detectTargets(cwd);
   const installedTargets = await getInstalledTargets(cwd);
   const missing = await getMissing(cwd, [

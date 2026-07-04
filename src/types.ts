@@ -98,6 +98,7 @@ export interface CommandOptions {
   force?: boolean;
   json?: boolean;
   ci?: boolean;
+  fix?: boolean;
   profile?: Profile;
   template?: string;
   templatePack?: string;
@@ -127,4 +128,5 @@ export interface DoctorResult {
   missing: string[];
   conflicts: string[];
   suggestions: string[];
+  fixed?: string[];
 }
