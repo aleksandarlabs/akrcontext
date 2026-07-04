@@ -275,21 +275,7 @@ export async function main(argv = process.argv): Promise<void> {
         "override workflow: fast-patch | research-first | SDD | TDD | EDD | SDD+TDD | SDD+EDD | TDD+EDD",
       ),
   ).action(async (description: string, raw) => {
-    const options = normalizeOptions(raw);
-    const result = await runTask(description, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
-    log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
-    ln();
-    log(`  ${dim("Files created:")}`);
-    for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
-    ln();
-    log(`  ${bold("Next:")} open your agent and ask:`);
-    log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
-    log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
+    await handleTaskCreate(description, raw);
   });
 
   addCommon(taskCmd.command("list").description("List existing akrctx task capsules."), false).action(async (raw) => {
@@ -361,21 +347,7 @@ export async function main(argv = process.argv): Promise<void> {
       taskCmd.help();
       return;
     }
-    const options = normalizeOptions(raw);
-    const result = await runTask(description, options);
-    if (options.json) {
-      console.log(JSON.stringify(result, null, 2));
-      return;
-    }
-    log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
-    log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
-    ln();
-    log(`  ${dim("Files created:")}`);
-    for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
-    ln();
-    log(`  ${bold("Next:")} open your agent and ask:`);
-    log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
-    log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
+    await handleTaskCreate(description, raw);
   });
 
   // ── compile ───────────────────────────────────────────────────────────────
@@ -585,6 +557,25 @@ export async function main(argv = process.argv): Promise<void> {
     });
 
   await program.parseAsync(argv);
+}
+
+/** Shared handler for `task create <description>` and `task <description>`. */
+async function handleTaskCreate(description: string, raw: Record<string, unknown>): Promise<void> {
+  const options = normalizeOptions(raw);
+  const result = await runTask(description, options);
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  log(`${bold("Task capsule:")} ${file(result.taskDir)}`);
+  log(`${bold("Workflow:    ")} ${bold(result.workflow)}  ${dim(result.workflowReason)}`);
+  ln();
+  log(`  ${dim("Files created:")}`);
+  for (const w of result.writes) log(`    ${plus()} ${file(w)}`);
+  ln();
+  log(`  ${bold("Next:")} open your agent and ask:`);
+  log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
+  log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
 }
 
 function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
