@@ -120,6 +120,13 @@ export interface InitResult {
   conflicts: string[];
 }
 
+export type SuggestionSeverity = "info" | "warning" | "error";
+
+export interface Suggestion {
+  text: string;
+  severity: SuggestionSeverity;
+}
+
 export interface DoctorResult {
   installed: boolean;
   readiness: number;
@@ -127,7 +134,7 @@ export interface DoctorResult {
   installedTargets: Target[];
   missing: string[];
   conflicts: string[];
-  suggestions: string[];
+  suggestions: Suggestion[];
   fixed?: string[];
   wikiLint?: WikiLintResult;
 }

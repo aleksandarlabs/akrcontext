@@ -295,7 +295,7 @@ describe("doctor", () => {
 
     expect(result.installed).toBe(false);
     expect(result.readiness).toBe(0);
-    expect(result.suggestions[0]).toContain("akrctx init");
+    expect(result.suggestions[0].text).toContain("akrctx init");
   });
 
   it("reports policy gaps when required enforcement is relaxed", async () => {
@@ -311,7 +311,7 @@ describe("doctor", () => {
 
     expect(result.missing).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
     expect(result.missing).toContain(".akrctx/policy.json — protectedFiles missing AGENTS.md");
-    expect(result.suggestions.some((suggestion) => suggestion.includes("file(s) missing"))).toBe(true);
+    expect(result.suggestions.some((suggestion) => suggestion.text.includes("file(s) missing"))).toBe(true);
   });
 
   it("reports profile-specific policy gaps", async () => {
@@ -352,6 +352,35 @@ describe("doctor", () => {
 
   it("doctor --ci passes for a complete install", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    const previousExitCode = process.exitCode;
+    const writes: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => {
+      writes.push(String(message));
+    };
+
+    try {
+      process.exitCode = undefined;
+      process.chdir(tmp);
+      await main(["node", "akrctx", "doctor", "--ci"]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+
+    expect(process.exitCode).toBeUndefined();
+    expect(writes.join("\n")).toContain("akrctx doctor CI passed");
+    process.exitCode = previousExitCode;
+  });
+
+  it("doctor --ci passes even when installedVersion drifts from CLI_VERSION (warning, not error)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.installedVersion = "0.0.1";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
     const previousCwd = process.cwd();
     const previousExitCode = process.exitCode;
     const writes: string[] = [];
@@ -1074,8 +1103,8 @@ describe("upgrade", () => {
 
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
-    expect(result.suggestions.some((s) => s.includes("akrctx upgrade"))).toBe(true);
-    expect(result.suggestions.some((s) => s.includes("0.0.1"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("akrctx upgrade"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("0.0.1"))).toBe(true);
   });
 });
 
@@ -1159,7 +1188,7 @@ describe("judge", () => {
 
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
-    expect(result.suggestions.some((s) => s.includes("akrctx judge enable"))).toBe(true);
+    expect(result.suggestions.some((s) => s.text.includes("akrctx judge enable"))).toBe(true);
   });
 });
 

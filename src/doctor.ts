@@ -16,6 +16,7 @@ import {
   type CommandOptions,
   type DoctorResult,
   type Profile,
+  type Suggestion,
   type Target,
   type WikiLintResult,
   profiles,
@@ -133,9 +134,11 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
     ...wikiLint.missingTimestamps.map((issue) => `${issue.file} — ${issue.message}`),
   ];
   const allMissing = [...missing, ...configGaps, ...policyGaps, ...wikiLintMissing];
-  const suggestions = [
+  const suggestions: Suggestion[] = [
     ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
-    ...(wikiLint.orphans.length ? [`Wiki orphan pages: ${wikiLint.orphans.join(", ")}`] : []),
+    ...(wikiLint.orphans.length
+      ? [{ text: `Wiki orphan pages: ${wikiLint.orphans.join(", ")}`, severity: "info" as const }]
+      : []),
   ];
   const readiness = scoreReadiness(installed, installedTargets, allMissing, conflicts);
 
@@ -302,46 +305,54 @@ function buildSuggestions(
   conflicts: string[],
   installedVersion?: string,
   judgeGap?: string,
-): string[] {
-  const suggestions: string[] = [];
+): Suggestion[] {
+  const suggestions: Suggestion[] = [];
 
   if (!installed) {
-    suggestions.push(
-      "akrctx is not installed. Run `akrctx init --target codex` (or choose interactively with `akrctx init`).",
-    );
+    suggestions.push({
+      text: "akrctx is not installed. Run `akrctx init --target codex` (or choose interactively with `akrctx init`).",
+      severity: "error",
+    });
     return suggestions;
   }
 
   if (installedTargets.length === 0) {
-    suggestions.push(
-      "No target adapter found. Run `akrctx init --target <target>` to install one (codex, claude, copilot, or pi).",
-    );
+    suggestions.push({
+      text: "No target adapter found. Run `akrctx init --target <target>` to install one (codex, claude, copilot, or pi).",
+      severity: "error",
+    });
   }
 
   if (missing.length > 0) {
-    suggestions.push(
-      `${missing.length} file(s) missing. Run \`akrctx init --target ${installedTargets[0] ?? "codex"}\` to restore them.`,
-    );
+    suggestions.push({
+      text: `${missing.length} file(s) missing. Run \`akrctx init --target ${installedTargets[0] ?? "codex"}\` to restore them.`,
+      severity: "error",
+    });
   }
 
   if (conflicts.length > 0) {
-    suggestions.push(
-      "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
-    );
+    suggestions.push({
+      text: "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
+      severity: "error",
+    });
   }
 
   if (judgeGap) {
-    suggestions.push(judgeGap);
+    suggestions.push({ text: judgeGap, severity: "error" });
   }
 
   if (installedVersion && installedVersion !== CLI_VERSION) {
-    suggestions.push(
-      `Harness was installed with akrctx v${installedVersion}. Current CLI is v${CLI_VERSION}. Run \`akrctx upgrade\` to update skill files.`,
-    );
+    suggestions.push({
+      text: `Harness was installed with akrctx v${installedVersion}. Current CLI is v${CLI_VERSION}. Run \`akrctx upgrade\` to update skill files.`,
+      severity: "warning",
+    });
   }
 
   if (suggestions.length === 0) {
-    suggestions.push('Setup is complete. You can create a task capsule with `akrctx task "<description>"`.');
+    suggestions.push({
+      text: 'Setup is complete. You can create a task capsule with `akrctx task "<description>"`.',
+      severity: "info",
+    });
   }
 
   return suggestions;

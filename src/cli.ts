@@ -731,7 +731,7 @@ function printDoctor(result: DoctorResult, options: CommandOptions): void {
   if (result.suggestions.length > 0) {
     ln();
     log(`  ${bold("Suggestions:")}`);
-    for (const s of result.suggestions) log(`    ${s}`);
+    for (const s of result.suggestions) log(`    ${s.text}`);
   }
 
   const target = result.installedTargets[0] ?? result.detectedTargets[0];
@@ -789,7 +789,7 @@ function printDoctorCi(result: DoctorResult, options: CommandOptions): void {
   if (result.suggestions.length > 0) {
     ln();
     log("Suggestions:");
-    for (const s of result.suggestions) log(`- ${s}`);
+    for (const s of result.suggestions) log(`- [${s.severity}] ${s.text}`);
   }
 }
 
@@ -804,9 +804,8 @@ function doctorCiFailures(result: DoctorResult): string[] {
   if (result.missing.length > 0) failures.push(`${result.missing.length} required file(s) are missing.`);
   if (result.conflicts.length > 0) failures.push(`${result.conflicts.length} pending merge conflict(s) need review.`);
 
-  const actionableSuggestions = result.suggestions.filter((suggestion) => !suggestion.startsWith("Setup is complete."));
-  if (actionableSuggestions.length > 0)
-    failures.push(`${actionableSuggestions.length} actionable suggestion(s) remain.`);
+  const errorSuggestions = result.suggestions.filter((suggestion) => suggestion.severity === "error");
+  if (errorSuggestions.length > 0) failures.push(`${errorSuggestions.length} actionable suggestion(s) remain.`);
 
   return Array.from(new Set(failures));
 }
