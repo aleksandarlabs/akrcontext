@@ -78,6 +78,34 @@ Do not read all of `.akrctx/` by default.
 
 ---
 
+## Comprehension Gate
+
+The optional comprehension gate asks the developer code-specific questions after a significant completed change. It is a learning and ownership checkpoint: it may inspect Git with read-only commands, but never stages, commits, pushes, merges, resets, or otherwise changes Git state. It does not block merges or assess whether code is acceptable to push.
+
+Enable it once for the project:
+
+```bash
+akrctx comprehension enable
+akrctx comprehension status
+akrctx comprehension disable
+```
+
+When enabled, the agent assesses the completed diff. It skips surface changes and starts a short checkpoint when the change affects meaningful logic, architecture, security, persistence, infrastructure, or other material risks. The developer does not need to invoke a command for each task.
+
+Personal answers, hints, and results belong in `.akrctx/local/comprehension/TASK-XXX/<session-id>/`. The installed `.akrctx/local/.gitignore` keeps new records out of version control by default. Before persistence, the agent verifies the path with read-only Git commands; if it cannot verify this, it keeps the interaction in chat. Git ignore rules are not encryption and do not protect files from other local software or backups.
+
+```json
+{
+  "comprehensionGate": {
+    "enabled": false,
+    "trigger": "agent-assessed-significance",
+    "evaluationMode": "prefer-independent"
+  }
+}
+```
+
+---
+
 ## Profiles
 
 Profiles are installation presets stored in `.akrctx/config.json` and `.akrctx/policy.json`.
@@ -143,12 +171,17 @@ Each platform's judge agent file is installed in the native subagent location fo
 ```json
 {
   "version": 1,
-  "installedVersion": "0.1.0",
+  "installedVersion": "0.3.0",
   "profile": "default",
   "targets": ["codex"],
   "judge": {
     "enabled": false,
     "trigger": "post-implementation"
+  },
+  "comprehensionGate": {
+    "enabled": false,
+    "trigger": "agent-assessed-significance",
+    "evaluationMode": "prefer-independent"
   },
   "defaults": {
     "workflow": "task-fit",
@@ -157,10 +190,14 @@ Each platform's judge agent file is installed in the native subagent location fo
     "requireWorkflowReason": true,
     "contextBudget": "proportional"
   },
-  "workflowRules": [
-    { "match": "bug|fix|regression|hotfix", "workflow": "fast-patch" },
-    { "match": "research|spike|explore|investigate", "workflow": "research-first" },
-    { "match": "ui|screen|component|layout|design", "workflow": "UI review" }
-  ]
+  "workflowRules": {
+    "default": "task-fit",
+    "bugfix": "TDD",
+    "apiOrContract": "SDD+TDD",
+    "edgeCases": "SDD+EDD",
+    "ui": "UI review",
+    "smallSafePatch": "fast-patch",
+    "unknownArea": "research-first"
+  }
 }
 ```

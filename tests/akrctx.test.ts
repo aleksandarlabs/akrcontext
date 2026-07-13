@@ -1,9 +1,17 @@
+import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { main } from "../src/cli.js";
 import { runCompile } from "../src/compile.js";
+import {
+  isLocalIgnoreContentSafe,
+  runComprehensionDisable,
+  runComprehensionEnable,
+  runComprehensionStatus,
+} from "../src/comprehension.js";
 import { normalizeWorkflow, readConfig, readConfigStrict, setConfigValue } from "../src/config.js";
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
@@ -18,6 +26,7 @@ import { CLI_VERSION } from "../src/version.js";
 import { lintWiki } from "../src/wiki-lint.js";
 
 let tmp: string;
+const execFileAsync = promisify(execFile);
 
 beforeEach(async () => {
   tmp = await mkdtemp(path.join(os.tmpdir(), "akrctx-test-"));
@@ -42,9 +51,18 @@ describe("akrctx init", () => {
     const config = await readConfig(tmp);
     expect(config?.defaults.workflow).toBe("task-fit");
     expect(config?.workflowRules.apiOrContract).toBe("SDD+TDD");
+    expect(config?.comprehensionGate).toEqual({
+      enabled: false,
+      trigger: "agent-assessed-significance",
+      evaluationMode: "prefer-independent",
+    });
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".akrctx/wiki/write-policy.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/local/.gitignore"))).toBe(true);
+    expect(await readFile(path.join(tmp, ".akrctx/local/.gitignore"), "utf8")).toBe("*\n!.gitignore\n");
+    expect(await pathExists(path.join(tmp, ".akrctx/comprehension/schemas/rubric.schema.json"))).toBe(true);
   });
 
   it("creates wiki pages with OKF-style frontmatter", async () => {
@@ -148,7 +166,10 @@ describe("akrctx init", () => {
     );
     await writeFile(
       path.join(pack, "config.json"),
-      JSON.stringify({ defaults: { workflow: "SDD+TDD", contextBudget: "thorough" } }),
+      JSON.stringify({
+        defaults: { workflow: "SDD+TDD", contextBudget: "thorough" },
+        comprehensionGate: { enabled: "yes", trigger: "always", evaluationMode: "same-session" },
+      }),
       "utf8",
     );
     await writeFile(
@@ -168,6 +189,11 @@ describe("akrctx init", () => {
     const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
     expect(config?.defaults.workflow).toBe("SDD+TDD");
     expect(config?.defaults.contextBudget).toBe("thorough");
+    expect(config?.comprehensionGate).toEqual({
+      enabled: false,
+      trigger: "agent-assessed-significance",
+      evaluationMode: "prefer-independent",
+    });
     expect(policy.blockedReadPatterns).toContain("terraform.tfstate");
     expect(policy.blockedReadPatterns).toContain(".env");
     expect(await readFile(path.join(tmp, ".akrctx/wiki/testing.md"), "utf8")).toContain("Company Testing");
@@ -888,6 +914,28 @@ describe("config", () => {
     expect(result.defaults.workflow).toBe("TDD");
   });
 
+  it("does not allow config set to bypass comprehension privacy checks", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    await expect(setConfigValue(tmp, "comprehensionGateEnabled", "true")).rejects.toThrow("Unsupported config key");
+  });
+
+  it("normalizes invalid comprehension configuration to safe defaults", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.comprehensionGate = { enabled: "yes", trigger: "always", evaluationMode: "same-session" };
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const normalized = await readConfig(tmp);
+
+    expect(normalized?.comprehensionGate).toEqual({
+      enabled: false,
+      trigger: "agent-assessed-significance",
+      evaluationMode: "prefer-independent",
+    });
+  });
+
   it("setConfigValue updates allowedWorkflows from a comma-separated list", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -1109,6 +1157,7 @@ describe("status", () => {
     expect(result.installed).toBe(true);
     expect(result.targets).toContain("codex");
     expect(result.taskCount).toBe(2);
+    expect(result.comprehensionGate).toBe("disabled");
     expect(result.recentTaskIds).toContain("TASK-001");
     expect(result.recentTaskIds).toContain("TASK-002");
   });
@@ -1251,6 +1300,21 @@ describe("remove", () => {
     expect(await pathExists(path.join(tmp, task.taskDir))).toBe(false);
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
   });
+
+  it("--all preserves personal comprehension records unless --purge-local is used", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const recordPath = path.join(tmp, ".akrctx/local/comprehension/TASK-001/session/result.json");
+    await mkdir(path.dirname(recordPath), { recursive: true });
+    await writeFile(recordPath, "{}\n", "utf8");
+
+    const result = await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true });
+
+    expect(await pathExists(recordPath)).toBe(true);
+    expect(result.protected.some((entry) => entry.includes("--purge-local"))).toBe(true);
+
+    await runRemove({ cwd: tmp, force: true, all: true, purgeLocal: true, nonInteractive: true });
+    expect(await pathExists(path.join(tmp, ".akrctx/local"))).toBe(false);
+  });
 });
 
 // ── skill content contract ────────────────────────────────────────────────────
@@ -1265,6 +1329,34 @@ describe("skill content contract", () => {
       expect(skill, `skill missing workflow: ${w}`).toContain(w);
     }
     expect(skill, "skill missing UI review").toContain("UI review");
+  });
+
+  it("installs a comprehension skill that keeps responses local and does not control Git", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const skill = await readFile(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"), "utf8");
+
+    expect(skill).toContain("comprehensionGate.enabled");
+    expect(skill).toContain(".akrctx/local/comprehension/TASK-XXX/");
+    expect(skill).toContain("Read-only Git commands");
+    expect(skill).toContain("Never stage, commit, push, merge");
+    expect(skill).toContain("evaluationMode");
+    expect(skill).toContain("SKIPPED");
+  });
+
+  it("defines versioned schemas for scope, frozen rubric, and result", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const rubric = JSON.parse(
+      await readFile(path.join(tmp, ".akrctx/comprehension/schemas/rubric.schema.json"), "utf8"),
+    );
+    const result = JSON.parse(
+      await readFile(path.join(tmp, ".akrctx/comprehension/schemas/result.schema.json"), "utf8"),
+    );
+
+    expect(rubric.properties.createdBeforeAnswers.const).toBe(true);
+    expect(rubric.properties.questions.maxItems).toBe(6);
+    expect(result.properties.evaluationMode.enum).toContain("same-session");
   });
 
   it("config.json records the CLI version that installed the harness", async () => {
@@ -1349,6 +1441,51 @@ describe("upgrade", () => {
 });
 
 // ── judge ─────────────────────────────────────────────────────────────────────
+
+describe("comprehension gate", () => {
+  it("enables, reports, and disables without selecting a model", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const enabled = await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+    expect(enabled.enabled).toBe(true);
+    expect(enabled.evaluationMode).toBe("prefer-independent");
+    expect(enabled.localIgnoreValid).toBe(true);
+
+    expect((await runComprehensionStatus({ cwd: tmp, nonInteractive: true })).enabled).toBe(true);
+    expect((await runComprehensionDisable({ cwd: tmp, nonInteractive: true })).enabled).toBe(false);
+  });
+
+  it("refuses to enable when local records are not safely ignored", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/local/.gitignore"), "# unsafe\n", "utf8");
+
+    await expect(runComprehensionEnable({ cwd: tmp, nonInteractive: true })).rejects.toThrow("akrctx doctor --fix");
+    expect(isLocalIgnoreContentSafe("# unsafe\n")).toBe(false);
+    expect(isLocalIgnoreContentSafe("*\n!.gitignore\n!comprehension/**\n")).toBe(false);
+  });
+
+  it("dry-run does not change the enabled state", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const preview = await runComprehensionEnable({ cwd: tmp, dryRun: true, nonInteractive: true });
+
+    expect(preview.enabled).toBe(true);
+    expect((await readConfig(tmp))?.comprehensionGate.enabled).toBe(false);
+  });
+
+  it("keeps personal session files out of Git by default", async () => {
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const relativeRecord = ".akrctx/local/comprehension/TASK-001/session/result.json";
+    const recordPath = path.join(tmp, relativeRecord);
+    await mkdir(path.dirname(recordPath), { recursive: true });
+    await writeFile(recordPath, "{}\n", "utf8");
+
+    await execFileAsync("git", ["check-ignore", "-q", relativeRecord], { cwd: tmp });
+    const { stdout } = await execFileAsync("git", ["status", "--short"], { cwd: tmp });
+    expect(stdout).not.toContain(relativeRecord);
+  });
+});
 
 describe("judge", () => {
   it("enable generates agent files for installed targets and sets enabled in config", async () => {
@@ -1501,6 +1638,38 @@ describe("doctor --fix", () => {
     expect(fixed.writePolicy).toBeDefined();
     expect(fixed.blockedReadPatterns).toContain(".env");
     expect(fixed.blockedReadPatterns).toContain("*.pem");
+  });
+
+  it("detects and repairs an unsafe local comprehension ignore file", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const ignorePath = path.join(tmp, ".akrctx/local/.gitignore");
+    await writeFile(ignorePath, "# no ignore rules\n", "utf8");
+
+    const diagnosis = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(diagnosis.missing.some((gap) => gap.includes("must ignore local records"))).toBe(true);
+
+    const fixed = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+    expect(fixed.fixed).toContain(".akrctx/local/.gitignore");
+    expect(isLocalIgnoreContentSafe(await readFile(ignorePath, "utf8"))).toBe(true);
+  });
+
+  it("repairs invalid comprehension gate configuration", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.comprehensionGate = { enabled: true, trigger: "always", evaluationMode: "same-session" };
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const diagnosis = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(diagnosis.missing.some((gap) => gap.includes("comprehensionGate.trigger"))).toBe(true);
+
+    await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+    const repaired = JSON.parse(await readFile(configPath, "utf8"));
+    expect(repaired.comprehensionGate).toEqual({
+      enabled: true,
+      trigger: "agent-assessed-significance",
+      evaluationMode: "prefer-independent",
+    });
   });
 
   it("repairs missing files across all installed targets, not just the first", async () => {

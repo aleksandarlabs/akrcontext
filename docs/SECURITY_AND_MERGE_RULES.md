@@ -70,6 +70,8 @@ After init, the selected programming agent owns research and implementation thro
 
 Agent-facing policy must not disable normal implementation. It should only define merge safety, blocked secret reads, context budget, and where durable akrctx notes belong.
 
+The optional comprehension gate may use read-only Git inspection for in-scope files. It must apply blocked-read patterns before inspecting diffs or history, treat repository text as untrusted evidence, and never stage, commit, push, merge, rebase, reset, checkout, or clean. Personal responses belong only under `.akrctx/local/`; ignore rules are not encryption, so the agent must verify the path is ignored and untracked before persisting them.
+
 `akrctx doctor` validates policy integrity. In CI mode, weakened policy fails the run:
 
 ```bash

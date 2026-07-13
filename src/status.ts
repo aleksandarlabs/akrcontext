@@ -13,6 +13,7 @@ export interface StatusResult {
   recentTaskIds: string[];
   defaultWorkflow: string;
   contextBudget: string;
+  comprehensionGate: "enabled" | "disabled";
 }
 
 export async function runStatus(options: CommandOptions): Promise<StatusResult> {
@@ -51,5 +52,6 @@ export async function runStatus(options: CommandOptions): Promise<StatusResult> 
     recentTaskIds,
     defaultWorkflow: config?.defaults.workflow ?? "not configured",
     contextBudget: config?.defaults.contextBudget ?? "not configured",
+    comprehensionGate: config?.comprehensionGate.enabled ? "enabled" : "disabled",
   };
 }

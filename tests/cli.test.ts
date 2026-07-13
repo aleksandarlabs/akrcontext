@@ -110,4 +110,24 @@ describe("CLI layer — main(argv)", () => {
     const parsed = JSON.parse(logs.join("\n"));
     expect(parsed.outputPath).toContain("codex.md");
   });
+
+  it("comprehension enable/status/disable works through the CLI", async () => {
+    await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
+
+    for (const [command, expected] of [
+      ["enable", true],
+      ["status", true],
+      ["disable", false],
+    ] as const) {
+      const { logs, restore } = captureLogs();
+      try {
+        await main(["node", "akrctx", "comprehension", command, "--json"]);
+      } finally {
+        restore();
+      }
+      const parsed = JSON.parse(logs.join("\n"));
+      expect(parsed.enabled).toBe(expected);
+      expect(parsed.localIgnoreValid).toBe(true);
+    }
+  });
 });

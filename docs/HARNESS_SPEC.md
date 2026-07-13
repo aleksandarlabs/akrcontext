@@ -91,6 +91,17 @@ Purpose:
 - verify scope boundaries
 - verify security/sensitive files are excluded
 
+### akrctx Comprehension
+
+Purpose:
+
+- assess completed-change significance from code evidence rather than line count
+- use a separate evaluator or fresh context when available
+- freeze a code-grounded rubric before collecting developer answers
+- test factual understanding, design reasoning, and risk awareness
+- keep personal answers in verified Git-ignored local storage
+- never mutate Git state or control merge decisions
+
 ## CLI-level workflows
 
 The CLI itself is deterministic.

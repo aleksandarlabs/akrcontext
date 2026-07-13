@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import select from "@inquirer/select";
+import { normalizeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
@@ -8,10 +9,12 @@ import {
   claudeCommands,
   claudeSkills,
   codexSkills,
+  comprehensionFiles,
   copilotFiles,
   copilotSkills,
   defaultConfig,
   defaultPolicy,
+  localComprehensionIgnoreTemplate,
   mainInstructionTemplate,
   overviewTemplate,
   piFiles,
@@ -52,7 +55,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
-  const config = mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config);
+  const config = normalizeConfig(mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config));
   config.targets = selectedTargets;
   config.defaults.target = selectedTargets[0];
   writes.push(await writeFile(".akrctx/config.json", JSON.stringify(config, null, 2), false, "akrctx config."));
@@ -60,6 +63,14 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   policy.profile = profile;
   writes.push(
     await writeFile(".akrctx/policy.json", JSON.stringify(policy, null, 2), false, "akrctx security and merge policy."),
+  );
+  writes.push(
+    await writeFile(
+      ".akrctx/local/.gitignore",
+      localComprehensionIgnoreTemplate,
+      false,
+      "Keep personal akrctx comprehension records local.",
+    ),
   );
   const policyWarnings = describePolicyWeakening(defaultPolicy(profile), policy);
 
@@ -102,6 +113,12 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     ),
   ]);
   writes.push(overviewResult, ...wikiResults, ...taskResults, ...targetResults);
+  const comprehensionResults = await Promise.all(
+    Object.entries(comprehensionFiles).map(([relativePath, content]) =>
+      writeFile(relativePath, content, false, "akrctx comprehension contract."),
+    ),
+  );
+  writes.push(...comprehensionResults);
 
   // Target-specific harness files.
   for (const targetName of selectedTargets) {

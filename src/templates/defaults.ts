@@ -12,6 +12,11 @@ export function defaultConfig(targets: Target[], profile: Profile = "default"): 
     installedVersion: CLI_VERSION,
     profile,
     judge: { enabled: false, trigger: "post-implementation" },
+    comprehensionGate: {
+      enabled: false,
+      trigger: "agent-assessed-significance",
+      evaluationMode: "prefer-independent",
+    },
     targets,
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",
@@ -45,6 +50,9 @@ export function defaultConfig(targets: Target[], profile: Profile = "default"): 
 
   return config;
 }
+
+/** Keeps personal comprehension responses out of version control by default. */
+export const localComprehensionIgnoreTemplate = "*\n!.gitignore\n";
 
 export function policyTemplate(profile: Profile = "default"): string {
   return JSON.stringify(defaultPolicy(profile), null, 2);

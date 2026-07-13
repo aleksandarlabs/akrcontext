@@ -201,6 +201,20 @@ Valid `contextBudget` values: `minimal` | `proportional` | `thorough`.
 
 ---
 
+## `akrctx comprehension`
+
+Manages the optional developer-understanding checkpoint. Enable it once; after that the agent assesses completed changes and starts a short checkpoint only when their significance warrants it.
+
+```bash
+akrctx comprehension enable
+akrctx comprehension disable
+akrctx comprehension status
+```
+
+Personal sessions are stored under `.akrctx/local/comprehension/` and ignored by Git. Read-only Git inspection is allowed; Git mutations and merge control are forbidden.
+
+---
+
 ## `akrctx judge`
 
 Manages the optional judge subagent. The judge independently reviews whether an implementation matches the task capsule. Disabled by default.

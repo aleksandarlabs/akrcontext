@@ -14,7 +14,7 @@ export interface RemoveResult {
 }
 
 export async function runRemove(
-  options: CommandOptions & { all?: boolean; purgeTasks?: boolean },
+  options: CommandOptions & { all?: boolean; purgeTasks?: boolean; purgeLocal?: boolean },
 ): Promise<RemoveResult> {
   const cwd = options.cwd ?? process.cwd();
   // Default to dry-run unless --force is explicitly passed.
@@ -54,19 +54,25 @@ export async function runRemove(
     if (await pathExists(cfDir)) {
       const tasksDir = path.join(cfDir, "tasks");
       const hasTaskCapsules = !options.purgeTasks && (await hasAnyTaskCapsule(tasksDir));
+      const hasLocalRecords = !options.purgeLocal && (await hasAnyLocalRecord(path.join(cfDir, "local")));
+      const preservedEntries = new Set<string>();
+      if (hasTaskCapsules) preservedEntries.add("tasks");
+      if (hasLocalRecords) preservedEntries.add("local");
 
-      if (hasTaskCapsules) {
-        // Preserve .akrctx/tasks/ — remove everything else in .akrctx/.
+      if (preservedEntries.size > 0) {
+        // Preserve durable user records — remove everything else in .akrctx/.
         const entries = await readdir(cfDir, { withFileTypes: true });
         for (const entry of entries) {
-          if (entry.name === "tasks") continue;
+          if (preservedEntries.has(entry.name)) continue;
           const relative = `.akrctx/${entry.name}${entry.isDirectory() ? "/" : ""}`;
           planned.push(relative);
           if (!dryRun) {
             await rm(path.join(cfDir, entry.name), { recursive: true, force: true });
           }
         }
-        skippedProtected.push(".akrctx/tasks/ (kept — contains task capsules; delete manually)");
+        if (hasTaskCapsules) skippedProtected.push(".akrctx/tasks/ (kept — use --purge-tasks to delete)");
+        if (hasLocalRecords)
+          skippedProtected.push(".akrctx/local/ (kept — use --purge-local to delete personal records)");
       } else {
         planned.push(".akrctx/");
         if (!dryRun) {
@@ -99,6 +105,15 @@ async function hasAnyTaskCapsule(tasksDir: string): Promise<boolean> {
   try {
     const entries = await readdir(tasksDir, { withFileTypes: true });
     return entries.some((entry) => entry.isDirectory() && /^TASK-\d+/.test(entry.name));
+  } catch {
+    return false;
+  }
+}
+
+async function hasAnyLocalRecord(localDir: string): Promise<boolean> {
+  try {
+    const entries = await readdir(localDir, { withFileTypes: true });
+    return entries.some((entry) => entry.name !== ".gitignore");
   } catch {
     return false;
   }

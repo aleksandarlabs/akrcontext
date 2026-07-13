@@ -1,5 +1,6 @@
 import { Command, Option } from "commander";
 import { runCompile } from "./compile.js";
+import { runComprehensionDisable, runComprehensionEnable, runComprehensionStatus } from "./comprehension.js";
 import { readConfigStrict, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
@@ -44,6 +45,7 @@ export async function main(argv = process.argv): Promise<void> {
         '  akrctx task "Add invoice API"                  create empty capsule skeleton',
         '  akrctx task "Fix auth bug" --workflow TDD      force a specific workflow',
         "  akrctx compile TASK-001 --target codex         generate agent brief from capsule",
+        "  akrctx comprehension enable                    enable understanding checkpoints",
         "",
         "Templates:",
         "  akrctx templates list                         list bundled template packs",
@@ -194,6 +196,7 @@ export async function main(argv = process.argv): Promise<void> {
     );
     log(`${bold("Workflow:    ")} ${result.defaultWorkflow}`);
     log(`${bold("Context:     ")} ${result.contextBudget}`);
+    log(`${bold("Comprehension:")} ${result.comprehensionGate}`);
 
     if (!result.installed) {
       ln();
@@ -368,6 +371,53 @@ export async function main(argv = process.argv): Promise<void> {
     }
   });
 
+  // ── comprehension ─────────────────────────────────────────────────────────
+  const comprehension = program
+    .command("comprehension")
+    .description("Manage the optional developer comprehension checkpoint.");
+
+  addCommon(
+    comprehension.command("enable").description("Enable automatic significance-based checkpoints."),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runComprehensionEnable(options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    log(`${bold("Comprehension gate:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
+    log(`  ${dim(`Trigger: ${result.trigger}`)}`);
+    log(`  ${dim(`Local ignore valid: ${result.localIgnoreValid ? "yes" : "no"}`)}`);
+  });
+
+  addCommon(comprehension.command("disable").description("Disable comprehension checkpoints."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runComprehensionDisable(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Comprehension gate:")} ${options.dryRun ? yellow("would disable (dry-run)") : yellow("disabled")}`);
+    },
+  );
+
+  addCommon(comprehension.command("status").description("Show checkpoint and local-storage status."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runComprehensionStatus(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Comprehension gate:")} ${result.enabled ? green("enabled") : yellow("disabled")}`);
+      log(`  ${dim(`Trigger: ${result.trigger}`)}`);
+      log(`  ${dim(`Evaluation: ${result.evaluationMode}`)}`);
+      log(`  ${dim(`Local ignore valid: ${result.localIgnoreValid ? "yes" : "NO — run akrctx doctor --fix"}`)}`);
+    },
+  );
+
   // ── judge ─────────────────────────────────────────────────────────────────
   const judge = program.command("judge").description("Manage the optional akrctx judge subagent.");
 
@@ -514,14 +564,21 @@ export async function main(argv = process.argv): Promise<void> {
           "  akrctx remove --all --force             remove .akrctx/ and all target files",
           "                                           (task capsules under .akrctx/tasks/ are kept)",
           "  akrctx remove --all --purge-tasks --force  also delete .akrctx/tasks/ entirely",
+          "  akrctx remove --all --purge-local --force  also delete personal comprehension records",
         ].join("\n"),
       ),
   )
     .option("--all", "remove .akrctx/ and all target files", false)
     .option("--purge-tasks", "with --all, also delete .akrctx/tasks/ (task capsules) instead of keeping them", false)
+    .option("--purge-local", "with --all, also delete .akrctx/local/ personal records instead of keeping them", false)
     .action(async (raw) => {
-      const options = normalizeOptions(raw) as CommandOptions & { all?: boolean; purgeTasks?: boolean };
+      const options = normalizeOptions(raw) as CommandOptions & {
+        all?: boolean;
+        purgeTasks?: boolean;
+        purgeLocal?: boolean;
+      };
       options.purgeTasks = Boolean(raw.purgeTasks);
+      options.purgeLocal = Boolean(raw.purgeLocal);
       if (!options.target && !options.all) {
         throw new Error("Specify a target with --target <target> or use --all to remove everything.");
       }
@@ -672,6 +729,7 @@ function printInit(result: InitResult, options: CommandOptions): void {
   log(`  ${bold("Useful commands")}`);
   log(`    ${cmd("akrctx status")}         ${dim("— quick check")}`);
   log(`    ${cmd("akrctx doctor")}         ${dim("— full audit + readiness score")}`);
+  log(`    ${cmd("akrctx comprehension enable")} ${dim("— enable understanding checkpoints")}`);
   log(`    ${cmd("akrctx judge enable")}   ${dim("— add optional judge subagent (Claude / Copilot / Codex)")}`);
   log(`    ${cmd("akrctx --help")}         ${dim("— full reference")}`);
   ln();

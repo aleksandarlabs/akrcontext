@@ -84,6 +84,20 @@ export function normalizeConfig(raw: unknown): akrctxConfig {
       ...base.workflowRules,
       ...(partial.workflowRules ?? {}),
     },
+    comprehensionGate: normalizeComprehensionGate(partial.comprehensionGate, base.comprehensionGate),
+  };
+}
+
+function normalizeComprehensionGate(
+  value: unknown,
+  fallback: akrctxConfig["comprehensionGate"],
+): akrctxConfig["comprehensionGate"] {
+  if (!value || typeof value !== "object") return fallback;
+  const gate = value as Partial<akrctxConfig["comprehensionGate"]>;
+  return {
+    enabled: typeof gate.enabled === "boolean" ? gate.enabled : fallback.enabled,
+    trigger: gate.trigger === "agent-assessed-significance" ? gate.trigger : fallback.trigger,
+    evaluationMode: gate.evaluationMode === "prefer-independent" ? gate.evaluationMode : fallback.evaluationMode,
   };
 }
 

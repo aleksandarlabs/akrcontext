@@ -30,11 +30,28 @@ export interface JudgeConfig {
   trigger: "post-implementation";
 }
 
+export interface ComprehensionGateConfig {
+  enabled: boolean;
+  trigger: "agent-assessed-significance";
+  evaluationMode: "prefer-independent";
+}
+
+export type ComprehensionSignificance = "surface" | "logic" | "architectural" | "critical";
+export type ComprehensionEvaluationMode = "independent" | "fresh-context" | "same-session";
+export type ComprehensionResultStatus =
+  | "VERIFIED"
+  | "ASSISTED"
+  | "UNVERIFIED"
+  | "INVALID_GATE"
+  | "SKIPPED"
+  | "DEFERRED";
+
 export interface akrctxConfig {
   version: number;
   installedVersion?: string;
   profile?: Profile;
   judge?: JudgeConfig;
+  comprehensionGate: ComprehensionGateConfig;
   targets: Target[];
   sourceOfTruth: ".akrctx";
   createdBy: "akrctx";

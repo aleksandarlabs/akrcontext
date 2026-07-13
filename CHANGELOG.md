@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-07-13
+
+### Added
+
+- Optional developer comprehension checkpoints for significant completed changes.
+- Portable `akrctx-comprehension` skill and versioned scope, rubric, and result schemas.
+- `akrctx comprehension enable|disable|status` commands.
+- Git-ignored local storage for personal responses and assisted-learning records.
+
+### Security
+
+- Comprehension evaluators may inspect only in-scope, non-blocked Git data with read-only commands.
+- Enabling fails when the local ignore contract is unsafe; `doctor --fix` repairs it.
+- Personal records are preserved by `remove --all` unless `--purge-local` is explicit.
+
 ## [0.2.0] - 2026-07-04
 
 Audit hardening release. Fixes critical and medium-severity bugs found in a

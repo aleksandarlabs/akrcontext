@@ -52,6 +52,8 @@ akrctx task "Define invoice API examples" --workflow SDD+EDD
 akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
 akrctx judge status
+akrctx comprehension enable            # enable developer understanding checkpoints
+akrctx comprehension status
 akrctx remove --target codex --force   # remove harness for a target
 akrctx templates list                  # list bundled enterprise templates
 ```
@@ -119,6 +121,11 @@ Every target gets the neutral source of truth:
 .akrctx/
   config.json
   policy.json
+  comprehension/
+    README.md
+    schemas/
+  local/
+    .gitignore
   wiki/
     overview.md
     index.md
@@ -144,6 +151,7 @@ AGENTS.md or AGENTS.akrctx.suggested.md
 .agents/skills/akrctx-doctor/SKILL.md
 .agents/skills/akrctx-task/SKILL.md
 .agents/skills/akrctx-review/SKILL.md
+.agents/skills/akrctx-comprehension/SKILL.md
 .agents/skills/akrctx-workflow/SKILL.md
 .agents/skills/akrctx-write-policy/SKILL.md
 ```
@@ -162,6 +170,7 @@ doctor findings   -> .akrctx/wiki/agent-setup.md
                     .akrctx/wiki/recommendations.md
 wiki catalog      -> .akrctx/wiki/index.md
 task capsules     -> .akrctx/tasks/TASK-XXX/
+personal comprehension records -> .akrctx/local/comprehension/ (Git-ignored)
 compiled briefs   -> .akrctx/tasks/TASK-XXX/exports/
 decisions         -> .akrctx/wiki/decisions.md
 architecture      -> .akrctx/wiki/architecture.md

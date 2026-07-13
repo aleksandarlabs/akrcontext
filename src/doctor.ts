@@ -1,5 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -10,6 +11,7 @@ import {
   defaultConfig,
   defaultPolicy,
   gapsTemplate,
+  localComprehensionIgnoreTemplate,
   recommendationsTemplate,
 } from "./templates.js";
 import {
@@ -69,6 +71,9 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
   const policyFixed = await fixPolicy(cwd, options.dryRun);
   if (policyFixed) fixed.push(".akrctx/policy.json");
 
+  const localIgnoreFixed = await fixLocalIgnore(cwd, options.dryRun);
+  if (localIgnoreFixed && !options.dryRun) fixed.push(localIgnorePath);
+
   // Re-run diagnosis after fixes and report what changed.
   const final = await diagnose(cwd, options);
   return { ...final, fixed: Array.from(new Set(fixed)) };
@@ -95,7 +100,33 @@ function normalizeConfigForFix(config: import("./types.js").akrctxConfig): impor
       ...base.workflowRules,
       ...config.workflowRules,
     },
+    comprehensionGate: {
+      enabled:
+        typeof config.comprehensionGate?.enabled === "boolean"
+          ? config.comprehensionGate.enabled
+          : base.comprehensionGate.enabled,
+      trigger:
+        config.comprehensionGate?.trigger === "agent-assessed-significance"
+          ? config.comprehensionGate.trigger
+          : base.comprehensionGate.trigger,
+      evaluationMode:
+        config.comprehensionGate?.evaluationMode === "prefer-independent"
+          ? config.comprehensionGate.evaluationMode
+          : base.comprehensionGate.evaluationMode,
+    },
   };
+}
+
+async function fixLocalIgnore(cwd: string, dryRun?: boolean): Promise<boolean> {
+  const ignorePath = path.join(cwd, localIgnorePath);
+  const current = await readFile(ignorePath, "utf8").catch(() => undefined);
+  if (isLocalIgnoreContentSafe(current)) return false;
+  await writePlannedFile(cwd, localIgnorePath, localComprehensionIgnoreTemplate, {
+    dryRun,
+    force: true,
+    reason: "Protect personal comprehension records from version control.",
+  });
+  return true;
 }
 
 async function fixPolicy(cwd: string, dryRun?: boolean): Promise<boolean> {
@@ -142,6 +173,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   ]);
   const { gaps: configGaps, installedVersion } = await getConfigGaps(cwd);
   const policyGaps = await getPolicyGaps(cwd);
+  const localPrivacyGaps = await getLocalPrivacyGaps(cwd);
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
@@ -150,7 +182,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   // Wiki-lint issues are surfaced via wikiLint/gaps.md and a dedicated
   // warning-severity suggestion — they no longer count as "missing" (that
   // would make them CI-failing errors, which is too strict for wiki content).
-  const configPolicyGaps = [...configGaps, ...policyGaps];
+  const configPolicyGaps = [...configGaps, ...policyGaps, ...localPrivacyGaps];
   const allMissing = [...missing, ...configPolicyGaps];
   const suggestions: Suggestion[] = [
     ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
@@ -186,7 +218,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
     wikiLint,
   };
 
-  await writeDoctorWiki(cwd, result, { missing, configGaps, policyGaps }, wikiLint, options);
+  await writeDoctorWiki(cwd, result, { missing, configGaps, policyGaps, localPrivacyGaps }, wikiLint, options);
   return result;
 }
 
@@ -248,6 +280,13 @@ async function getPolicyGaps(cwd: string): Promise<string[]> {
   }
 }
 
+async function getLocalPrivacyGaps(cwd: string): Promise<string[]> {
+  const ignorePath = path.join(cwd, localIgnorePath);
+  const current = await readFile(ignorePath, "utf8").catch(() => undefined);
+  if (current === undefined || isLocalIgnoreContentSafe(current)) return [];
+  return [`${localIgnorePath} — must ignore local records and keep only .gitignore trackable`];
+}
+
 function arrayIncludes(value: unknown, expected: string): boolean {
   return Array.isArray(value) && value.includes(expected);
 }
@@ -286,6 +325,12 @@ async function getConfigGaps(cwd: string): Promise<{ gaps: string[]; installedVe
       gaps.push(".akrctx/config.json — missing defaults.requireTaskCapsule");
     if (typeof config.defaults?.requireWorkflowReason !== "boolean")
       gaps.push(".akrctx/config.json — missing defaults.requireWorkflowReason");
+    if (typeof config.comprehensionGate?.enabled !== "boolean")
+      gaps.push(".akrctx/config.json — missing comprehensionGate.enabled");
+    if (config.comprehensionGate?.trigger !== "agent-assessed-significance")
+      gaps.push('.akrctx/config.json — comprehensionGate.trigger must be "agent-assessed-significance"');
+    if (config.comprehensionGate?.evaluationMode !== "prefer-independent")
+      gaps.push('.akrctx/config.json — comprehensionGate.evaluationMode must be "prefer-independent"');
     if (!config.workflowRules) gaps.push(".akrctx/config.json — missing workflowRules");
     return { gaps, installedVersion: config.installedVersion };
   } catch {
@@ -418,7 +463,7 @@ function scoreReadiness(
 async function writeDoctorWiki(
   cwd: string,
   result: DoctorResult,
-  gapGroups: { missing: string[]; configGaps: string[]; policyGaps: string[] },
+  gapGroups: { missing: string[]; configGaps: string[]; policyGaps: string[]; localPrivacyGaps: string[] },
   wikiLint: WikiLintResult,
   options: CommandOptions,
 ): Promise<void> {
@@ -426,6 +471,7 @@ async function writeDoctorWiki(
     { heading: "Missing files", items: gapGroups.missing },
     { heading: "Config gaps", items: gapGroups.configGaps },
     { heading: "Policy gaps", items: gapGroups.policyGaps },
+    { heading: "Local privacy gaps", items: gapGroups.localPrivacyGaps },
   ];
 
   const wikiOptions = {
