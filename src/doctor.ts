@@ -1,6 +1,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
+import { comprehensionAgentFilesByTarget, isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -177,6 +177,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
   const judgeGap = await getJudgeGap(cwd);
+  const comprehensionAgentGap = await getComprehensionAgentGap(cwd);
   const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
   const wikiLintIssueCount = wikiLint.brokenLinks.length + wikiLint.missingTimestamps.length;
   // Wiki-lint issues are surfaced via wikiLint/gaps.md and a dedicated
@@ -185,7 +186,14 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const configPolicyGaps = [...configGaps, ...policyGaps, ...localPrivacyGaps];
   const allMissing = [...missing, ...configPolicyGaps];
   const suggestions: Suggestion[] = [
-    ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, judgeGap),
+    ...buildSuggestions(
+      installed,
+      installedTargets,
+      allMissing,
+      conflicts,
+      installedVersion,
+      [judgeGap, comprehensionAgentGap].filter((gap): gap is string => Boolean(gap)),
+    ),
     ...(wikiLintIssueCount > 0
       ? [
           {
@@ -376,13 +384,36 @@ async function getJudgeGap(cwd: string): Promise<string | undefined> {
   return undefined;
 }
 
+async function getComprehensionAgentGap(cwd: string): Promise<string | undefined> {
+  const configPath = path.join(cwd, ".akrctx/config.json");
+  if (!(await pathExists(configPath))) return undefined;
+  try {
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    if (config.comprehensionGate?.enabled !== true || !Array.isArray(config.targets)) return undefined;
+    const supportedTargets = config.targets.filter(
+      (target: string): target is keyof typeof comprehensionAgentFilesByTarget =>
+        target in comprehensionAgentFilesByTarget,
+    );
+    const expectedFiles = supportedTargets.flatMap((target) => Object.keys(comprehensionAgentFilesByTarget[target]));
+    const missing = await Promise.all(
+      expectedFiles.map(async (file) => ((await pathExists(path.join(cwd, file))) ? undefined : file)),
+    );
+    if (missing.some(Boolean)) {
+      return "`comprehensionGate.enabled` is true but an independent comprehension agent is missing. Run `akrctx comprehension enable`.";
+    }
+  } catch {
+    // Config diagnosis reports malformed JSON separately.
+  }
+  return undefined;
+}
+
 function buildSuggestions(
   installed: boolean,
   installedTargets: Target[],
   missing: string[],
   conflicts: string[],
   installedVersion?: string,
-  judgeGap?: string,
+  agentGaps: string[] = [],
 ): Suggestion[] {
   const suggestions: Suggestion[] = [];
 
@@ -415,8 +446,8 @@ function buildSuggestions(
     });
   }
 
-  if (judgeGap) {
-    suggestions.push({ text: judgeGap, severity: "error" });
+  for (const gap of agentGaps) {
+    suggestions.push({ text: gap, severity: "error" });
   }
 
   if (installedVersion && installedVersion !== CLI_VERSION) {

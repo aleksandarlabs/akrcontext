@@ -13,6 +13,7 @@ AGENTS.md                                ← main instructions (protected)
 .agents/skills/akrctx-workflow/SKILL.md
 .agents/skills/akrctx-write-policy/SKILL.md
 .codex/agents/akrctx-judge.toml          ← optional, created by `akrctx judge enable`
+.codex/agents/akrctx-comprehension.toml  ← optional, created by `akrctx comprehension enable`
 ```
 
 `AGENTS.md` is the primary instruction file Codex reads. Skills are loaded on demand when the agent invokes a workflow. Judge uses Codex's native subagent system (`.codex/agents/*.toml`).
@@ -32,6 +33,7 @@ CLAUDE.md                                ← main instructions (protected)
 .claude/skills/akrctx-workflow/SKILL.md
 .claude/skills/akrctx-write-policy/SKILL.md
 .claude/agents/akrctx-judge.md           ← optional, created by `akrctx judge enable`
+.claude/agents/akrctx-comprehension.md   ← optional, created by `akrctx comprehension enable`
 ```
 
 `CLAUDE.md` is the primary instruction file Claude Code reads. Commands are slash-command shortcuts. Skills load on demand. Judge uses Claude Code's native subagent system (`.claude/agents/*.md` with YAML frontmatter).
@@ -54,6 +56,7 @@ CLAUDE.md                                ← main instructions (protected)
 .github/skills/akrctx-workflow/SKILL.md
 .github/skills/akrctx-write-policy/SKILL.md
 .github/agents/akrctx-judge.agent.md     ← optional, created by `akrctx judge enable`
+.github/agents/akrctx-comprehension.agent.md ← optional, created by `akrctx comprehension enable`
 ```
 
 Copilot reads `copilot-instructions.md` globally. Instructions files scope rules to file patterns. Prompts are reusable conversation starters. Judge uses Copilot's native agent system (`.github/agents/*.agent.md`).

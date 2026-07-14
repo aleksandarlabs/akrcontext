@@ -101,6 +101,9 @@ Purpose:
 - test factual understanding, design reasoning, and risk awareness
 - keep personal answers in verified Git-ignored local storage
 - never mutate Git state or control merge decisions
+- run as a platform-native agent in a fresh context, not as a skill inside the implementing agent
+- receive only task ID, exact change boundary, and judge verdict from the primary agent
+- render a change map, test matrix, interactive questions, and learning report
 
 ## CLI-level workflows
 

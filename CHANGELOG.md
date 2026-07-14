@@ -12,9 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Optional developer comprehension checkpoints for significant completed changes.
-- Portable `akrctx-comprehension` skill and versioned scope, rubric, and result schemas.
+- Platform-native `akrctx-comprehension` agents for Codex, Claude Code, and GitHub Copilot, plus versioned scope, rubric, and result schemas.
 - `akrctx comprehension enable|disable|status` commands.
 - Git-ignored local storage for personal responses and assisted-learning records.
+- Visual change maps, test matrices, one-question-at-a-time teaching, and structured learning reports.
+
+### Changed
+
+- Comprehension runs in a separate agent context instead of loading a skill into the implementing agent.
+- The primary workflow now offers judge review first and hands only the exact code boundary and verdict to comprehension.
+- Judge agents independently derive the review boundary, use read-only controls where supported, and emit structured review evidence.
 
 ### Security
 

@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import select from "@inquirer/select";
-import { normalizeConfig } from "./config.js";
+import { normalizeConfig, readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
@@ -55,7 +55,11 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
-  const config = normalizeConfig(mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config));
+  const currentConfig = options.upgrade ? await readConfig(cwd) : undefined;
+  const config = normalizeConfig(
+    mergeTemplateJson(mergeTemplateJson(defaultConfig(selectedTargets, profile), currentConfig), templatePack?.config),
+  );
+  config.installedVersion = CLI_VERSION;
   config.targets = selectedTargets;
   config.defaults.target = selectedTargets[0];
   writes.push(await writeFile(".akrctx/config.json", JSON.stringify(config, null, 2), false, "akrctx config."));

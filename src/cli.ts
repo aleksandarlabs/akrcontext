@@ -377,7 +377,9 @@ export async function main(argv = process.argv): Promise<void> {
     .description("Manage the optional developer comprehension checkpoint.");
 
   addCommon(
-    comprehension.command("enable").description("Enable automatic significance-based checkpoints."),
+    comprehension
+      .command("enable")
+      .description("Enable the independent comprehension agent for supported installed targets."),
     false,
   ).action(async (raw) => {
     const options = normalizeOptions(raw);
@@ -389,6 +391,10 @@ export async function main(argv = process.argv): Promise<void> {
     log(`${bold("Comprehension gate:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
     log(`  ${dim(`Trigger: ${result.trigger}`)}`);
     log(`  ${dim(`Local ignore valid: ${result.localIgnoreValid ? "yes" : "no"}`)}`);
+    for (const write of result.writes) log(`  ${plus()} ${file(write.path)}`);
+    if (result.skippedTargets.length) {
+      log(`  ${dim(`Skipped (no native independent agent): ${result.skippedTargets.join(", ")}`)}`);
+    }
   });
 
   addCommon(comprehension.command("disable").description("Disable comprehension checkpoints."), false).action(
@@ -415,6 +421,12 @@ export async function main(argv = process.argv): Promise<void> {
       log(`  ${dim(`Trigger: ${result.trigger}`)}`);
       log(`  ${dim(`Evaluation: ${result.evaluationMode}`)}`);
       log(`  ${dim(`Local ignore valid: ${result.localIgnoreValid ? "yes" : "NO — run akrctx doctor --fix"}`)}`);
+      if (result.presentFiles.length) {
+        log(`  ${dim(`Agent files: ${result.presentFiles.join(", ")}`)}`);
+      }
+      if (result.missingFiles.length) {
+        log(`  ${yellow(`Missing agents — run akrctx comprehension enable: ${result.missingFiles.join(", ")}`)}`);
+      }
     },
   );
 

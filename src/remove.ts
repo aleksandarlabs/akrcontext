@@ -1,5 +1,6 @@
 import { readdir, rm, rmdir } from "node:fs/promises";
 import path from "node:path";
+import { comprehensionAgentFilesByTarget } from "./comprehension.js";
 import { pathExists } from "./fs-utils.js";
 import { protectedFiles, targetRequired } from "./harness-files.js";
 import type { CommandOptions, Target } from "./types.js";
@@ -172,6 +173,7 @@ function collectCandidates(options: CommandOptions & { all?: boolean }): string[
   if (options.all) {
     for (const target of targets) {
       candidates.push(...targetRequired[target]);
+      candidates.push(...comprehensionAgentCandidates(target));
     }
     // .akrctx/ is handled separately above via rm -r
     return candidates;
@@ -183,10 +185,17 @@ function collectCandidates(options: CommandOptions & { all?: boolean }): string[
   if (target === "all") {
     for (const t of targets) {
       candidates.push(...targetRequired[t]);
+      candidates.push(...comprehensionAgentCandidates(t));
     }
     return candidates;
   }
 
   candidates.push(...targetRequired[target as Target]);
+  candidates.push(...comprehensionAgentCandidates(target as Target));
   return candidates;
+}
+
+function comprehensionAgentCandidates(target: Target): string[] {
+  if (!(target in comprehensionAgentFilesByTarget)) return [];
+  return Object.keys(comprehensionAgentFilesByTarget[target as keyof typeof comprehensionAgentFilesByTarget]);
 }

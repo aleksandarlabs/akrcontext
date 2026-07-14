@@ -37,7 +37,7 @@ export interface ComprehensionGateConfig {
 }
 
 export type ComprehensionSignificance = "surface" | "logic" | "architectural" | "critical";
-export type ComprehensionEvaluationMode = "independent" | "fresh-context" | "same-session";
+export type ComprehensionEvaluationMode = "independent" | "fresh-context";
 export type ComprehensionResultStatus =
   | "VERIFIED"
   | "ASSISTED"

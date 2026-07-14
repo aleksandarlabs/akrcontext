@@ -31,3 +31,8 @@ export {
 } from "./templates/instructions.js";
 export { claudeJudgeFile, copilotJudgeFile, codexJudgeFile } from "./templates/judge.js";
 export { comprehensionFiles } from "./templates/comprehension.js";
+export {
+  claudeComprehensionAgentFile,
+  codexComprehensionAgentFile,
+  copilotComprehensionAgentFile,
+} from "./templates/comprehension-agent.js";

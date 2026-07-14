@@ -151,9 +151,9 @@ AGENTS.md or AGENTS.akrctx.suggested.md
 .agents/skills/akrctx-doctor/SKILL.md
 .agents/skills/akrctx-task/SKILL.md
 .agents/skills/akrctx-review/SKILL.md
-.agents/skills/akrctx-comprehension/SKILL.md
 .agents/skills/akrctx-workflow/SKILL.md
 .agents/skills/akrctx-write-policy/SKILL.md
+.codex/agents/akrctx-comprehension.toml  # optional; created by comprehension enable
 ```
 
 Claude, Copilot, and Pi Code receive their own target adapters under `CLAUDE.md`, `.claude/`, `.github/`, or `.pi/`. Claude and Pi Code get `SKILL.md` workflow packages; Copilot gets repository instructions, skills, and reusable prompt files.

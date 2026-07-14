@@ -1,6 +1,6 @@
 # Judge
 
-The akrctx judge is an optional subagent that independently reviews whether an implementation matches the task capsule. It is separate from the primary coding agent — it reads, does not write.
+The akrctx judge is an optional subagent that independently reviews whether an implementation matches the task capsule. It is separate from the primary coding agent, reconstructs the exact change boundary itself, and reads without modifying product code or Git state.
 
 ## How it works
 
@@ -10,7 +10,7 @@ After the primary agent finishes implementing a task, it offers the user the opt
 - **NEEDS CHANGES** — mostly correct but has specific gaps.
 - **BLOCKED** — does not match the goal or has critical issues.
 
-The judge does not implement its own feedback. If changes are needed, the user hands them back to the primary agent.
+The judge reports its exact base/candidate boundary, validation evidence, and a compact structured review record. It does not implement its own feedback. If changes are needed, the user hands them back to the primary agent. An enabled comprehension evaluator should run only after `APPROVED` for the same boundary.
 
 ## Enabling the judge
 
@@ -61,7 +61,8 @@ Edit `.claude/agents/akrctx-judge.md` and add `model` to the frontmatter:
 ---
 name: akrctx-judge
 description: ...
-tools: Read, Glob, Grep
+tools: Read, Glob, Grep, Bash
+permissionMode: plan
 model: <model-id>   ← add this line
 ---
 ```
@@ -76,7 +77,7 @@ Edit `.github/agents/akrctx-judge.agent.md` and add `model` to the frontmatter:
 ---
 name: akrctx Judge
 description: ...
-tools: ["readfile", "code_search"]
+tools: ["read", "search", "execute"]
 model: <model-id>   ← add this line
 ---
 ```
@@ -91,6 +92,8 @@ Edit `.codex/agents/akrctx-judge.toml` and add a `model` field:
 name = "akrctx-judge"
 description = "..."
 model = "<model-id>"   ← add this line
+model_reasoning_effort = "high"
+sandbox_mode = "read-only"
 developer_instructions = "..."
 ```
 

@@ -203,7 +203,7 @@ Valid `contextBudget` values: `minimal` | `proportional` | `thorough`.
 
 ## `akrctx comprehension`
 
-Manages the optional developer-understanding checkpoint. Enable it once; after that the agent assesses completed changes and starts a short checkpoint only when their significance warrants it.
+Installs and manages the optional independent developer-understanding agent. The primary agent asks before invoking it; when the judge is enabled, comprehension begins only after an APPROVED review for the same change boundary.
 
 ```bash
 akrctx comprehension enable
@@ -212,6 +212,8 @@ akrctx comprehension status
 ```
 
 Personal sessions are stored under `.akrctx/local/comprehension/` and ignored by Git. Read-only Git inspection is allowed; Git mutations and merge control are forbidden.
+
+Supported native agents: Codex, Claude Code, and GitHub Copilot. Pi is skipped because it has no native independent-agent surface.
 
 ---
 

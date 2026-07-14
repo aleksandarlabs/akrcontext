@@ -5,7 +5,7 @@ const scopeSchema = {
   $id: "akrctx-comprehension-scope-v1",
   type: "object",
   additionalProperties: false,
-  required: ["schemaVersion", "taskId", "base", "candidate", "files", "significance", "signals"],
+  required: ["schemaVersion", "taskId", "base", "candidate", "files", "significance", "signals", "decision"],
   properties: {
     schemaVersion: { const: 1 },
     taskId: { type: "string", pattern: "^TASK-[0-9]+$" },
@@ -81,7 +81,7 @@ const resultSchema = {
     schemaVersion: { const: 1 },
     taskId: { type: "string", pattern: "^TASK-[0-9]+$" },
     status: { enum: ["VERIFIED", "ASSISTED", "UNVERIFIED", "INVALID_GATE", "SKIPPED", "DEFERRED"] },
-    evaluationMode: { enum: ["independent", "fresh-context", "same-session"] },
+    evaluationMode: { enum: ["independent", "fresh-context"] },
     assistance: { type: "array", items: { type: "string" } },
     gaps: { type: "array", items: { type: "string" } },
     completedAt: { type: "string", format: "date-time" },
@@ -99,9 +99,10 @@ Tracked schemas live here; personal sessions never do. A local session uses:
   rubric.json
   transcript.md
   result.json
+  learning-report.md
 \`\`\`
 
-Create \`rubric.json\` before collecting any developer answer. Validate JSON artifacts against the schemas in this directory. Personal session files are ignored by Git and must never be staged.
+Create \`rubric.json\` before collecting any developer answer. Keep expected answers private until the session ends. Validate JSON artifacts against the schemas in this directory. \`learning-report.md\` may contain the Mermaid change map, test matrix, and learning summary. Personal session files are ignored by Git and must never be staged.
 `,
   ".akrctx/comprehension/schemas/scope.schema.json": json(scopeSchema),
   ".akrctx/comprehension/schemas/rubric.schema.json": json(rubricSchema),

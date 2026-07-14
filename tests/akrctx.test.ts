@@ -58,7 +58,8 @@ describe("akrctx init", () => {
     });
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
-    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"))).toBe(false);
+    expect(await pathExists(path.join(tmp, ".codex/agents/akrctx-comprehension.toml"))).toBe(false);
     expect(await pathExists(path.join(tmp, ".akrctx/wiki/write-policy.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".akrctx/local/.gitignore"))).toBe(true);
     expect(await readFile(path.join(tmp, ".akrctx/local/.gitignore"), "utf8")).toBe("*\n!.gitignore\n");
@@ -1315,6 +1316,17 @@ describe("remove", () => {
     await runRemove({ cwd: tmp, force: true, all: true, purgeLocal: true, nonInteractive: true });
     expect(await pathExists(path.join(tmp, ".akrctx/local"))).toBe(false);
   });
+
+  it("removes the optional comprehension agent with its target adapter", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+    const agentPath = path.join(tmp, ".codex/agents/akrctx-comprehension.toml");
+    expect(await pathExists(agentPath)).toBe(true);
+
+    await runRemove({ cwd: tmp, target: "codex", force: true, nonInteractive: true });
+
+    expect(await pathExists(agentPath)).toBe(false);
+  });
 });
 
 // ── skill content contract ────────────────────────────────────────────────────
@@ -1331,22 +1343,26 @@ describe("skill content contract", () => {
     expect(skill, "skill missing UI review").toContain("UI review");
   });
 
-  it("installs a comprehension skill that keeps responses local and does not control Git", async () => {
+  it("installs comprehension as an independent agent instead of a main-context skill", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
 
-    const skill = await readFile(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"), "utf8");
+    const agent = await readFile(path.join(tmp, ".codex/agents/akrctx-comprehension.toml"), "utf8");
 
-    expect(skill).toContain("comprehensionGate.enabled");
-    expect(skill).toContain(".akrctx/local/comprehension/TASK-XXX/");
-    expect(skill).toContain("Read-only Git commands");
-    expect(skill).toContain("Never stage, commit, push, merge");
-    expect(skill).toContain("evaluationMode");
-    expect(skill).toContain("SKIPPED");
+    expect(agent).toContain('sandbox_mode = "read-only"');
+    expect(agent).toContain('model_reasoning_effort = "high"');
+    expect(agent).toContain("Do not inherit the implementing agent's reasoning");
+    expect(agent).toContain("Ask one question at a time");
+    expect(agent).toContain("Mermaid");
+    expect(agent).toContain("test matrix");
+    expect(agent).toContain("INVALID_GATE");
+    expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-comprehension/SKILL.md"))).toBe(false);
   });
 
   it("defines versioned schemas for scope, frozen rubric, and result", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
+    const scope = JSON.parse(await readFile(path.join(tmp, ".akrctx/comprehension/schemas/scope.schema.json"), "utf8"));
     const rubric = JSON.parse(
       await readFile(path.join(tmp, ".akrctx/comprehension/schemas/rubric.schema.json"), "utf8"),
     );
@@ -1354,9 +1370,10 @@ describe("skill content contract", () => {
       await readFile(path.join(tmp, ".akrctx/comprehension/schemas/result.schema.json"), "utf8"),
     );
 
+    expect(scope.required).toContain("decision");
     expect(rubric.properties.createdBeforeAnswers.const).toBe(true);
     expect(rubric.properties.questions.maxItems).toBe(6);
-    expect(result.properties.evaluationMode.enum).toContain("same-session");
+    expect(result.properties.evaluationMode.enum).toEqual(["independent", "fresh-context"]);
   });
 
   it("config.json records the CLI version that installed the harness", async () => {
@@ -1425,6 +1442,19 @@ describe("upgrade", () => {
     expect(unchanged?.kind).toBe("preserve");
   });
 
+  it("preserves enabled optional agents and user configuration during upgrade", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+
+    await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+
+    const config = await readConfig(tmp);
+    expect(config?.comprehensionGate.enabled).toBe(true);
+    expect(config?.judge?.enabled).toBe(true);
+    expect(await pathExists(path.join(tmp, ".codex/agents/akrctx-comprehension.toml"))).toBe(true);
+  });
+
   it("doctor detects version drift and suggests upgrade", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -1450,6 +1480,8 @@ describe("comprehension gate", () => {
     expect(enabled.enabled).toBe(true);
     expect(enabled.evaluationMode).toBe("prefer-independent");
     expect(enabled.localIgnoreValid).toBe(true);
+    expect(enabled.installedTargets).toContain("codex");
+    expect(await pathExists(path.join(tmp, ".codex/agents/akrctx-comprehension.toml"))).toBe(true);
 
     expect((await runComprehensionStatus({ cwd: tmp, nonInteractive: true })).enabled).toBe(true);
     expect((await runComprehensionDisable({ cwd: tmp, nonInteractive: true })).enabled).toBe(false);
@@ -1471,6 +1503,42 @@ describe("comprehension gate", () => {
 
     expect(preview.enabled).toBe(true);
     expect((await readConfig(tmp))?.comprehensionGate.enabled).toBe(false);
+    expect(await pathExists(path.join(tmp, ".codex/agents/akrctx-comprehension.toml"))).toBe(false);
+  });
+
+  it("installs platform-native isolated agents and skips Pi", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+
+    const result = await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+
+    expect(result.installedTargets).toEqual(expect.arrayContaining(["codex", "claude", "copilot"]));
+    expect(result.skippedTargets).toContain("pi");
+    const claude = await readFile(path.join(tmp, ".claude/agents/akrctx-comprehension.md"), "utf8");
+    const copilot = await readFile(path.join(tmp, ".github/agents/akrctx-comprehension.agent.md"), "utf8");
+    expect(claude).toContain("permissionMode: plan");
+    expect(claude).toContain("background: false");
+    expect(copilot).toContain('tools: ["read", "search", "execute"]');
+    expect(copilot).toContain("user-invocable: true");
+  });
+
+  it("refuses to enable when any versioned contract schema is missing or invalid", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const rubricPath = path.join(tmp, ".akrctx/comprehension/schemas/rubric.schema.json");
+    await writeFile(rubricPath, "{}\n", "utf8");
+
+    await expect(runComprehensionEnable({ cwd: tmp, nonInteractive: true })).rejects.toThrow("missing or invalid");
+  });
+
+  it("doctor detects an enabled gate without its independent agent", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.comprehensionGate.enabled = true;
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.suggestions.some((suggestion) => suggestion.text.includes("akrctx comprehension enable"))).toBe(true);
   });
 
   it("keeps personal session files out of Git by default", async () => {
