@@ -18,6 +18,7 @@ export function defaultConfig(targets: Target[], profile: Profile = "default"): 
       evaluationMode: "prefer-independent",
     },
     targets,
+    templatePacks: [],
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",
     defaults: {
@@ -63,7 +64,7 @@ export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
     version: 1,
     profile,
     mergeStrategy: "preserve-and-suggest",
-    protectedFiles: ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+    protectedFiles: ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", ".pi/README.md"],
     protectedFileMerge: {
       agentMayEdit: "after-explicit-human-approval",
       approvalScope: "current-conversation",

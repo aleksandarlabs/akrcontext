@@ -4,7 +4,7 @@ import select from "@inquirer/select";
 import { normalizeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
-import { createManifestFromWrites } from "./manifest.js";
+import { createManifestFromWrites, templateHash } from "./manifest.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
 import {
   claudeCommands,
@@ -60,6 +60,22 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   config.installedVersion = CLI_VERSION;
   config.targets = selectedTargets;
   config.defaults.target = selectedTargets[0];
+  if (templatePack) {
+    config.templatePacks = [
+      {
+        name: templatePack.name,
+        version: templatePack.version,
+        source: options.templatePack ? "local" : "bundled",
+        targets: selectedTargets,
+        fileHashes: Object.fromEntries(
+          Object.entries(templatePack.targetFiles).map(([relativePath, content]) => [
+            relativePath,
+            templateHash(content),
+          ]),
+        ),
+      },
+    ];
+  }
   writes.push(await writeFile(".akrctx/config.json", JSON.stringify(config, null, 2), false, "akrctx config."));
   const policy = mergeTemplateJson(defaultPolicy(profile), templatePack?.policy);
   policy.profile = profile;
@@ -307,7 +323,12 @@ async function installTarget(
   // pi
   if (templatePack?.rootInstructions) {
     writes.push(
-      await writeFile(".pi/README.md", templatePack.rootInstructions, false, "Pi template pack root instructions."),
+      await writeFile(
+        ".pi/README.md",
+        templatePack.rootInstructions,
+        true,
+        "Existing Pi README preserved; wrote suggested template instructions.",
+      ),
     );
   }
 

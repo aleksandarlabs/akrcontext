@@ -10,6 +10,7 @@ import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
 import { listTasks, removeTask, runTask, showTask } from "./task.js";
+import { type TemplateApplyResult, runTemplateApply, runTemplateStatus } from "./template-apply.js";
 import { listBundledTemplatePacks } from "./template-pack.js";
 import type { CommandOptions, DoctorResult, InitResult, Profile, Target, TargetOption, WriteResult } from "./types.js";
 import { runUpgrade } from "./upgrade.js";
@@ -52,6 +53,8 @@ export async function main(argv = process.argv): Promise<void> {
         "Templates:",
         "  akrctx templates list                         list bundled template packs",
         "  akrctx init --target copilot --template NAME  install bundled template",
+        "  akrctx templates apply NAME --target copilot  apply after initialization",
+        "  akrctx templates status                       list applied template packs",
         "",
         "Config:",
         "  akrctx config show                             print current config",
@@ -108,7 +111,7 @@ export async function main(argv = process.argv): Promise<void> {
     if (options.force) {
       console.warn(
         "Warning: --force is set. akrctx-owned files will be overwritten.\n" +
-          "         Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are never overwritten.",
+          "         Protected root instructions (including .pi/README.md) are never overwritten.",
       );
     }
     const result = await runInit(options);
@@ -116,7 +119,7 @@ export async function main(argv = process.argv): Promise<void> {
   });
 
   // ── templates ─────────────────────────────────────────────────────────────
-  const templates = program.command("templates").description("List bundled akrctx enterprise template packs.");
+  const templates = program.command("templates").description("List and apply akrctx template packs.");
 
   addCommon(templates.command("list").description("List bundled template packs."), false).action(async (raw) => {
     const options = normalizeOptions(raw);
@@ -136,6 +139,57 @@ export async function main(argv = process.argv): Promise<void> {
       log(`  ${template.name} ${dim(`v${template.version}`)}`);
     }
   });
+
+  addCommon(
+    templates
+      .command("apply")
+      .description("Safely apply a template pack to an initialized project.")
+      .argument("<template>", "bundled template name or local path with --local")
+      .option("--local", "load <template> as a local template-pack path", false)
+      .addHelpText(
+        "after",
+        [
+          "",
+          "Examples:",
+          "  akrctx templates apply company-base",
+          "  akrctx templates apply ./company-template --local --target copilot",
+          "  akrctx templates apply security-rules --dry-run",
+          "",
+          "Existing project files are preserved. Blocking conflicts produce versioned",
+          "candidates under .akrctx/template-candidates/. Root instructions use the",
+          "normal .akrctx.suggested.md + human-approved Doctor merge workflow.",
+        ].join("\n"),
+      ),
+  ).action(async (templateRef: string, raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runTemplateApply({ ...options, templateRef, local: Boolean(raw.local) });
+    printTemplateApply(result, options);
+    if (!result.completed) process.exitCode = 1;
+  });
+
+  addCommon(templates.command("status").description("List template packs applied to this project."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runTemplateStatus(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      if (!result.installed) {
+        log(gray("akrctx is not installed. Run `akrctx init` first."));
+        return;
+      }
+      if (result.templates.length === 0) {
+        log(gray("No template packs have been recorded."));
+        return;
+      }
+      log(bold("Applied templates:"));
+      for (const template of result.templates) {
+        log(`  ${template.name} ${dim(`v${template.version}`)} ${gray(`[${template.source}]`)}`);
+        log(`    targets: ${template.targets.join(", ")}`);
+      }
+    },
+  );
 
   // ── doctor ────────────────────────────────────────────────────────────────
   addCommon(
@@ -627,7 +681,7 @@ export async function main(argv = process.argv): Promise<void> {
         [
           "",
           "Without --force, shows a dry-run of what would be removed.",
-          "Protected files (AGENTS.md, CLAUDE.md) are always skipped — remove them manually.",
+          "Protected root instruction files are always skipped — remove them manually.",
           "",
           "--target all removes harness FILES for every target (codex, claude, copilot, pi).",
           "--all additionally removes the neutral .akrctx/ directory itself.",
@@ -719,6 +773,45 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
 
 const ln = () => console.log("");
 const log = (s = "") => console.log(s);
+
+function printTemplateApply(result: TemplateApplyResult, options: CommandOptions): void {
+  if (options.json) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  const verb = options.dryRun ? "Template plan" : result.completed ? "Template applied" : "Template blocked";
+  log(`${bold(`${verb}:`)} ${result.name} ${dim(`v${result.version}`)} → ${bold(result.target)}`);
+
+  const changed = result.writes.filter((write) => write.kind === "create" || write.kind === "update");
+  const suggested = result.writes.filter((write) => write.kind === "suggest");
+  if (changed.length > 0) {
+    ln();
+    log(`  ${green(bold(`Written (${changed.length}):`))}`);
+    for (const write of changed) log(`    ${plus()} ${file(write.path)}`);
+  }
+  if (suggested.length > 0) {
+    ln();
+    log(`  ${yellow(bold(`Candidates (${suggested.length}):`))}`);
+    for (const write of suggested) log(`    ${warn()} ${file(write.path)}`);
+  }
+  if (result.conflicts.length > 0) {
+    ln();
+    log(`  ${yellow(bold("Blocking conflicts:"))}`);
+    for (const conflict of result.conflicts) log(`    ${warn()} ${file(conflict)}`);
+    log(dim("  Merge the versioned candidates, then rerun the same command."));
+  }
+  if (result.pendingMerges.length > 0) {
+    ln();
+    log(`  ${yellow(bold("Human-approved instruction merges pending:"))}`);
+    for (const pending of result.pendingMerges) log(`    ${warn()} ${file(pending)}`);
+    log(dim("  Run Doctor; the agent must show the exact diff and receive approval before editing."));
+  }
+  if (result.policyWarnings.length > 0) {
+    ln();
+    log(`  ${yellow(bold("Policy warnings:"))}`);
+    for (const warning of result.policyWarnings) log(`    ${warn()} ${warning}`);
+  }
+}
 
 function printInit(result: InitResult, options: CommandOptions): void {
   if (options.json) {

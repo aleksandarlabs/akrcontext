@@ -350,6 +350,7 @@ async function getConfigGaps(cwd: string): Promise<{ gaps: string[]; installedVe
     if (config.comprehensionGate?.evaluationMode !== "prefer-independent")
       gaps.push('.akrctx/config.json — comprehensionGate.evaluationMode must be "prefer-independent"');
     if (!config.workflowRules) gaps.push(".akrctx/config.json — missing workflowRules");
+    if (!Array.isArray(config.templatePacks)) gaps.push(".akrctx/config.json — missing templatePacks");
     return { gaps, installedVersion: config.installedVersion };
   } catch {
     return { gaps: [".akrctx/config.json — invalid JSON (run akrctx init to regenerate)"] };

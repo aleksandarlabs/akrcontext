@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `akrctx comprehension enable|disable|status` commands.
 - Git-ignored local storage for personal responses and assisted-learning records.
 - Visual change maps, test matrices, one-question-at-a-time teaching, and structured learning reports.
+- Post-initialization `akrctx templates apply` and `templates status` commands, including sequential multi-pack composition and local pack support.
 
 ### Changed
 
@@ -26,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Safe upgrades now preserve wiki pages, task capsules, local records, and root instructions; generated files update only when their recorded manifest hash proves they are unchanged.
 - Added `.akrctx/manifest.json`, versioned upgrade candidates, conservative legacy handling, field-level config/policy migration, and non-destructive obsolete-file reporting.
 - Doctor agents may apply surgical protected-instruction merges only after showing the exact diff and receiving explicit human approval in the current conversation; `doctor --fix` no longer creates spurious merge suggestions during repair.
+- Template application is independent from `init`, transactional for blocking conflicts, non-destructive for project content, and records pack versions, targets, and target-file hashes for upgrade provenance.
 
 ### Security
 

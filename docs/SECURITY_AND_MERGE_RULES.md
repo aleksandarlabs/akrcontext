@@ -133,7 +133,7 @@ With at least:
 {
   "version": 1,
   "mergeStrategy": "preserve-and-suggest",
-  "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+  "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", ".pi/README.md"],
   "protectedFileMerge": {
     "agentMayEdit": "after-explicit-human-approval",
     "approvalScope": "current-conversation",

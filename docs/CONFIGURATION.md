@@ -139,6 +139,28 @@ Example config fields:
 
 `akrctx doctor` validates profile-specific policy requirements.
 
+### Applied template packs
+
+Successful post-init template applications are recorded in `templatePacks`:
+
+```json
+{
+  "templatePacks": [
+    {
+      "name": "company-base",
+      "version": "1.0.0",
+      "source": "bundled",
+      "targets": ["copilot"],
+      "fileHashes": {
+        ".github/skills/company-review/SKILL.md": "sha256:..."
+      }
+    }
+  ]
+}
+```
+
+The hashes keep template-owned target files distinct from obsolete core harness files during upgrades. Use `akrctx templates status` instead of editing this registry manually.
+
 ### Protected instruction merges
 
 `policy.json` keeps root instruction files protected by default and defines one narrow Doctor exception:

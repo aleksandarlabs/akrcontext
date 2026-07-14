@@ -99,6 +99,9 @@ async function readManifest(packRoot: string): Promise<{ name: string; version: 
   if (typeof manifest.name !== "string" || !manifest.name.trim()) {
     throw new Error("Invalid template pack: akrctx-pack.json must include a non-empty name.");
   }
+  if (!/^[a-zA-Z0-9._-]+$/.test(manifest.name.trim())) {
+    throw new Error("Invalid template pack: name may contain only letters, numbers, dots, underscores, and hyphens.");
+  }
   if (typeof manifest.version !== "string" || !manifest.version.trim()) {
     throw new Error("Invalid template pack: akrctx-pack.json must include a non-empty version.");
   }

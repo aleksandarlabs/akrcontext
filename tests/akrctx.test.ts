@@ -23,6 +23,7 @@ import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
+import { runTemplateApply, runTemplateStatus } from "../src/template-apply.js";
 import { workflows } from "../src/types.js";
 import { runUpgrade } from "../src/upgrade.js";
 import { CLI_VERSION } from "../src/version.js";
@@ -30,6 +31,41 @@ import { lintWiki } from "../src/wiki-lint.js";
 
 let tmp: string;
 const execFileAsync = promisify(execFile);
+
+async function createLocalTemplatePack(
+  root: string,
+  name: string,
+  content: {
+    config?: unknown;
+    policy?: unknown;
+    wiki?: Record<string, string>;
+    skills?: Record<string, string>;
+    rootInstructions?: string;
+  },
+): Promise<string> {
+  const pack = path.join(root, `${name}-pack`);
+  await mkdir(pack, { recursive: true });
+  await writeFile(
+    path.join(pack, "akrctx-pack.json"),
+    JSON.stringify({ name, version: "1.0.0", akrctxPackVersion: 1 }),
+    "utf8",
+  );
+  if (content.config) await writeFile(path.join(pack, "config.json"), JSON.stringify(content.config), "utf8");
+  if (content.policy) await writeFile(path.join(pack, "policy.json"), JSON.stringify(content.policy), "utf8");
+  for (const [filename, markdown] of Object.entries(content.wiki ?? {})) {
+    await mkdir(path.join(pack, "wiki"), { recursive: true });
+    await writeFile(path.join(pack, "wiki", filename), markdown, "utf8");
+  }
+  for (const [skill, markdown] of Object.entries(content.skills ?? {})) {
+    await mkdir(path.join(pack, "target/skills", skill), { recursive: true });
+    await writeFile(path.join(pack, "target/skills", skill, "SKILL.md"), markdown, "utf8");
+  }
+  if (content.rootInstructions !== undefined) {
+    await mkdir(path.join(pack, "target"), { recursive: true });
+    await writeFile(path.join(pack, "target/root-instructions.md"), content.rootInstructions, "utf8");
+  }
+  return pack;
+}
 
 beforeEach(async () => {
   tmp = await mkdtemp(path.join(os.tmpdir(), "akrctx-test-"));
@@ -127,6 +163,7 @@ describe("akrctx init", () => {
     expect(policy.protectedFiles).toContain("AGENTS.md");
     expect(policy.protectedFiles).toContain("CLAUDE.md");
     expect(policy.protectedFiles).toContain(".github/copilot-instructions.md");
+    expect(policy.protectedFiles).toContain(".pi/README.md");
     expect(policy.protectedFileMerge).toEqual({
       agentMayEdit: "after-explicit-human-approval",
       approvalScope: "current-conversation",
@@ -230,6 +267,12 @@ describe("akrctx init", () => {
       enabled: false,
       trigger: "agent-assessed-significance",
       evaluationMode: "prefer-independent",
+    });
+    expect(config?.templatePacks[0]).toMatchObject({
+      name: "pepe-template",
+      version: "1.0.0",
+      source: "local",
+      targets: ["copilot"],
     });
     expect(policy.blockedReadPatterns).toContain("terraform.tfstate");
     expect(policy.blockedReadPatterns).toContain(".env");
@@ -1244,6 +1287,206 @@ describe("templates", () => {
 
     const parsed = JSON.parse(writes.join("\n"));
     expect(parsed.some((template: { name: string }) => template.name === "test-template")).toBe(true);
+  });
+
+  it("applies a local template after initialization without rerunning the harness", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const agentsBefore = await readFile(path.join(tmp, "AGENTS.md"), "utf8");
+    const pack = await createLocalTemplatePack(tmp, "company-base", {
+      config: { defaults: { workflow: "TDD" } },
+      policy: { blockedReadPatterns: ["company-secrets/"] },
+      wiki: { "company.md": "# Company rules\n" },
+      skills: { "company-review": "# Company Review\n" },
+    });
+
+    const result = await runTemplateApply({
+      cwd: tmp,
+      templateRef: pack,
+      local: true,
+      nonInteractive: true,
+    });
+    const config = await readConfig(tmp);
+    const policy = JSON.parse(await readFile(path.join(tmp, ".akrctx/policy.json"), "utf8"));
+
+    expect(result.completed).toBe(true);
+    expect(result.conflicts).toEqual([]);
+    expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect(await pathExists(path.join(tmp, ".agents/skills/company-review/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/wiki/company.md"))).toBe(true);
+    expect(config?.defaults.workflow).toBe("TDD");
+    expect(config?.templatePacks).toHaveLength(1);
+    expect(config?.templatePacks[0].name).toBe("company-base");
+    expect(config?.templatePacks[0].fileHashes[".agents/skills/company-review/SKILL.md"]).toMatch(/^sha256:/);
+    expect(policy.blockedReadPatterns).toContain("company-secrets/");
+  });
+
+  it("exposes post-init apply and status through the CLI", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const pack = await createLocalTemplatePack(tmp, "cli-template", {
+      skills: { "cli-template": "# CLI Template\n" },
+    });
+    const previousCwd = process.cwd();
+    const logs: string[] = [];
+    const originalLog = console.log;
+    console.log = (message?: unknown) => logs.push(String(message));
+    try {
+      process.chdir(tmp);
+      await main(["node", "akrctx", "templates", "apply", pack, "--local", "--json"]);
+      const applied = JSON.parse(logs.join("\n"));
+      expect(applied.completed).toBe(true);
+      logs.length = 0;
+      await main(["node", "akrctx", "templates", "status", "--json"]);
+      const status = JSON.parse(logs.join("\n"));
+      expect(status.templates[0].name).toBe("cli-template");
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+  });
+
+  it("applies multiple templates sequentially and records both", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const base = await createLocalTemplatePack(tmp, "company-base", {
+      skills: { "company-base": "# Base\n" },
+    });
+    const security = await createLocalTemplatePack(tmp, "security-rules", {
+      policy: { blockedReadPatterns: ["security-private/"] },
+      skills: { "security-rules": "# Security\n" },
+    });
+
+    await runTemplateApply({ cwd: tmp, templateRef: base, local: true, nonInteractive: true });
+    await runTemplateApply({ cwd: tmp, templateRef: security, local: true, nonInteractive: true });
+    const status = await runTemplateStatus({ cwd: tmp, nonInteractive: true });
+
+    expect(status.templates.map((template) => template.name)).toEqual(["company-base", "security-rules"]);
+    expect(await pathExists(path.join(tmp, ".agents/skills/company-base/SKILL.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/security-rules/SKILL.md"))).toBe(true);
+  });
+
+  it("blocks transactionally on project-content conflicts and writes a versioned candidate", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const pack = await createLocalTemplatePack(tmp, "testing-standard", {
+      config: { defaults: { workflow: "TDD" } },
+      wiki: { "testing.md": "# Required company testing\n" },
+      skills: { "testing-standard": "# Testing Standard\n" },
+    });
+
+    const blocked = await runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true });
+    const candidate = path.join(tmp, ".akrctx/template-candidates/testing-standard/1.0.0/.akrctx/wiki/testing.md");
+
+    expect(blocked.completed).toBe(false);
+    expect(blocked.conflicts).toContain(".akrctx/wiki/testing.md");
+    expect(await pathExists(candidate)).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/testing-standard/SKILL.md"))).toBe(false);
+    expect((await readConfig(tmp))?.defaults.workflow).toBe("task-fit");
+    expect((await readConfig(tmp))?.templatePacks).toEqual([]);
+
+    await writeFile(path.join(tmp, ".akrctx/wiki/testing.md"), await readFile(candidate));
+    const applied = await runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true });
+
+    expect(applied.completed).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/testing-standard/SKILL.md"))).toBe(true);
+    expect((await readConfig(tmp))?.defaults.workflow).toBe("TDD");
+  });
+
+  it("treats root instructions as a nonblocking human-approved merge", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const agentsBefore = await readFile(path.join(tmp, "AGENTS.md"), "utf8");
+    const pack = await createLocalTemplatePack(tmp, "root-guidance", {
+      rootInstructions: "# Company root guidance\n",
+      skills: { "root-guidance": "# Root Guidance\n" },
+    });
+
+    const result = await runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true });
+
+    expect(result.completed).toBe(true);
+    expect(result.pendingMerges).toEqual(["AGENTS.md"]);
+    expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe(agentsBefore);
+    expect(await readFile(path.join(tmp, "AGENTS.akrctx.suggested.md"), "utf8")).toContain("Company root guidance");
+    expect(await pathExists(path.join(tmp, ".agents/skills/root-guidance/SKILL.md"))).toBe(true);
+  });
+
+  it("blocks a second root proposal instead of replacing an existing suggestion", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const first = await createLocalTemplatePack(tmp, "first-root", {
+      rootInstructions: "# First root\n",
+    });
+    const second = await createLocalTemplatePack(tmp, "second-root", {
+      rootInstructions: "# Second root\n",
+      skills: { "second-root": "# Second Root\n" },
+    });
+    await runTemplateApply({ cwd: tmp, templateRef: first, local: true, nonInteractive: true });
+
+    const result = await runTemplateApply({ cwd: tmp, templateRef: second, local: true, nonInteractive: true });
+
+    expect(result.completed).toBe(false);
+    expect(result.conflicts).toContain("AGENTS.md");
+    expect(await readFile(path.join(tmp, "AGENTS.akrctx.suggested.md"), "utf8")).toContain("First root");
+    expect(await pathExists(path.join(tmp, ".akrctx/template-candidates/second-root/1.0.0/AGENTS.md"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/second-root/SKILL.md"))).toBe(false);
+  });
+
+  it("supports dry-run and rejects force or ambiguous multi-target application", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const pack = await createLocalTemplatePack(tmp, "dry-template", {
+      skills: { "dry-template": "# Dry\n" },
+    });
+
+    await expect(runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true })).rejects.toThrow(
+      "Multiple targets are installed",
+    );
+    await expect(
+      runTemplateApply({ cwd: tmp, templateRef: pack, local: true, target: "all", nonInteractive: true }),
+    ).rejects.toThrow("target-relative");
+    await expect(
+      runTemplateApply({ cwd: tmp, templateRef: pack, local: true, target: "codex", force: true }),
+    ).rejects.toThrow("does not support --force");
+
+    const dryRun = await runTemplateApply({
+      cwd: tmp,
+      templateRef: pack,
+      local: true,
+      target: "codex",
+      dryRun: true,
+      nonInteractive: true,
+    });
+    expect(dryRun.completed).toBe(true);
+    expect(await pathExists(path.join(tmp, ".agents/skills/dry-template/SKILL.md"))).toBe(false);
+    expect((await readConfig(tmp))?.templatePacks).toEqual([]);
+  });
+
+  it("requires an initialized project with valid provenance and policy", async () => {
+    const pack = await createLocalTemplatePack(tmp, "requirements", {
+      skills: { requirements: "# Requirements\n" },
+    });
+    await expect(runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true })).rejects.toThrow(
+      "not installed",
+    );
+
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/manifest.json"));
+    await expect(runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true })).rejects.toThrow(
+      "valid .akrctx/manifest.json",
+    );
+
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/policy.json"), "[]\n", "utf8");
+    await expect(runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true })).rejects.toThrow(
+      "policy.json is invalid",
+    );
+  });
+
+  it("keeps template-owned target files out of upgrade obsolete reports", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const pack = await createLocalTemplatePack(tmp, "upgrade-safe", {
+      skills: { "upgrade-safe": "# Upgrade Safe\n" },
+    });
+    await runTemplateApply({ cwd: tmp, templateRef: pack, local: true, nonInteractive: true });
+
+    const upgrade = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(upgrade.obsolete).not.toContain(".agents/skills/upgrade-safe/SKILL.md");
+    expect(await pathExists(path.join(tmp, ".agents/skills/upgrade-safe/SKILL.md"))).toBe(true);
   });
 });
 
