@@ -1,5 +1,6 @@
-import { rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "./templates.js";
@@ -36,6 +37,7 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   const cwd = options.cwd ?? process.cwd();
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
+  await requireJudgeContract(cwd);
 
   const installedTargets = config.targets.filter(hasJudgeFiles);
   const skippedTargets = config.targets.filter((t) => !hasJudgeFiles(t));
@@ -60,6 +62,22 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   }
 
   return { dryRun: Boolean(options.dryRun), installedTargets, skippedTargets, writes };
+}
+
+async function requireJudgeContract(cwd: string): Promise<void> {
+  const schemaPath = path.join(cwd, ".akrctx/judge/schemas/review.schema.json");
+  try {
+    const schema = JSON.parse(await readFile(schemaPath, "utf8"));
+    if (schema.$id !== "akrctx-judge-review-v1" || schema.$schema !== "https://json-schema.org/draft/2020-12/schema") {
+      throw new Error("wrong schema identity");
+    }
+  } catch {
+    throw new Error("Judge enforcement contract is missing or invalid. Run `akrctx upgrade` first.");
+  }
+  const ignore = await readFile(path.join(cwd, localIgnorePath), "utf8").catch(() => "");
+  if (!isLocalIgnoreContentSafe(ignore)) {
+    throw new Error("Local judge storage is not safely ignored. Run `akrctx doctor --fix` first.");
+  }
 }
 
 export async function runJudgeDisable(options: CommandOptions): Promise<{ dryRun: boolean }> {

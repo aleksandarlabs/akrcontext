@@ -4,6 +4,8 @@ export const neutralRequired = [
   ".akrctx/config.json",
   ".akrctx/policy.json",
   ".akrctx/local/.gitignore",
+  ".akrctx/judge/README.md",
+  ".akrctx/judge/schemas/review.schema.json",
   ".akrctx/comprehension/README.md",
   ".akrctx/comprehension/schemas/scope.schema.json",
   ".akrctx/comprehension/schemas/rubric.schema.json",

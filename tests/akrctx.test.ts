@@ -17,6 +17,7 @@ import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
 import { runInit } from "../src/init.js";
+import { createJudgeScope, verifyJudgeRecord } from "../src/judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
@@ -1556,6 +1557,113 @@ describe("comprehension gate", () => {
 });
 
 describe("judge", () => {
+  async function createReviewFixture() {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Enforce judge approvals", { cwd: tmp, nonInteractive: true });
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 1;\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.name", "akrctx tests"], { cwd: tmp });
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 2;\n", "utf8");
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+    const record = {
+      schemaVersion: 1,
+      taskId: task.taskId,
+      scope,
+      verdict: "APPROVED",
+      tests: [{ command: "pnpm test", status: "passed" }],
+      issues: [],
+      reviewedAt: new Date().toISOString(),
+    };
+    const recordPath = path.join(tmp, ".akrctx/local/judge/review.json");
+    await mkdir(path.dirname(recordPath), { recursive: true });
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    return { task, scope, recordPath };
+  }
+
+  it("cryptographically binds an approved review to its task and working-tree boundary", async () => {
+    const { scope, recordPath } = await createReviewFixture();
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result).toEqual({
+      valid: true,
+      approved: true,
+      verdict: "APPROVED",
+      scopeDigest: scope.scopeDigest,
+      reasons: [],
+    });
+  });
+
+  it("invalidates an approved review when code changes", async () => {
+    const { recordPath } = await createReviewFixture();
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("scope.changeDigest no longer matches the repository.");
+  });
+
+  it("invalidates an approved review when an untracked file appears", async () => {
+    const { recordPath } = await createReviewFixture();
+    await writeFile(path.join(tmp, "new-module.ts"), "export const added = true;\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("scope.changeDigest no longer matches the repository.");
+  });
+
+  it("refuses to fingerprint untracked files blocked by policy", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Protect judge scope", { cwd: tmp, nonInteractive: true });
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.name", "akrctx tests"], { cwd: tmp });
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
+    await writeFile(path.join(tmp, ".env"), "SECRET=not-read\n", "utf8");
+
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow("blocked by policy: .env");
+  });
+
+  it("invalidates an approved review when the task capsule changes", async () => {
+    const { task, recordPath } = await createReviewFixture();
+    await writeFile(path.join(tmp, task.taskDir, "task.md"), "# Changed goal\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("scope.taskDigest no longer matches the repository.");
+  });
+
+  it("rejects a current review whose verdict is not APPROVED", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.verdict = "NEEDS_CHANGES";
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain("Judge verdict is NEEDS_CHANGES, not APPROVED.");
+  });
+
+  it("rejects APPROVED when the judge record contains a failed validation", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests[0].status = "failed";
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("Judge record contains failed validation.");
+  });
+
   it("enable generates agent files for installed targets and sets enabled in config", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -1567,6 +1675,13 @@ describe("judge", () => {
     const config = await readConfig(tmp);
     expect(config?.judge?.enabled).toBe(true);
     expect(config?.judge?.trigger).toBe("post-implementation");
+  });
+
+  it("enable refuses a missing deterministic review contract", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/judge/schemas/review.schema.json"));
+
+    await expect(runJudgeEnable({ cwd: tmp, nonInteractive: true })).rejects.toThrow("akrctx upgrade");
   });
 
   it("enable skips pi and does not error", async () => {

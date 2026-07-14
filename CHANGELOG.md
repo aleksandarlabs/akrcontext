@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Comprehension runs in a separate agent context instead of loading a skill into the implementing agent.
 - The primary workflow now offers judge review first and hands only the exact code boundary and verdict to comprehension.
 - Judge agents independently derive the review boundary, use read-only controls where supported, and emit structured review evidence.
+- Deterministic `judge scope` and `judge verify` commands bind approvals to SHA-256 digests of the task capsule and exact code boundary, invalidating stale verdicts before comprehension.
 
 ### Security
 

@@ -14,7 +14,7 @@ primary agent offers comprehension
 independent comprehension agent teaches and evaluates
 ```
 
-The primary agent passes only the task ID, exact base/candidate refs or working-tree boundary, and judge verdict. It must not pass implementation explanations, proposed questions, expected answers, or its conclusions. The evaluator independently reads the task capsule, diff, code, tests, and judge evidence.
+The primary agent passes only the task ID, exact base/candidate refs or working-tree boundary, and the saved judge-record path. It must not pass implementation explanations, proposed questions, expected answers, or its conclusions. When Judge is enabled, the evaluator runs `akrctx judge verify` itself and refuses pasted or stale verdicts. It then independently reads the task capsule, diff, code, tests, and judge evidence.
 
 If the code changed after judge approval, comprehension stops and requests a new review. If the evaluator discovers evidence that contradicts the task or approved premise, it returns `INVALID_GATE` instead of teaching the developer to rationalize a likely bug.
 

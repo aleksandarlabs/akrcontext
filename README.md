@@ -52,6 +52,8 @@ akrctx task "Define invoice API examples" --workflow SDD+EDD
 akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
 akrctx judge status
+akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json
 akrctx comprehension enable            # enable developer understanding checkpoints
 akrctx comprehension status
 akrctx remove --target codex --force   # remove harness for a target
@@ -124,6 +126,9 @@ Every target gets the neutral source of truth:
   comprehension/
     README.md
     schemas/
+  judge/
+    README.md
+    schemas/review.schema.json
   local/
     .gitignore
   wiki/

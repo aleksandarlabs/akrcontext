@@ -10,7 +10,25 @@ After the primary agent finishes implementing a task, it offers the user the opt
 - **NEEDS CHANGES** — mostly correct but has specific gaps.
 - **BLOCKED** — does not match the goal or has critical issues.
 
-The judge reports its exact base/candidate boundary, validation evidence, and a compact structured review record. It does not implement its own feedback. If changes are needed, the user hands them back to the primary agent. An enabled comprehension evaluator should run only after `APPROVED` for the same boundary.
+The judge reports its exact base/candidate boundary, validation evidence, and a structured review record. It does not implement its own feedback. If changes are needed, the user hands them back to the primary agent. An enabled comprehension evaluator runs only after deterministic verification confirms `APPROVED` for the current boundary.
+
+## Deterministic enforcement
+
+Before review, the judge computes the boundary:
+
+```bash
+akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
+```
+
+The result contains SHA-256 digests of the five task-capsule documents and the exact Git diff, including untracked non-ignored files. The judge copies this scope unchanged into its final JSON record. Because the judge remains read-only, the trusted caller saves that output under `.akrctx/local/judge/`.
+
+Before accepting the verdict or starting comprehension:
+
+```bash
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json
+```
+
+Verification validates the record and recomputes the scope. It exits unsuccessfully when the verdict is not `APPROVED`, the task changed, the code changed, a ref moved, or the record is malformed. Paths blocked by `policy.json` are never fingerprinted. The digest binds the verdict to evidence; it is not a signature proving which model authored the verdict.
 
 ## Enabling the judge
 

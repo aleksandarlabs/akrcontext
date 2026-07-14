@@ -90,7 +90,7 @@ akrctx comprehension status
 akrctx comprehension disable
 ```
 
-When enabled, the primary agent asks permission to invoke `akrctx-comprehension`. If the judge is enabled, the primary agent first offers the judge and waits for APPROVED on the same code boundary. The comprehension agent then independently reconstructs the change, skips surface-only work, renders a change map and test matrix, and conducts a short interactive checkpoint for meaningful logic, architecture, security, persistence, infrastructure, or other material risks.
+When enabled, the primary agent asks permission to invoke `akrctx-comprehension`. If the judge is enabled, the primary agent first offers the judge, saves its structured record locally, and runs `akrctx judge verify`. Comprehension independently repeats that verification and starts only for an APPROVED record bound to the current task and code. It then reconstructs the change, skips surface-only work, renders a change map and test matrix, and conducts a short interactive checkpoint for meaningful logic, architecture, security, persistence, infrastructure, or other material risks.
 
 The handoff is deliberately narrow: task ID, exact base/candidate boundary, and judge verdict. The implementing agent must not provide its explanations, proposed questions, expected answers, or conclusions. See [COMPREHENSION.md](COMPREHENSION.md) for the full protocol and platform differences.
 
@@ -149,6 +149,8 @@ The judge is an optional subagent that independently reviews implementation agai
 akrctx judge enable   # install judge files and set enabled: true
 akrctx judge disable  # set enabled: false (files are kept)
 akrctx judge status   # show state
+akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json
 ```
 
 The enabled state is stored in config:

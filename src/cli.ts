@@ -5,6 +5,7 @@ import { readConfigStrict, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
 import { runInit } from "./init.js";
+import { createJudgeScope, verifyJudgeRecord } from "./judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
@@ -524,6 +525,37 @@ export async function main(argv = process.argv): Promise<void> {
       }
     },
   );
+
+  judge
+    .command("scope")
+    .description("Compute the deterministic task and code boundary a judge must review.")
+    .argument("<task-id>", "task capsule ID, for example TASK-001")
+    .requiredOption("--base <ref>", "base Git commit or ref")
+    .option("--candidate <ref>", "candidate Git commit/ref, or WORKTREE", "WORKTREE")
+    .option("--json", "emit JSON output", false)
+    .action(async (taskId: string, raw: { base: string; candidate: string; json?: boolean }) => {
+      const scope = await createJudgeScope(process.cwd(), taskId, raw.base, raw.candidate);
+      console.log(JSON.stringify(scope, null, 2));
+    });
+
+  judge
+    .command("verify")
+    .description("Verify that a judge review is APPROVED and still matches the repository.")
+    .argument("<review-file>", "path to the judge review JSON")
+    .option("--json", "emit JSON output", false)
+    .action(async (reviewFile: string, raw: { json?: boolean }) => {
+      const result = await verifyJudgeRecord(process.cwd(), reviewFile);
+      if (raw.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else if (result.approved) {
+        log(`${bold("Judge verification:")} ${green("APPROVED and current")}`);
+        log(`  ${dim(result.scopeDigest ?? "")}`);
+      } else {
+        log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
+        for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
+      }
+      if (!result.approved) process.exitCode = 1;
+    });
 
   // ── upgrade ───────────────────────────────────────────────────────────────
   addCommon(

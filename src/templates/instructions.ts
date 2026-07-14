@@ -63,8 +63,8 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 ## Independent Review and Comprehension
 
 - If judge.enabled is true, ask for confirmation before invoking akrctx-judge after implementation.
-- If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension. When judge is enabled, invoke comprehension only after APPROVED for the same code boundary.
-- Give the comprehension agent only the task ID, exact base/candidate boundary, and judge verdict. Do not pass implementation explanations, suggested questions, expected answers, or the main conversation history as evidence.
+- If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension. When judge is enabled, save the judge's exact JSON record under .akrctx/local/judge/, run akrctx judge verify on it, and invoke comprehension only when it is APPROVED and current.
+- Give the comprehension agent only the task ID, exact base/candidate boundary, and verified judge-record path. Do not pass implementation explanations, suggested questions, expected answers, or the main conversation history as evidence.
 - The comprehension agent owns the interactive teaching session and personal learning artifacts. The primary agent must not ask or grade comprehension questions itself.
 - ${comprehensionInvocation}
 
@@ -163,7 +163,7 @@ Do not expand into a heavyweight process unless the task capsule or user explici
 
 If \`judge.enabled\` is \`true\` in \`.akrctx/config.json\`, after completing implementation offer the user the option to invoke the \`akrctx-judge\` subagent for independent review. The judge reads the task capsule and changed code and reports APPROVED / NEEDS CHANGES / BLOCKED. Do not invoke it automatically; wait for explicit confirmation.
 
-If \`comprehensionGate.enabled\` is also true, offer the independent \`akrctx-comprehension\` agent only after the judge reports APPROVED for the same code boundary. If the judge is disabled, disclose that no independent correctness review exists before offering comprehension. Pass only the task ID, exact base/candidate boundary, and judge verdict to the comprehension agent. Never pass your implementation narrative, explanations, suggested questions, or expected answers. The comprehension agent owns all teaching, questions, answers, and learning artifacts in its separate context.`;
+If \`comprehensionGate.enabled\` is also true, save the judge's exact JSON record under \`.akrctx/local/judge/\` and run \`akrctx judge verify <review.json>\`. Offer the independent \`akrctx-comprehension\` agent only when verification says the approval is current. If the judge is disabled, disclose that no independent correctness review exists before offering comprehension. Pass only the task ID, exact base/candidate boundary, and verified judge-record path to the comprehension agent. Never pass your implementation narrative, explanations, suggested questions, or expected answers. The comprehension agent owns all teaching, questions, answers, and learning artifacts in its separate context.`;
 const writePolicyBody =
   "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Keep the wiki alive: update architecture.md, conventions.md, testing.md, and decisions.md as the project evolves. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
 

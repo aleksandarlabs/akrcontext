@@ -14,6 +14,7 @@ import {
   copilotSkills,
   defaultConfig,
   defaultPolicy,
+  judgeContractFiles,
   localComprehensionIgnoreTemplate,
   mainInstructionTemplate,
   overviewTemplate,
@@ -123,6 +124,12 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     ),
   );
   writes.push(...comprehensionResults);
+  const judgeContractResults = await Promise.all(
+    Object.entries(judgeContractFiles).map(([relativePath, content]) =>
+      writeFile(relativePath, content, false, "akrctx judge enforcement contract."),
+    ),
+  );
+  writes.push(...judgeContractResults);
 
   // Target-specific harness files.
   for (const targetName of selectedTargets) {

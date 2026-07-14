@@ -102,8 +102,19 @@ Purpose:
 - keep personal answers in verified Git-ignored local storage
 - never mutate Git state or control merge decisions
 - run as a platform-native agent in a fresh context, not as a skill inside the implementing agent
-- receive only task ID, exact change boundary, and judge verdict from the primary agent
+- receive only task ID, exact change boundary, and verified judge-record path from the primary agent
 - render a change map, test matrix, interactive questions, and learning report
+
+### akrctx Judge
+
+Purpose:
+
+- independently review the task capsule against the exact code boundary
+- remain read-only and refuse implementation work
+- obtain its boundary from deterministic `akrctx judge scope` output
+- emit a schema-valid review record with validation evidence
+- require `akrctx judge verify` to recompute task and change digests before an approval is consumed
+- invalidate approval when code, task content, refs, or verdict no longer match
 
 ## CLI-level workflows
 

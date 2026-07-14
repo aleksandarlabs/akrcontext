@@ -30,6 +30,7 @@ export {
   piFiles,
 } from "./templates/instructions.js";
 export { claudeJudgeFile, copilotJudgeFile, codexJudgeFile } from "./templates/judge.js";
+export { judgeContractFiles } from "./templates/judge-contract.js";
 export { comprehensionFiles } from "./templates/comprehension.js";
 export {
   claudeComprehensionAgentFile,

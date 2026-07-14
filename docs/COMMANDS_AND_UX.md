@@ -226,7 +226,11 @@ akrctx judge enable           # enable + install agent files for installed targe
 akrctx judge enable --dry-run # preview files that would be created
 akrctx judge disable          # disable (files are kept, remove manually if needed)
 akrctx judge status           # show enabled state and which agent files exist
+akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json
 ```
+
+`scope` hashes the task capsule and exact code boundary. `verify` rejects malformed, non-approved, or stale review records and returns a non-zero exit code, so it can gate Comprehension or CI.
 
 Pi is not supported — it has no native subagent API.
 
