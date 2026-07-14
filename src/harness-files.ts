@@ -2,6 +2,7 @@ import type { Target } from "./types.js";
 
 export const neutralRequired = [
   ".akrctx/config.json",
+  ".akrctx/manifest.json",
   ".akrctx/policy.json",
   ".akrctx/local/.gitignore",
   ".akrctx/judge/README.md",

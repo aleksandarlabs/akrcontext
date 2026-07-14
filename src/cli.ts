@@ -12,6 +12,7 @@ import { runStatus } from "./status.js";
 import { listTasks, removeTask, runTask, showTask } from "./task.js";
 import { listBundledTemplatePacks } from "./template-pack.js";
 import type { CommandOptions, DoctorResult, InitResult, Profile, Target, TargetOption, WriteResult } from "./types.js";
+import { runUpgrade } from "./upgrade.js";
 import { CLI_VERSION } from "./version.js";
 
 export async function main(argv = process.argv): Promise<void> {
@@ -566,24 +567,54 @@ export async function main(argv = process.argv): Promise<void> {
         "after",
         [
           "",
-          "Rewrites skill files, prompts, and instructions to the current CLI version.",
-          "Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are never overwritten.",
+          "Safely migrates the installed harness to the current CLI version.",
+          "Wiki, task capsules, local records, and root instructions are never overwritten.",
           "",
           "Examples:",
           "  akrctx upgrade                    upgrade installed targets",
           "  akrctx upgrade --target codex     upgrade only codex harness files",
           "  akrctx upgrade --dry-run          preview what would change",
           "",
-          "Commit your working tree before upgrading. akrctx cannot tell apart a file",
-          "you edited from one installed by an older template version — files whose",
-          "content differs from the current template are overwritten and flagged;",
-          "use `git diff` afterwards to review what changed.",
+          "Files with verified akrctx provenance are updated automatically. Modified or",
+          "legacy files are preserved and receive a candidate under .akrctx/upgrades/.",
+          "Resolve candidates and rerun upgrade to complete installedVersion migration.",
         ].join("\n"),
       ),
   ).action(async (raw) => {
-    const options = { ...normalizeOptions(raw), force: true, upgrade: true };
-    const result = await runInit(options);
-    printInit(result, options);
+    const options = normalizeOptions(raw);
+    if (options.force) throw new Error("`akrctx upgrade` never force-overwrites files; remove --force.");
+    const result = await runUpgrade(options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (!result.completed) process.exitCode = 1;
+      return;
+    }
+    log(
+      `${bold(options.dryRun ? "Upgrade plan:" : "Upgrade:")} ${result.fromVersion ?? "legacy"} → ${result.toVersion}`,
+    );
+    const changed = result.writes.filter((write) => write.kind === "create" || write.kind === "update");
+    const suggestions = result.writes.filter((write) => write.kind === "suggest");
+    if (changed.length) {
+      ln();
+      for (const write of changed) log(`  ${plus()} ${file(write.path)}`);
+    }
+    if (suggestions.length) {
+      ln();
+      log(`  ${yellow("Preserved files with upgrade candidates:")}`);
+      for (const write of suggestions) log(`    ${warn()} ${file(write.path)}`);
+    }
+    ln();
+    if (result.obsolete.length) {
+      log(yellow(`  ${result.obsolete.length} obsolete managed file(s) were preserved for manual review.`));
+    }
+    if (result.installationComplete) {
+      log(green(options.dryRun ? "  Upgrade can complete safely." : "  Upgrade completed safely."));
+    } else if (result.completed) {
+      log(yellow("  Selected targets updated; run upgrade for all installed targets to advance installedVersion."));
+    } else {
+      log(yellow(`  Upgrade incomplete: resolve ${result.conflicts.length} managed-file conflict(s) and rerun.`));
+    }
+    if (!result.completed) process.exitCode = 1;
   });
 
   // ── remove ────────────────────────────────────────────────────────────────

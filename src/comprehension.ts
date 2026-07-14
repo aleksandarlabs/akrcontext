@@ -1,6 +1,7 @@
 import path from "node:path";
 import { readConfigStrict, writeConfig } from "./config.js";
 import { pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
+import { createManifestFromWrites } from "./manifest.js";
 import {
   claudeComprehensionAgentFile,
   codexComprehensionAgentFile,
@@ -99,6 +100,7 @@ export async function runComprehensionEnable(options: CommandOptions): Promise<C
   };
   if (!options.dryRun) {
     await writeConfig(cwd, next);
+    writes.push(await createManifestFromWrites(cwd, writes, CLI_VERSION));
   }
   return {
     ...(await buildStatus(cwd, next)),

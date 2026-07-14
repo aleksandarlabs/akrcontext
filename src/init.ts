@@ -1,9 +1,10 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import select from "@inquirer/select";
-import { normalizeConfig, readConfig } from "./config.js";
+import { normalizeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { createManifestFromWrites } from "./manifest.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
 import {
   claudeCommands,
@@ -52,14 +53,10 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       force: options.force,
       protected: protectedFile,
       reason,
-      upgrade: options.upgrade,
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
-  const currentConfig = options.upgrade ? await readConfig(cwd) : undefined;
-  const config = normalizeConfig(
-    mergeTemplateJson(mergeTemplateJson(defaultConfig(selectedTargets, profile), currentConfig), templatePack?.config),
-  );
+  const config = normalizeConfig(mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config));
   config.installedVersion = CLI_VERSION;
   config.targets = selectedTargets;
   config.defaults.target = selectedTargets[0];
@@ -140,6 +137,8 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
   for (const [relativePath, content] of Object.entries(templatePack?.targetFiles ?? {})) {
     writes.push(await writeFile(relativePath, content, false, "akrctx template pack target file."));
   }
+
+  writes.push(await createManifestFromWrites(cwd, writes, CLI_VERSION, Boolean(options.dryRun)));
 
   return {
     target,
@@ -233,7 +232,6 @@ async function installTarget(
       force: options.force,
       protected: protectedFile,
       reason,
-      upgrade: options.upgrade,
     });
 
   if (target === "codex") {

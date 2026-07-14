@@ -3,8 +3,10 @@ import path from "node:path";
 import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { createManifestFromWrites } from "./manifest.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "./templates.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
+import { CLI_VERSION } from "./version.js";
 
 type JudgeTarget = Exclude<Target, "pi">;
 
@@ -59,6 +61,7 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   if (!options.dryRun) {
     const next = { ...config, judge: { enabled: true, trigger: "post-implementation" as const } };
     await writeConfig(cwd, next);
+    writes.push(await createManifestFromWrites(cwd, writes, CLI_VERSION));
   }
 
   return { dryRun: Boolean(options.dryRun), installedTargets, skippedTargets, writes };
