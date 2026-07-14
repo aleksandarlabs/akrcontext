@@ -156,7 +156,7 @@ export async function main(argv = process.argv): Promise<void> {
           "  - Config completeness.",
           "",
           "Use --fix to recreate missing files and repair config/policy gaps automatically.",
-          "Protected instruction files are never overwritten; pending merges still need human approval.",
+          "Protected instructions remain read-only until the agent shows an exact diff and receives explicit human approval in the current conversation.",
           "",
           "It writes the report to .akrctx/wiki/agent-setup.md",
           "and prints a suggested agent prompt to finish the audit intelligently.",
@@ -783,7 +783,8 @@ function printInit(result: InitResult, options: CommandOptions): void {
   if (suggested.length > 0) {
     log("  An existing instruction file was preserved.");
     log(`  Ask your agent: ${gray('"Run akrctx doctor and compare the existing')}`);
-    log(`                  ${gray('instructions with the .suggested file. Propose a merge."')}`);
+    log(`                  ${gray("instructions with the .suggested file. Show the exact minimal")}`);
+    log(`                  ${gray('diff and ask for approval before applying it."')}`);
   } else {
     log(`  ${bold("1.")} Open your agent in this repository.`);
     log(`  ${bold("2.")} Ask: ${gray('"Run akrctx doctor."')}`);
@@ -973,15 +974,15 @@ function targetLabel(target: Target): string {
 
 function doctorPromptFor(target: Target): string {
   const shared =
-    "Run akrctx doctor. Inspect this repo's agent instructions and .akrctx wiki. Audit setup only; do not implement product features during doctor. Update .akrctx/wiki and propose instruction merges.";
+    "Run akrctx doctor. Inspect this repo's agent instructions and .akrctx wiki. Audit setup only; do not implement product features during doctor. Update .akrctx/wiki. For pending instruction merges, show the exact minimal diff and ask for explicit approval before editing the protected file.";
   if (target === "pi") {
-    return "Run the akrctx doctor workflow. Inspect this repo's Pi Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki and propose instruction merges.";
+    return "Run the akrctx doctor workflow. Inspect this repo's Pi Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   if (target === "claude") {
-    return "Run the akrctx doctor skill. Inspect this repo's Claude Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki and propose instruction merges.";
+    return "Run the akrctx doctor skill. Inspect this repo's Claude Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   if (target === "copilot") {
-    return "Use the akrctx doctor prompt. Inspect this repo's Copilot instructions and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki and propose instruction merges.";
+    return "Use the akrctx doctor prompt. Inspect this repo's Copilot instructions and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   return shared;
 }

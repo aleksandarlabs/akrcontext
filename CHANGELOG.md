@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Deterministic `judge scope` and `judge verify` commands bind approvals to SHA-256 digests of the task capsule and exact code boundary, invalidating stale verdicts before comprehension.
 - Safe upgrades now preserve wiki pages, task capsules, local records, and root instructions; generated files update only when their recorded manifest hash proves they are unchanged.
 - Added `.akrctx/manifest.json`, versioned upgrade candidates, conservative legacy handling, field-level config/policy migration, and non-destructive obsolete-file reporting.
+- Doctor agents may apply surgical protected-instruction merges only after showing the exact diff and receiving explicit human approval in the current conversation; `doctor --fix` no longer creates spurious merge suggestions during repair.
 
 ### Security
 

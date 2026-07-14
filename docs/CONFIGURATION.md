@@ -139,6 +139,22 @@ Example config fields:
 
 `akrctx doctor` validates profile-specific policy requirements.
 
+### Protected instruction merges
+
+`policy.json` keeps root instruction files protected by default and defines one narrow Doctor exception:
+
+```json
+{
+  "protectedFileMerge": {
+    "agentMayEdit": "after-explicit-human-approval",
+    "approvalScope": "current-conversation",
+    "requireDiffPreview": true
+  }
+}
+```
+
+The agent must show the exact minimal diff first. Only explicit approval of that diff in the current conversation permits the edit; a changed proposal requires new approval. This is an agent policy, not an operating-system permission boundary.
+
 ---
 
 ## Upgrade provenance

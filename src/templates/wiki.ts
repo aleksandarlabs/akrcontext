@@ -172,6 +172,7 @@ akrctx keeps root instructions small and writes durable context only when it has
 
 - Wiki index: .akrctx/wiki/index.md
 - Doctor findings: .akrctx/wiki/agent-setup.md, gaps.md, recommendations.md
+- Doctor merge candidates: AGENTS.akrctx.suggested.md, CLAUDE.akrctx.suggested.md, .github/copilot-instructions.akrctx.suggested.md
 - Task capsules: .akrctx/tasks/TASK-XXX/
 - Compiled briefs: .akrctx/tasks/TASK-XXX/exports/<target>.md
 - Architecture or process decisions: .akrctx/wiki/decisions.md
@@ -188,6 +189,14 @@ Use bundle-relative links (\`/wiki/decisions.md\`) when linking between wiki pag
 - Read the current task capsule before implementation.
 - Read only wiki pages that are relevant to the current task.
 - Load target workflow skills or prompts only when the task calls for them.
+
+## Protected Instruction Merges
+
+- Protected instructions are read-only by default.
+- The Doctor agent must show the exact minimal diff before asking for approval.
+- Only explicit approval of that diff in the current conversation permits the agent to edit the protected file.
+- A changed proposal or target requires a new preview and approval.
+- After applying the approved diff, show the result, rerun Doctor, and remove the matching suggested file only when the merge is verified.
 `,
 
   "wiki/log.md": `${wikiFrontmatter("akrctx-wiki-log", "Log", "Chronological history of akrctx events.", ["log"])}# Log

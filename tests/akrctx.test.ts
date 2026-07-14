@@ -127,10 +127,42 @@ describe("akrctx init", () => {
     expect(policy.protectedFiles).toContain("AGENTS.md");
     expect(policy.protectedFiles).toContain("CLAUDE.md");
     expect(policy.protectedFiles).toContain(".github/copilot-instructions.md");
+    expect(policy.protectedFileMerge).toEqual({
+      agentMayEdit: "after-explicit-human-approval",
+      approvalScope: "current-conversation",
+      requireDiffPreview: true,
+    });
+    expect(policy.writePolicy.doctor).toContain("AGENTS.akrctx.suggested.md");
+    expect(policy.writePolicy.doctor).not.toContain("AGENTS.md");
     expect(policy.enforcement.requireTaskCapsule).toBe(true);
     expect(policy.enforcement.requireWorkflowReason).toBe(true);
     expect(policy.enforcement.requireAcceptanceCriteria).toBe(true);
     expect(policy.enforcement.requireReviewChecklist).toBe(true);
+  });
+
+  it("teaches every Doctor target the narrow human-approved merge workflow", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+
+    const doctorSurfaces = [
+      ".agents/skills/akrctx-doctor/SKILL.md",
+      ".claude/skills/akrctx-doctor/SKILL.md",
+      ".claude/commands/akrctx-doctor.md",
+      ".github/skills/akrctx-doctor/SKILL.md",
+      ".github/prompts/akrctx-doctor.prompt.md",
+      ".pi/skills/akrctx-doctor/SKILL.md",
+      ".pi/prompts/akrctx-doctor.md",
+    ];
+
+    for (const relativePath of doctorSurfaces) {
+      const content = await readFile(path.join(tmp, relativePath), "utf8");
+      expect(content, relativePath).toContain("explicit human approval");
+      expect(content, relativePath).toContain("current conversation");
+    }
+
+    const skill = await readFile(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), "utf8");
+    expect(skill).toContain("Show the exact proposed diff");
+    expect(skill).toContain("apply only the shown changes");
+    expect(skill).toContain("Never use `--force`");
   });
 
   it("strict profile records stricter config and policy defaults", async () => {
@@ -220,13 +252,17 @@ describe("akrctx init", () => {
     );
     await writeFile(
       path.join(pack, "policy.json"),
-      JSON.stringify({ enforcement: { requireTaskCapsule: false } }),
+      JSON.stringify({
+        enforcement: { requireTaskCapsule: false },
+        protectedFileMerge: { requireDiffPreview: false },
+      }),
       "utf8",
     );
 
     const result = await runInit({ cwd: tmp, target: "copilot", templatePack: pack, nonInteractive: true });
 
     expect(result.policyWarnings.some((w) => w.includes("enforcement.requireTaskCapsule"))).toBe(true);
+    expect(result.policyWarnings.some((w) => w.includes("protected-file human-approval"))).toBe(true);
   });
 
   it("reports no policy warnings when a template pack does not touch policy", async () => {
@@ -406,6 +442,28 @@ describe("doctor", () => {
     expect(result.missing).toContain(".akrctx/policy.json — enforcement.requireTaskCapsule must be true");
     expect(result.missing).toContain(".akrctx/policy.json — protectedFiles missing AGENTS.md");
     expect(result.suggestions.some((suggestion) => suggestion.text.includes("file(s) missing"))).toBe(true);
+  });
+
+  it("reports an unsafe or missing protected-file merge approval contract", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.protectedFileMerge = {
+      agentMayEdit: "always",
+      approvalScope: "any-conversation",
+      requireDiffPreview: false,
+    };
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(
+      ".akrctx/policy.json — protectedFileMerge.agentMayEdit must require explicit human approval",
+    );
+    expect(result.missing).toContain(
+      ".akrctx/policy.json — protectedFileMerge.approvalScope must be current-conversation",
+    );
+    expect(result.missing).toContain(".akrctx/policy.json — protectedFileMerge.requireDiffPreview must be true");
   });
 
   it("reports profile-specific policy gaps", async () => {
@@ -1573,6 +1631,7 @@ describe("upgrade", () => {
     expect(result.completed).toBe(true);
     expect(migrated.blockedReadPatterns).toContain("company-secret/");
     expect(migrated.writePolicy.doctor).toBeDefined();
+    expect(migrated.protectedFileMerge.agentMayEdit).toBe("after-explicit-human-approval");
   });
 
   it("preserves an invalid provenance manifest", async () => {
@@ -1972,6 +2031,7 @@ describe("doctor --fix", () => {
     const policyPath = path.join(tmp, ".akrctx/policy.json");
     const policy = JSON.parse(await readFile(policyPath, "utf8"));
     policy.writePolicy = undefined;
+    policy.protectedFileMerge = undefined;
     policy.blockedReadPatterns = [".env"];
     await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
 
@@ -1980,6 +2040,11 @@ describe("doctor --fix", () => {
     expect(result.fixed).toContain(".akrctx/policy.json");
     const fixed = JSON.parse(await readFile(policyPath, "utf8"));
     expect(fixed.writePolicy).toBeDefined();
+    expect(fixed.protectedFileMerge).toEqual({
+      agentMayEdit: "after-explicit-human-approval",
+      approvalScope: "current-conversation",
+      requireDiffPreview: true,
+    });
     expect(fixed.blockedReadPatterns).toContain(".env");
     expect(fixed.blockedReadPatterns).toContain("*.pem");
   });
@@ -2035,6 +2100,34 @@ describe("doctor --fix", () => {
     const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
 
     expect(result.fixed).toEqual([]);
+    expect(result.conflicts).toEqual([]);
+    expect(await pathExists(path.join(tmp, "AGENTS.akrctx.suggested.md"))).toBe(false);
+  });
+
+  it("repairs a missing skill without creating a protected-file merge suggestion", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"), { force: true });
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(result.fixed).toContain(".agents/skills/akrctx-doctor/SKILL.md");
+    expect(result.conflicts).toEqual([]);
+    expect(await pathExists(path.join(tmp, "AGENTS.akrctx.suggested.md"))).toBe(false);
+  });
+
+  it("never treats doctor --fix as approval to modify a protected instruction", async () => {
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Project-owned instructions\n", "utf8");
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const before = await readFile(path.join(tmp, "AGENTS.md"), "utf8");
+    const wikiPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    await writeFile(wikiPath, "# Project-owned architecture\n", "utf8");
+
+    const result = await runDoctor({ cwd: tmp, fix: true, force: true, nonInteractive: true });
+
+    expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe(before);
+    expect(await readFile(wikiPath, "utf8")).toBe("# Project-owned architecture\n");
+    expect(await pathExists(path.join(tmp, "AGENTS.akrctx.suggested.md"))).toBe(true);
+    expect(result.conflicts.some((conflict) => conflict.includes("AGENTS.akrctx.suggested.md"))).toBe(true);
   });
 
   it("dry-run fix does not write files but reports what would be fixed", async () => {

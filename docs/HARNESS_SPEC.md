@@ -60,7 +60,10 @@ Purpose:
 - identify missing docs/rules
 - detect contradictions
 - recommend improvements
-- not overwrite files without approval
+- keep protected instructions read-only by default
+- show an exact minimal diff before requesting approval
+- edit a protected instruction only after explicit human approval of that diff in the current conversation
+- show and verify the resulting diff, then clear the merged suggestion
 
 ### akrctx Task
 

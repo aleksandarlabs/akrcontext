@@ -61,6 +61,11 @@ The generated policy includes:
 {
   "mergeStrategy": "preserve-and-suggest",
   "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+  "protectedFileMerge": {
+    "agentMayEdit": "after-explicit-human-approval",
+    "approvalScope": "current-conversation",
+    "requireDiffPreview": true
+  },
   "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/", "private/"],
   "enforcement": {
     "requireTaskCapsule": true,

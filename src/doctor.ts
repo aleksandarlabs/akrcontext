@@ -42,7 +42,7 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
   if (initial.installedTargets.length > 0) {
     const profile = await readProfile(cwd);
     for (const target of initial.installedTargets) {
-      const initResult = await runInit({ ...options, target, profile });
+      const initResult = await runInit({ ...options, target, profile, force: false, repair: true });
       for (const write of initResult.writes) {
         if (write.kind === "create") fixed.push(write.path);
       }
@@ -248,6 +248,16 @@ async function getPolicyGaps(cwd: string): Promise<string[]> {
       gaps.push(".akrctx/policy.json — mergeStrategy must be preserve-and-suggest");
     }
 
+    if (policy.protectedFileMerge?.agentMayEdit !== expected.protectedFileMerge.agentMayEdit) {
+      gaps.push(".akrctx/policy.json — protectedFileMerge.agentMayEdit must require explicit human approval");
+    }
+    if (policy.protectedFileMerge?.approvalScope !== expected.protectedFileMerge.approvalScope) {
+      gaps.push(".akrctx/policy.json — protectedFileMerge.approvalScope must be current-conversation");
+    }
+    if (policy.protectedFileMerge?.requireDiffPreview !== true) {
+      gaps.push(".akrctx/policy.json — protectedFileMerge.requireDiffPreview must be true");
+    }
+
     for (const file of expected.protectedFiles) {
       if (!arrayIncludes(policy.protectedFiles, file)) {
         gaps.push(`.akrctx/policy.json — protectedFiles missing ${file}`);
@@ -441,7 +451,7 @@ function buildSuggestions(
 
   if (conflicts.length > 0) {
     suggestions.push({
-      text: "Pending merge files exist. Open your agent and ask it to compare the existing instructions with the suggested file and propose a human-approved merge.",
+      text: "Pending merge files exist. Ask your agent to derive and show the exact minimal diff. It may edit the protected instruction only after you explicitly approve that diff in the current conversation.",
       severity: "error",
     });
   }

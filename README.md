@@ -189,11 +189,11 @@ testing commands  -> .akrctx/wiki/testing.md
 
 akrctx preserves existing agent instructions. If `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md` already exists, init writes a `.akrctx.suggested.md` file instead of replacing it.
 
-Use `akrctx doctor` to audit the setup and ask your chosen agent to propose a human-approved merge.
+Use `akrctx doctor` to audit the setup. The agent compares the protected file with its suggestion and shows an exact minimal diff. It may edit the protected file only after you explicitly approve that diff in the current conversation; changed proposals require fresh approval.
 
 ## Security Model
 
-`policy.json` (`blockedReadPatterns`, `protectedFiles`, `enforcement.*`) and the write-policy skill are **prompt-level / convention-level controls, not technical enforcement**. They give a cooperative coding agent clear instructions about what not to read or overwrite — they do not sandbox the agent, and they do not resist a malicious or compromised agent, prompt injection, or a template pack designed to weaken them.
+`policy.json` (`blockedReadPatterns`, `protectedFiles`, `protectedFileMerge`, `enforcement.*`) and the write-policy skill are **prompt-level / convention-level controls, not technical enforcement**. They give a cooperative coding agent clear instructions about what not to read or overwrite — including the exact human-approval exception for protected instruction merges — but they do not sandbox the agent or resist a malicious or compromised agent, prompt injection, or a template pack designed to weaken them.
 
 Treat akrctx's policy as documentation the agent is expected to follow, not a security boundary. To actually restrict what an agent can read or write, complement it with:
 
