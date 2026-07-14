@@ -70,7 +70,8 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 
 ## Safety
 
-- Preserve existing instructions; use suggested files for conflicts.
+- Protected instructions are deny-by-default. Preserve them and use suggested files for conflicts.
+- During Doctor only, you may edit a protected instruction file after you show the exact minimal diff and the human explicitly approves that exact change in the current conversation. Silence, old approvals, and general requests to "fix everything" are not approval. If the proposal or target changes, show the new diff and ask again.
 - Do not read secrets or credentials (.env, *.pem, *.key, *.p12, *.pfx, secrets/, credentials/).
 - Keep root instructions minimal. Load detailed workflows from target skills/prompts only when relevant.
 `;
@@ -90,8 +91,19 @@ ${body}
 
 const initBody =
   "Detect existing Codex, Claude, Copilot, and Pi Code setup. Preserve all user-authored instruction files. Add missing akrctx structure and create suggested files for conflicts.";
-const doctorBody =
-  "Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Treat the wiki as a living artifact: add architecture patterns, conventions, testing commands, and decisions as you discover them. Do not implement product features during doctor.";
+const doctorBody = `Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Treat the wiki as a living artifact: add architecture patterns, conventions, testing commands, and decisions as you discover them. Do not implement product features during doctor.
+
+## Protected instruction merge
+
+Protected files remain deny-by-default. When a matching \`.akrctx.suggested.md\` file exists:
+
+1. Compare it with the protected instruction file and derive the smallest semantic merge; never replace project-specific instructions with the whole suggestion.
+2. Show the exact proposed diff and explain each change briefly. Do not edit the protected file yet.
+3. Ask for explicit human approval of that exact diff. Approval is valid only in the current conversation. Silence, approval from another session, or a broad request such as "fix everything" is not approval.
+4. If approved, apply only the shown changes directly to the protected file. If either file changed or the patch must change, stop, show a fresh diff, and ask again.
+5. Show the resulting diff, verify the intended instructions are present, rerun \`akrctx doctor\`, and remove the matching suggested file only after the merge is verified.
+
+This is the only Doctor exception to \`protectedFiles\` and \`writePolicy.doctor\`. Never use \`--force\` to bypass it.`;
 const taskBody =
   "Turn the request into a task capsule with goal, scope, context, explicit workflow choice, acceptance criteria, validation commands, and an implementation brief. Do not invent unknowns; record open questions.";
 const reviewBody =
@@ -165,7 +177,7 @@ If \`judge.enabled\` is \`true\` in \`.akrctx/config.json\`, after completing im
 
 If \`comprehensionGate.enabled\` is also true, save the judge's exact JSON record under \`.akrctx/local/judge/\` and run \`akrctx judge verify <review.json>\`. Offer the independent \`akrctx-comprehension\` agent only when verification says the approval is current. If the judge is disabled, disclose that no independent correctness review exists before offering comprehension. Pass only the task ID, exact base/candidate boundary, and verified judge-record path to the comprehension agent. Never pass your implementation narrative, explanations, suggested questions, or expected answers. The comprehension agent owns all teaching, questions, answers, and learning artifacts in its separate context.`;
 const writePolicyBody =
-  "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Keep the wiki alive: update architecture.md, conventions.md, testing.md, and decisions.md as the project evolves. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
+  "Write durable context only to the paths in .akrctx/wiki/write-policy.md. Keep the wiki alive: update architecture.md, conventions.md, testing.md, and decisions.md as the project evolves. Protected instructions remain read-only except for the narrow Doctor merge defined by policy.protectedFileMerge: show the exact diff, receive explicit approval in the current conversation, then apply only that diff. Do not read all of .akrctx/ by default. Prefer the active task capsule, policy.json, and only relevant wiki pages.";
 
 const sharedSkills = {
   "akrctx-init": ["Use when installing or reviewing the akrctx harness in a repository.", initBody],
@@ -202,7 +214,7 @@ export const copilotSkills: Record<string, string> = skillFiles(".github/skills"
 
 export const claudeCommands: Record<string, string> = {
   ".claude/commands/akrctx-doctor.md":
-    "# akrctx Doctor\n\nUse the `akrctx-doctor` skill. Preserve existing instructions and update only `.akrctx/wiki/` unless approved.\n",
+    "# akrctx Doctor\n\nUse the `akrctx-doctor` skill. Preserve protected instructions by default. Edit one only after showing the exact diff and receiving explicit human approval in the current conversation.\n",
   ".claude/commands/akrctx-task.md":
     "# akrctx Task\n\nUse the `akrctx-task` skill. Create or refine a akrctx task capsule before implementation.\n",
 };
@@ -217,7 +229,7 @@ applyTo: "**"
 Use \`.akrctx/\` as the neutral source of truth. Preserve existing instruction files and avoid secrets. Do not read all of \`.akrctx/\` by default; open only the current task capsule, policy, and relevant wiki pages.
 `,
   ".github/prompts/akrctx-doctor.prompt.md":
-    "# akrctx Doctor\n\nAudit agent setup, wiki coverage, task templates, and quality gates. Propose safe merges instead of rewriting instructions. Do not implement product features during doctor.\n",
+    "# akrctx Doctor\n\nUse the `akrctx-doctor` skill. Audit agent setup, wiki coverage, task templates, and quality gates. Protected instructions are deny-by-default: show the exact minimal diff and obtain explicit human approval in the current conversation before editing one. Do not implement product features during doctor.\n",
   ".github/prompts/akrctx-task.prompt.md":
     "# akrctx Task\n\nPrepare a task capsule with scope, context, acceptance criteria, and validation commands.\n",
   ".github/prompts/akrctx-workflow.prompt.md":
@@ -230,7 +242,7 @@ export const piSkills: Record<string, string> = skillFiles(".pi/skills");
 
 export const piFiles: Record<string, string> = {
   ".pi/prompts/akrctx-doctor.md":
-    "# akrctx Doctor\n\nAudit this repository's akrctx setup and propose safe normalization.\n",
+    "# akrctx Doctor\n\nUse the `akrctx-doctor` skill. Audit this repository's akrctx setup and propose safe normalization. Protected instructions may be edited only after showing the exact diff and receiving explicit human approval in the current conversation.\n",
   ".pi/prompts/akrctx-task.md": "# akrctx Task\n\nPrepare a akrctx task capsule before implementation.\n",
   ".pi/prompts/akrctx-workflow.md":
     "# akrctx Workflow\n\nUse the task capsule workflow. Supported modes: fast-patch, research-first, SDD, TDD, EDD, SDD+TDD, SDD+EDD, TDD+EDD, UI review.\n",

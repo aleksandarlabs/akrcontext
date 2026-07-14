@@ -168,6 +168,14 @@ function describePolicyWeakening(
     );
   }
 
+  if (
+    merged.protectedFileMerge?.agentMayEdit !== defaults.protectedFileMerge.agentMayEdit ||
+    merged.protectedFileMerge?.approvalScope !== defaults.protectedFileMerge.approvalScope ||
+    merged.protectedFileMerge?.requireDiffPreview !== defaults.protectedFileMerge.requireDiffPreview
+  ) {
+    warnings.push("Template pack weakened the protected-file human-approval contract.");
+  }
+
   for (const key of Object.keys(defaults.enforcement) as Array<keyof typeof defaults.enforcement>) {
     if (defaults.enforcement[key] === true && merged.enforcement[key] === false) {
       warnings.push(`Template pack disabled enforcement.${key} (default: true).`);
@@ -226,13 +234,21 @@ async function installTarget(
   templatePack?: TemplatePack,
 ): Promise<WriteResult[]> {
   const writes: WriteResult[] = [];
-  const writeFile = (relativePath: string, content: string, protectedFile = false, reason?: string) =>
-    writePlannedFile(cwd, relativePath, String(content), {
+  const writeFile = async (relativePath: string, content: string, protectedFile = false, reason?: string) => {
+    if (protectedFile && options.repair && (await pathExists(path.join(cwd, relativePath)))) {
+      return {
+        kind: "preserve" as const,
+        path: relativePath,
+        reason: "Existing protected instruction preserved during Doctor repair.",
+      };
+    }
+    return writePlannedFile(cwd, relativePath, String(content), {
       dryRun: options.dryRun,
       force: options.force,
       protected: protectedFile,
       reason,
     });
+  };
 
   if (target === "codex") {
     const [main, ...skills] = await Promise.all([

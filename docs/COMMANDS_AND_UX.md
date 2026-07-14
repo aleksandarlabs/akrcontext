@@ -65,7 +65,9 @@ Reports:
 
 `--ci` exits with `0` when the harness is healthy and `1` when there are actionable gaps. Use it in protected branches or CI pipelines.
 
-`--fix` automatically recreates missing harness files and merges missing keys into `.akrctx/config.json` and `.akrctx/policy.json`. Protected instruction files are never overwritten; pending merges still need human approval.
+`--fix` automatically recreates missing harness files and merges missing keys into `.akrctx/config.json` and `.akrctx/policy.json`. It does not create new protected-file suggestions merely because a protected file already exists.
+
+For a pending instruction merge, the Doctor agent compares the protected file with its `.akrctx.suggested.md` candidate and presents the exact minimal diff. The protected file remains read-only until the human explicitly approves that exact diff in the current conversation. After approval, the agent applies only the shown changes, displays the result, reruns Doctor, and removes the candidate only after verification. A changed proposal requires a new approval.
 
 ---
 

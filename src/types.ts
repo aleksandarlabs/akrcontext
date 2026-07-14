@@ -79,6 +79,11 @@ export interface akrctxPolicy {
   profile?: Profile;
   mergeStrategy: "preserve-and-suggest";
   protectedFiles: string[];
+  protectedFileMerge: {
+    agentMayEdit: "after-explicit-human-approval";
+    approvalScope: "current-conversation";
+    requireDiffPreview: true;
+  };
   blockedReadPatterns: string[];
   contextBudget: {
     rootInstructions: "minimal" | "proportional" | "thorough";
@@ -121,6 +126,8 @@ export interface CommandOptions {
   templatePack?: string;
   cwd?: string;
   nonInteractive?: boolean;
+  /** Internal doctor repair mode: restore files without creating new protected-file suggestions. */
+  repair?: boolean;
 }
 
 export interface DetectionResult {

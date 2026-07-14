@@ -62,6 +62,18 @@ If implemented, append blocks must be delimited:
 
 Do not implement automatic append by default.
 
+## Human-approved agent merge
+
+Protected instructions are deny-by-default; `--force` is not an approval mechanism. During the Doctor workflow, the agent may perform a surgical edit only when all of these conditions hold:
+
+1. a matching `.akrctx.suggested.md` candidate exists
+2. the agent shows the exact minimal diff before editing
+3. the human explicitly approves that exact diff in the current conversation
+4. the proposal and target remain unchanged while applying it
+5. the agent shows the resulting diff and reruns Doctor
+
+Silence, approval from another conversation, or a broad request such as “fix everything” is not sufficient. If the diff changes, approval must be requested again. The agent removes the suggestion only after verifying the merge. These are prompt-level controls, not a technical sandbox.
+
 ## CLI Scope Defaults
 
 The akrctx CLI installs files and performs deterministic checks. It does not do research, call LLM providers, execute external agents, or implement application features.
@@ -122,6 +134,11 @@ With at least:
   "version": 1,
   "mergeStrategy": "preserve-and-suggest",
   "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+  "protectedFileMerge": {
+    "agentMayEdit": "after-explicit-human-approval",
+    "approvalScope": "current-conversation",
+    "requireDiffPreview": true
+  },
   "blockedReadPatterns": [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/"],
   "contextBudget": {
     "rootInstructions": "minimal",
@@ -135,7 +152,7 @@ With at least:
     "requireReviewChecklist": true
   },
   "writePolicy": {
-    "doctor": [".akrctx/wiki/agent-setup.md"],
+    "doctor": [".akrctx/wiki/agent-setup.md", "AGENTS.akrctx.suggested.md"],
     "task": [".akrctx/tasks/TASK-XXX/"],
     "compile": [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
     "decisions": [".akrctx/wiki/decisions.md"]

@@ -64,6 +64,11 @@ export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
     profile,
     mergeStrategy: "preserve-and-suggest",
     protectedFiles: ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+    protectedFileMerge: {
+      agentMayEdit: "after-explicit-human-approval",
+      approvalScope: "current-conversation",
+      requireDiffPreview: true,
+    },
     blockedReadPatterns: [".env", ".env.*", "*.pem", "*.key", "*.p12", "*.pfx", "secrets/", "credentials/", "private/"],
     contextBudget: {
       rootInstructions: "minimal",
@@ -77,7 +82,14 @@ export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
       requireReviewChecklist: true,
     },
     writePolicy: {
-      doctor: [".akrctx/wiki/agent-setup.md", ".akrctx/wiki/gaps.md", ".akrctx/wiki/recommendations.md"],
+      doctor: [
+        ".akrctx/wiki/agent-setup.md",
+        ".akrctx/wiki/gaps.md",
+        ".akrctx/wiki/recommendations.md",
+        "AGENTS.akrctx.suggested.md",
+        "CLAUDE.akrctx.suggested.md",
+        ".github/copilot-instructions.akrctx.suggested.md",
+      ],
       task: [".akrctx/tasks/TASK-XXX/"],
       compile: [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
       decisions: [".akrctx/wiki/decisions.md"],
