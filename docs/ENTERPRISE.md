@@ -60,7 +60,7 @@ The generated policy includes:
 ```json
 {
   "mergeStrategy": "preserve-and-suggest",
-  "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"],
+  "protectedFiles": ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", ".pi/README.md"],
   "protectedFileMerge": {
     "agentMayEdit": "after-explicit-human-approval",
     "approvalScope": "current-conversation",
@@ -110,6 +110,16 @@ Use a bundled pack from this repository's `templates/` directory:
 akrctx templates list
 akrctx init --target copilot --template test-template
 ```
+
+For an already initialized project, do not rerun `init`:
+
+```bash
+akrctx templates apply test-template --target copilot
+akrctx templates apply ./pepe-template --local --target copilot
+akrctx templates status
+```
+
+Apply multiple packs sequentially. Each successful application records its name, version, source, targets, and target-file hashes in `.akrctx/config.json`. Differing project files are never overwritten: versioned candidates block the transaction until resolved. Root instruction candidates remain nonblocking and require the explicit human-approved Doctor merge.
 
 Template packs are target-relative. The selected `--target` determines where files are installed.
 

@@ -36,6 +36,14 @@ export interface ComprehensionGateConfig {
   evaluationMode: "prefer-independent";
 }
 
+export interface AppliedTemplatePack {
+  name: string;
+  version: string;
+  source: "bundled" | "local";
+  targets: Target[];
+  fileHashes: Record<string, string>;
+}
+
 export type ComprehensionSignificance = "surface" | "logic" | "architectural" | "critical";
 export type ComprehensionEvaluationMode = "independent" | "fresh-context";
 export type ComprehensionResultStatus =
@@ -53,6 +61,7 @@ export interface akrctxConfig {
   judge?: JudgeConfig;
   comprehensionGate: ComprehensionGateConfig;
   targets: Target[];
+  templatePacks: AppliedTemplatePack[];
   sourceOfTruth: ".akrctx";
   createdBy: "akrctx";
   defaults: {

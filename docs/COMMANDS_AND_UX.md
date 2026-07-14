@@ -94,6 +94,20 @@ akrctx init --target copilot --template-pack ./company-template
 
 See [ENTERPRISE.md](ENTERPRISE.md) for the template pack format.
 
+### Apply after initialization
+
+```bash
+akrctx templates apply company-base
+akrctx templates apply ./company-template --local
+akrctx templates apply security-rules --target copilot --dry-run
+akrctx templates status
+akrctx templates status --json
+```
+
+`templates apply` requires an installed harness and valid manifest. It never reruns `init` and rejects `--force`. With one installed target it selects it automatically; projects with multiple targets must pass one explicit `--target` and apply once per target.
+
+Several packs are composed by applying them sequentially. Existing non-root content that differs is preserved and receives a versioned candidate under `.akrctx/template-candidates/<name>/<version>/`. These conflicts block the pack transaction, so config, policy, and missing files remain unchanged until the candidate is resolved and the command is rerun. Root instructions are nonblocking: they use `.akrctx.suggested.md` and the human-approved Doctor merge workflow.
+
 ---
 
 ## `akrctx status`
@@ -262,7 +276,7 @@ akrctx remove --target codex --force      # remove codex skill files
 akrctx remove --all --force               # remove .akrctx/ and all target files
 ```
 
-Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are always skipped — remove them manually if needed.
+Protected root instruction files (AGENTS.md, CLAUDE.md, copilot-instructions.md, and .pi/README.md) are always skipped — remove them manually if needed.
 
 ---
 

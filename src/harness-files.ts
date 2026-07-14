@@ -84,4 +84,4 @@ export const targetRequired: Record<Target, string[]> = {
 };
 
 /** Files that may be user-authored and must never be silently deleted. */
-export const protectedFiles = ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md"];
+export const protectedFiles = ["AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", ".pi/README.md"];

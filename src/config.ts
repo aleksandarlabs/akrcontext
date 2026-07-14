@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import { pathExists } from "./fs-utils.js";
 import { defaultConfig } from "./templates.js";
-import type { Target, Workflow, WorkflowDefault, akrctxConfig } from "./types.js";
+import type { AppliedTemplatePack, Target, Workflow, WorkflowDefault, akrctxConfig } from "./types.js";
 import { targets, workflows } from "./types.js";
 
 const configPath = ".akrctx/config.json";
@@ -72,6 +72,7 @@ export function normalizeConfig(raw: unknown): akrctxConfig {
     ...base,
     ...partial,
     targets: configuredTargets.length ? configuredTargets : base.targets,
+    templatePacks: normalizeTemplatePacks(partial.templatePacks),
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",
     defaults: {
@@ -86,6 +87,48 @@ export function normalizeConfig(raw: unknown): akrctxConfig {
     },
     comprehensionGate: normalizeComprehensionGate(partial.comprehensionGate, base.comprehensionGate),
   };
+}
+
+function normalizeTemplatePacks(value: unknown): AppliedTemplatePack[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry): AppliedTemplatePack[] => {
+    if (!entry || typeof entry !== "object") return [];
+    const candidate = entry as Partial<AppliedTemplatePack>;
+    if (
+      typeof candidate.name !== "string" ||
+      !candidate.name.trim() ||
+      typeof candidate.version !== "string" ||
+      !candidate.version.trim() ||
+      !["bundled", "local"].includes(String(candidate.source)) ||
+      !Array.isArray(candidate.targets) ||
+      !candidate.fileHashes ||
+      typeof candidate.fileHashes !== "object" ||
+      Array.isArray(candidate.fileHashes)
+    ) {
+      return [];
+    }
+    const configuredTargets = candidate.targets.filter((target): target is Target =>
+      targets.includes(target as Target),
+    );
+    if (configuredTargets.length === 0) return [];
+    return [
+      {
+        name: candidate.name.trim(),
+        version: candidate.version.trim(),
+        source: candidate.source as AppliedTemplatePack["source"],
+        targets: Array.from(new Set(configuredTargets)),
+        fileHashes: Object.fromEntries(
+          Object.entries(candidate.fileHashes).filter(
+            ([relativePath, hash]) =>
+              relativePath.length > 0 &&
+              !path.posix.isAbsolute(relativePath) &&
+              !relativePath.split("/").includes("..") &&
+              /^sha256:[0-9a-f]{64}$/.test(String(hash)),
+          ),
+        ) as Record<string, string>,
+      },
+    ];
+  });
 }
 
 function normalizeComprehensionGate(

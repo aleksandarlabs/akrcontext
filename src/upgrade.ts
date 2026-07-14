@@ -98,8 +98,12 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
   if (policyMigration.conflict) conflicts.push(".akrctx/policy.json");
 
   const allDesiredPaths = new Set(Object.keys(desiredManagedFiles(config, config.targets)));
+  const templateOwnedPaths = new Set(config.templatePacks.flatMap((pack) => Object.keys(pack.fileHashes)));
   const obsolete = Object.keys(previousManifest?.files ?? {}).filter(
-    (relativePath) => isManifestManagedPath(relativePath) && !allDesiredPaths.has(relativePath),
+    (relativePath) =>
+      isManifestManagedPath(relativePath) &&
+      !allDesiredPaths.has(relativePath) &&
+      !templateOwnedPaths.has(relativePath),
   );
   for (const relativePath of obsolete) {
     if (await pathExists(path.join(cwd, relativePath))) {

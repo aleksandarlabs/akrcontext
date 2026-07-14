@@ -58,6 +58,9 @@ akrctx comprehension enable            # enable developer understanding checkpoi
 akrctx comprehension status
 akrctx remove --target codex --force   # remove harness for a target
 akrctx templates list                  # list bundled enterprise templates
+akrctx templates apply NAME            # apply bundled template after init
+akrctx templates apply ./pack --local  # apply local template after init
+akrctx templates status                # list applied templates and targets
 ```
 
 Common flags:
@@ -190,6 +193,19 @@ testing commands  -> .akrctx/wiki/testing.md
 akrctx preserves existing agent instructions. If `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md` already exists, init writes a `.akrctx.suggested.md` file instead of replacing it.
 
 Use `akrctx doctor` to audit the setup. The agent compares the protected file with its suggestion and shows an exact minimal diff. It may edit the protected file only after you explicitly approve that diff in the current conversation; changed proposals require fresh approval.
+
+## Applying templates after init
+
+`--template` remains available on `akrctx init` for bootstrap. For an initialized project, apply packs independently without rerunning the harness:
+
+```bash
+akrctx templates apply company-base
+akrctx templates apply security-rules
+akrctx templates apply ./company-template --local --target copilot
+akrctx templates status
+```
+
+Packs are applied sequentially, so a project may compose several. Blocking file conflicts produce versioned candidates under `.akrctx/template-candidates/` and do not partially apply config, policy, or missing files. Root instructions use the normal `.akrctx.suggested.md` + human-approved Doctor merge. Applied pack name, version, source, targets, and target-file hashes are stored in `.akrctx/config.json`.
 
 ## Security Model
 
