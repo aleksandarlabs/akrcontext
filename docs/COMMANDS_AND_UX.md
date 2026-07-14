@@ -109,7 +109,7 @@ Shows installed targets, task count, recent task IDs, default workflow, and cont
 
 ## `akrctx upgrade`
 
-Updates akrctx-owned harness files to the current CLI version.
+Safely migrates an installed harness after the akrctx npm package is updated.
 
 ```bash
 akrctx upgrade
@@ -117,7 +117,19 @@ akrctx upgrade --target codex
 akrctx upgrade --dry-run
 ```
 
-Rewrites skill files, prompts, and instructions. Protected files (AGENTS.md, CLAUDE.md, copilot-instructions.md) are never overwritten.
+The upgrade uses `.akrctx/manifest.json` hashes to update only verified, unchanged generated files. Wiki pages, task capsules, local records, and root instructions are never overwritten. Existing legacy or modified generated files receive candidates under `.akrctx/upgrades/<version>/`; resolve them and rerun the command before `installedVersion` advances. Obsolete generated files are reported but never deleted.
+
+`config.json` and `policy.json` are migrated field by field while retaining project values. Invalid JSON is preserved as a blocking conflict. `--force` is intentionally rejected for upgrades.
+
+Typical published-package flow:
+
+```bash
+npm install -g akr-context@latest
+cd my-project
+akrctx upgrade --dry-run
+akrctx upgrade
+akrctx doctor
+```
 
 Run `akrctx doctor` after upgrading to verify the result.
 

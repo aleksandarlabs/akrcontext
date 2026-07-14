@@ -122,6 +122,7 @@ Every target gets the neutral source of truth:
 ```txt
 .akrctx/
   config.json
+  manifest.json
   policy.json
   comprehension/
     README.md
@@ -131,6 +132,7 @@ Every target gets the neutral source of truth:
     schemas/review.schema.json
   local/
     .gitignore
+  upgrades/                  # preserved-file merge candidates
   wiki/
     overview.md
     index.md

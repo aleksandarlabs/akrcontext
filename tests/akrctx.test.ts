@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -23,6 +24,7 @@ import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
 import { workflows } from "../src/types.js";
+import { runUpgrade } from "../src/upgrade.js";
 import { CLI_VERSION } from "../src/version.js";
 import { lintWiki } from "../src/wiki-lint.js";
 
@@ -49,6 +51,7 @@ describe("akrctx init", () => {
     expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe("# Existing instructions\n");
     expect(await pathExists(path.join(tmp, "AGENTS.akrctx.suggested.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/manifest.json"))).toBe(true);
     const config = await readConfig(tmp);
     expect(config?.defaults.workflow).toBe("task-fit");
     expect(config?.workflowRules.apiOrContract).toBe("SDD+TDD");
@@ -1405,7 +1408,18 @@ describe("skill content contract", () => {
 // ── upgrade ───────────────────────────────────────────────────────────────────
 
 describe("upgrade", () => {
-  it("rewrites akrctx-owned skill files without touching protected AGENTS.md", async () => {
+  it("rejects --force because upgrades never overwrite conflicts", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const previousCwd = process.cwd();
+    try {
+      process.chdir(tmp);
+      await expect(main(["node", "akrctx", "upgrade", "--force"])).rejects.toThrow("never force-overwrites");
+    } finally {
+      process.chdir(previousCwd);
+    }
+  });
+
+  it("upgrades without touching protected AGENTS.md", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await writeFile(path.join(tmp, "AGENTS.md"), "# Custom instructions\n", "utf8");
 
@@ -1421,26 +1435,173 @@ describe("upgrade", () => {
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
   });
 
-  it("flags an overwritten skill file that had local edits, with its write reason", async () => {
+  it("preserves an edited skill and writes a versioned upgrade candidate", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const skillPath = path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md");
     await writeFile(skillPath, `${await readFile(skillPath, "utf8")}\n<!-- local edit -->\n`, "utf8");
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.installedVersion = "0.2.0";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
-    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
 
-    const overwritten = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
-    expect(overwritten?.kind).toBe("update");
-    expect(overwritten?.reason).toBe("overwritten (had local modifications)");
-    expect(await readFile(skillPath, "utf8")).not.toContain("local edit");
+    expect(result.completed).toBe(false);
+    expect(result.conflicts).toContain(".agents/skills/akrctx-doctor/SKILL.md");
+    expect(await readFile(skillPath, "utf8")).toContain("local edit");
+    expect(
+      await pathExists(path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/.agents/skills/akrctx-doctor/SKILL.md`)),
+    ).toBe(true);
+    expect((await readConfig(tmp))?.installedVersion).toBe("0.2.0");
+
+    const candidatePath = path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/.agents/skills/akrctx-doctor/SKILL.md`);
+    await writeFile(skillPath, await readFile(candidatePath));
+    const completed = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    expect(completed.completed).toBe(true);
+    expect((await readConfig(tmp))?.installedVersion).toBe(CLI_VERSION);
   });
 
-  it("preserves an unchanged skill file during upgrade (no spurious update)", async () => {
+  it("records an unchanged skill as current without a spurious update", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
-    const result = await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
 
     const unchanged = result.writes.find((w) => w.path === ".agents/skills/akrctx-doctor/SKILL.md");
     expect(unchanged?.kind).toBe("preserve");
+    expect(result.completed).toBe(true);
+  });
+
+  it("updates a generated file only when its previous manifest hash matches", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const relativeSkill = ".agents/skills/akrctx-doctor/SKILL.md";
+    const skillPath = path.join(tmp, relativeSkill);
+    await writeFile(skillPath, "# Older generated template\n", "utf8");
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.files[relativeSkill].hash =
+      `sha256:${createHash("sha256").update("# Older generated template\n").digest("hex")}`;
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.completed).toBe(true);
+    expect(result.writes.find((write) => write.path === relativeSkill)?.kind).toBe("update");
+    expect(await readFile(skillPath, "utf8")).toContain("# akrctx-doctor");
+  });
+
+  it("never overwrites advanced project wiki content", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const wikiPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    const advancedWiki = "# Architecture\n\nProduction knowledge accumulated over years.\n";
+    await writeFile(wikiPath, advancedWiki, "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await readFile(wikiPath, "utf8")).toBe(advancedWiki);
+    expect(result.writes.find((write) => write.path === ".akrctx/wiki/architecture.md")?.reason).toContain(
+      "never overwritten",
+    );
+  });
+
+  it("treats a differing legacy generated file without a manifest as a conflict", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/manifest.json"));
+    const skillPath = path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md");
+    await writeFile(skillPath, "# Unknown legacy content\n", "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.completed).toBe(false);
+    expect(await readFile(skillPath, "utf8")).toBe("# Unknown legacy content\n");
+  });
+
+  it("dry-run does not modify wiki, manifest, or installedVersion", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const wikiPath = path.join(tmp, ".akrctx/wiki/architecture.md");
+    await writeFile(wikiPath, "# Custom wiki\n", "utf8");
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    const manifestBefore = await readFile(manifestPath, "utf8");
+    const configBefore = await readFile(path.join(tmp, ".akrctx/config.json"), "utf8");
+
+    await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+    expect(await readFile(wikiPath, "utf8")).toBe("# Custom wiki\n");
+    expect(await readFile(manifestPath, "utf8")).toBe(manifestBefore);
+    expect(await readFile(path.join(tmp, ".akrctx/config.json"), "utf8")).toBe(configBefore);
+  });
+
+  it("does not advance the installation version after a partial target upgrade", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.installedVersion = "0.2.0";
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const upgradedConfig = await readConfig(tmp);
+
+    expect(result.completed).toBe(true);
+    expect(result.installationComplete).toBe(false);
+    expect(upgradedConfig?.installedVersion).toBe("0.2.0");
+    expect(upgradedConfig?.targets).toEqual(["codex", "claude", "copilot", "pi"]);
+  });
+
+  it("preserves invalid policy JSON and makes the upgrade incomplete", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    await writeFile(policyPath, "{ invalid policy\n", "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.completed).toBe(false);
+    expect(result.conflicts).toContain(".akrctx/policy.json");
+    expect(await readFile(policyPath, "utf8")).toBe("{ invalid policy\n");
+    expect(await pathExists(path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/.akrctx/policy.json`))).toBe(true);
+  });
+
+  it("adds missing policy fields without replacing project values", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.blockedReadPatterns = ["company-secret/"];
+    policy.writePolicy = undefined;
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const migrated = JSON.parse(await readFile(policyPath, "utf8"));
+
+    expect(result.completed).toBe(true);
+    expect(migrated.blockedReadPatterns).toContain("company-secret/");
+    expect(migrated.writePolicy.doctor).toBeDefined();
+  });
+
+  it("preserves an invalid provenance manifest", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    await writeFile(manifestPath, "{ invalid manifest\n", "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.completed).toBe(false);
+    expect(result.conflicts).toContain(".akrctx/manifest.json");
+    expect(await readFile(manifestPath, "utf8")).toBe("{ invalid manifest\n");
+  });
+
+  it("reports obsolete managed files without deleting them", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const obsoletePath = ".agents/skills/akrctx-retired/SKILL.md";
+    const obsoleteAbsolute = path.join(tmp, obsoletePath);
+    await mkdir(path.dirname(obsoleteAbsolute), { recursive: true });
+    await writeFile(obsoleteAbsolute, "# Retired\n", "utf8");
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest.files[obsoletePath] = { hash: `sha256:${createHash("sha256").update("# Retired\n").digest("hex")}` };
+    await writeFile(manifestPath, JSON.stringify(manifest, null, 2), "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.obsolete).toContain(obsoletePath);
+    expect(await readFile(obsoleteAbsolute, "utf8")).toBe("# Retired\n");
   });
 
   it("preserves enabled optional agents and user configuration during upgrade", async () => {
@@ -1448,7 +1609,7 @@ describe("upgrade", () => {
     await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
     await runJudgeEnable({ cwd: tmp, nonInteractive: true });
 
-    await runInit({ cwd: tmp, target: "codex", force: true, upgrade: true, nonInteractive: true });
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
 
     const config = await readConfig(tmp);
     expect(config?.comprehensionGate.enabled).toBe(true);

@@ -141,6 +141,17 @@ Example config fields:
 
 ---
 
+## Upgrade provenance
+
+`.akrctx/manifest.json` stores SHA-256 hashes only for generated files that akrctx actually wrote. `akrctx upgrade` compares each current file with its recorded hash:
+
+- matching hash: safe automatic update;
+- current template already present: preserve and register it;
+- missing or mismatched provenance: preserve and write `.akrctx/upgrades/<version>/<path>`;
+- obsolete generated path: report and preserve.
+
+Wiki pages, tasks, local records, and root agent instructions are project-owned and excluded from automatic replacement. `installedVersion` advances only after every installed target has been upgraded without blocking conflicts.
+
 ## Judge
 
 The judge is an optional subagent that independently reviews implementation against the task capsule. It is disabled by default.

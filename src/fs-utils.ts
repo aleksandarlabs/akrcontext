@@ -45,7 +45,7 @@ export async function writePlannedFile(
   cwd: string,
   relativePath: string,
   content: string,
-  options: { dryRun?: boolean; force?: boolean; protected?: boolean; reason?: string; upgrade?: boolean } = {},
+  options: { dryRun?: boolean; force?: boolean; protected?: boolean; reason?: string } = {},
 ): Promise<WriteResult> {
   const targetPath = path.join(cwd, relativePath);
   const exists = await pathExists(targetPath);
@@ -70,22 +70,6 @@ export async function writePlannedFile(
   }
 
   const nextContent = ensureTrailingNewline(content);
-
-  // Upgrade mode: we cannot tell "user-modified" from "installed with an
-  // older template version" without a stored hash of the prior version, but
-  // we can at least distinguish "unchanged" (safe to skip) from "differs"
-  // (flag it so the user reviews with `git diff` before trusting the rewrite).
-  if (exists && options.force && options.upgrade) {
-    const current = await readFile(targetPath, "utf8").catch(() => undefined);
-    if (current === nextContent) {
-      return { kind: "preserve", path: relativePath, reason: "Unchanged since last upgrade." };
-    }
-    if (!options.dryRun) {
-      await mkdir(path.dirname(targetPath), { recursive: true });
-      await writeFile(targetPath, nextContent, "utf8");
-    }
-    return { kind: "update", path: relativePath, reason: "overwritten (had local modifications)" };
-  }
 
   if (!options.dryRun) {
     await mkdir(path.dirname(targetPath), { recursive: true });
