@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "akrctx-comprehension-result-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "status",
+    "evaluationMode",
+    "assistance",
+    "completedAt"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]+$"
+    },
+    "status": {
+      "enum": [
+        "VERIFIED",
+        "ASSISTED",
+        "UNVERIFIED",
+        "INVALID_GATE",
+        "SKIPPED",
+        "DEFERRED"
+      ]
+    },
+    "evaluationMode": {
+      "enum": [
+        "independent",
+        "fresh-context"
+      ]
+    },
+    "assistance": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "gaps": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "completedAt": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

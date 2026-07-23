@@ -292,7 +292,28 @@ async function preserveProjectKnowledge(
   };
   const writes: WriteResult[] = [];
   for (const [relativePath, content] of Object.entries(files)) {
-    if (await pathExists(path.join(cwd, relativePath))) {
+    const absolute = path.join(cwd, relativePath);
+    if (relativePath === ".akrctx/wiki/index.md" && (await pathExists(absolute))) {
+      const current = await readFile(absolute, "utf8");
+      const auditLink = "[Instruction Audit](/wiki/instruction-audit.md)";
+      if (!current.includes(auditLink)) {
+        writes.push(
+          await writePlannedFile(
+            cwd,
+            relativePath,
+            `${ensureTrailingNewline(current)}- ${auditLink} — Persistent semantic review of instruction placement.\n`,
+            {
+              dryRun: options.dryRun,
+              force: true,
+              reason:
+                "Added the new instruction-audit page to the existing wiki index without replacing project knowledge.",
+            },
+          ),
+        );
+      } else {
+        writes.push({ kind: "preserve", path: relativePath, reason: "Project-owned knowledge is never overwritten." });
+      }
+    } else if (await pathExists(absolute)) {
       writes.push({ kind: "preserve", path: relativePath, reason: "Project-owned knowledge is never overwritten." });
     } else {
       writes.push(

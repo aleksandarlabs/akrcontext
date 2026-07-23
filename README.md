@@ -147,6 +147,7 @@ Every target gets the neutral source of truth:
     agent-setup.md
     gaps.md
     recommendations.md
+    instruction-audit.md
     write-policy.md
     log.md
   tasks/_template/
@@ -175,9 +176,10 @@ akrctx keeps root instruction files small. Detailed workflows live in target ski
 Durable notes go in explicit homes:
 
 ```txt
-doctor findings   -> .akrctx/wiki/agent-setup.md
-                    .akrctx/wiki/gaps.md
-                    .akrctx/wiki/recommendations.md
+CLI Doctor reports -> .akrctx/wiki/agent-setup.md
+                     .akrctx/wiki/gaps.md
+                     .akrctx/wiki/recommendations.md
+agent instruction audit -> .akrctx/wiki/instruction-audit.md
 wiki catalog      -> .akrctx/wiki/index.md
 task capsules     -> .akrctx/tasks/TASK-XXX/
 personal comprehension records -> .akrctx/local/comprehension/ (Git-ignored)
@@ -192,7 +194,9 @@ testing commands  -> .akrctx/wiki/testing.md
 
 akrctx preserves existing agent instructions. If `AGENTS.md`, `CLAUDE.md`, or `.github/copilot-instructions.md` already exists, init writes a `.akrctx.suggested.md` file instead of replacing it.
 
-Use `akrctx doctor` to audit the setup. The agent compares the protected file with its suggestion and shows an exact minimal diff. It may edit the protected file only after you explicitly approve that diff in the current conversation; changed proposals require fresh approval.
+`akrctx doctor` performs deterministic setup checks: required files, configuration, policy, merge conflicts, and wiki integrity. The installed `akrctx-doctor` skill is the semantic layer: an agent uses it to judge whether instructions are useful, duplicated, stale, or loaded at the wrong scope, and records that durable review in `.akrctx/wiki/instruction-audit.md`.
+
+For a protected-file suggestion, the Doctor agent compares the protected file with its candidate and shows an exact minimal diff. It may edit the protected file only after you explicitly approve that diff in the current conversation; changed proposals require fresh approval.
 
 ## Applying templates after init
 

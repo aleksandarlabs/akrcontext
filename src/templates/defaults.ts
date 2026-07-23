@@ -87,6 +87,7 @@ export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
         ".akrctx/wiki/agent-setup.md",
         ".akrctx/wiki/gaps.md",
         ".akrctx/wiki/recommendations.md",
+        ".akrctx/wiki/instruction-audit.md",
         "AGENTS.akrctx.suggested.md",
         "CLAUDE.akrctx.suggested.md",
         ".github/copilot-instructions.akrctx.suggested.md",

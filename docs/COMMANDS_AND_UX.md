@@ -39,7 +39,7 @@ CLAUDE.md → CLAUDE.akrctx.suggested.md
 
 ## `akrctx doctor`
 
-Audits the akrctx setup and writes a readiness report.
+Mechanically audits the akrctx setup and writes generated readiness reports.
 
 ```bash
 akrctx doctor
@@ -62,6 +62,11 @@ Reports:
 - wiki lint: broken links, orphan pages, and missing or invalid frontmatter timestamps
 - readiness score (0–100)
 - suggested agent prompt to continue the audit intelligently
+
+The command and the installed skill have separate responsibilities:
+
+- **Doctor CLI (`akrctx doctor`)** performs deterministic checks over files, configuration, policy, hashes, conflicts, and wiki structure. It regenerates `agent-setup.md`, `gaps.md`, and `recommendations.md`.
+- **Doctor skill (`akrctx-doctor`)** asks an agent to interpret instruction meaning and placement. It records durable keep/move/delete/verify findings in `instruction-audit.md`, which the CLI does not overwrite.
 
 `--ci` exits with `0` when the harness is healthy and `1` when there are actionable gaps. Use it in protected branches or CI pipelines.
 

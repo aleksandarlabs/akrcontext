@@ -171,7 +171,8 @@ akrctx keeps root instructions small and writes durable context only when it has
 ## Where To Write
 
 - Wiki index: .akrctx/wiki/index.md
-- Doctor findings: .akrctx/wiki/agent-setup.md, gaps.md, recommendations.md
+- Mechanical Doctor reports: .akrctx/wiki/agent-setup.md, gaps.md, recommendations.md
+- Persistent agent instruction audit: .akrctx/wiki/instruction-audit.md
 - Doctor merge candidates: AGENTS.akrctx.suggested.md, CLAUDE.akrctx.suggested.md, .github/copilot-instructions.akrctx.suggested.md
 - Task capsules: .akrctx/tasks/TASK-XXX/
 - Compiled briefs: .akrctx/tasks/TASK-XXX/exports/<target>.md
@@ -215,6 +216,13 @@ Use bundle-relative links (\`/wiki/decisions.md\`) when linking between wiki pag
 - No actionable recommendations.
 `,
 
+  "wiki/instruction-audit.md": `${wikiFrontmatter("akrctx-wiki-instruction-audit", "Instruction Audit", "Persistent semantic audit of agent instruction placement.", ["instructions", "doctor", "audit"])}# Instruction Audit
+
+The Doctor agent records semantic instruction findings here. Unlike the CLI-generated readiness reports, \`akrctx doctor\` does not overwrite this page.
+
+For each instruction or coherent block, record its current tier, verdict (keep, move, delete, or verify), evidence, and proposed destination when applicable.
+`,
+
   "wiki/index.md": `${wikiFrontmatter("akrctx-wiki-index", "Wiki Index", "Directory of akrctx wiki pages.", ["index", "akrctx"])}# Wiki Index
 
 - [Overview](/wiki/overview.md) — Project overview and quick reference.
@@ -226,6 +234,7 @@ Use bundle-relative links (\`/wiki/decisions.md\`) when linking between wiki pag
 - [Agent Setup](/wiki/agent-setup.md) — Doctor readiness report.
 - [Gaps](/wiki/gaps.md) — Identified harness gaps.
 - [Recommendations](/wiki/recommendations.md) — Suggested next steps.
+- [Instruction Audit](/wiki/instruction-audit.md) — Persistent semantic review of instruction placement.
 - [Write Policy](/wiki/write-policy.md) — Where to persist durable context.
 - [Log](/wiki/log.md) — Chronological history.
 `,
