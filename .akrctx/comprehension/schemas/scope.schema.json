@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "akrctx-comprehension-scope-v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "taskId",
+    "base",
+    "candidate",
+    "files",
+    "significance",
+    "signals",
+    "decision"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "const": 1
+    },
+    "taskId": {
+      "type": "string",
+      "pattern": "^TASK-[0-9]+$"
+    },
+    "base": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "files": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "tests": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "significance": {
+      "enum": [
+        "surface",
+        "logic",
+        "architectural",
+        "critical"
+      ]
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    },
+    "decision": {
+      "enum": [
+        "skip",
+        "checkpoint"
+      ]
+    }
+  }
+}

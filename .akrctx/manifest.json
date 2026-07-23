@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "cliVersion": "0.3.0",
+  "files": {
+    ".akrctx/targets/claude.md": {
+      "hash": "sha256:fc929359da9e3b0bfcea9eb2f1e070bc594c123ed4c1c3a64e594adeb9455201"
+    },
+    ".akrctx/comprehension/README.md": {
+      "hash": "sha256:0ecab31dc6d5b8912b6c13523674eba31d5f4fe78173fa04a81bbfd0d4288e8b"
+    },
+    ".akrctx/comprehension/schemas/scope.schema.json": {
+      "hash": "sha256:45ffd6be4d1b8f965131bb6196a279f7cfdb67a4525b3b110252ded93aad5695"
+    },
+    ".akrctx/comprehension/schemas/rubric.schema.json": {
+      "hash": "sha256:89061c89e964b8a30088554d53eb1a9c25ded88c4dd73014490cf833eb92442a"
+    },
+    ".akrctx/comprehension/schemas/result.schema.json": {
+      "hash": "sha256:0065770ba2cfe89904f668cbef440f012f9ed185a65619e1db063113738a186f"
+    },
+    ".akrctx/judge/README.md": {
+      "hash": "sha256:1760ca2330b44667618066aeee06088a14eb0090e2ddb3b7f5be942256f7b106"
+    },
+    ".akrctx/judge/schemas/review.schema.json": {
+      "hash": "sha256:3ebc361ffd66c4d03168fd6a38a6dd18ef40fb7d68389907531ced207e7a9fb9"
+    },
+    ".claude/commands/akrctx-doctor.md": {
+      "hash": "sha256:b8c7e206ec6ddb0eed5b6db0818ea1f08c937a9ff0c9bcfb7c0d3bb3ec1dcab1"
+    },
+    ".claude/commands/akrctx-task.md": {
+      "hash": "sha256:95dc0ec9f505f01068f11dffc027fe1f482c80d3328f48f750e9a75a58e83e2e"
+    },
+    ".claude/skills/akrctx-init/SKILL.md": {
+      "hash": "sha256:64202c11c3e0b4e6f7e27c369769711ebd44f1cb781cb28ea966bfa404353a40"
+    },
+    ".claude/skills/akrctx-doctor/SKILL.md": {
+      "hash": "sha256:5718fafae31ea81cadb9c57b3e41ee9bfe0e2352d6d16114c711bb2262413058"
+    },
+    ".claude/skills/akrctx-task/SKILL.md": {
+      "hash": "sha256:8bdf68c626e07fba0a6716054065448ed756b91d124e2a57fc236feda74ed5cd"
+    },
+    ".claude/skills/akrctx-review/SKILL.md": {
+      "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
+    },
+    ".claude/skills/akrctx-workflow/SKILL.md": {
+      "hash": "sha256:4cac5d786813d6dd6861fd61cf9ea4f81c86930b9f4ef8af19666e47027d568a"
+    },
+    ".claude/skills/akrctx-write-policy/SKILL.md": {
+      "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
+    },
+    ".claude/agents/akrctx-judge.md": {
+      "hash": "sha256:32fe986990a139dfeb5597c3f79fd8e99d1a90c3792aea22a53f9792903b77f8"
+    }
+  }
+}

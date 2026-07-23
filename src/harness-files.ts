@@ -20,6 +20,7 @@ export const neutralRequired = [
   ".akrctx/wiki/agent-setup.md",
   ".akrctx/wiki/gaps.md",
   ".akrctx/wiki/recommendations.md",
+  ".akrctx/wiki/instruction-audit.md",
   ".akrctx/wiki/write-policy.md",
   ".akrctx/wiki/log.md",
   ".akrctx/wiki/index.md",

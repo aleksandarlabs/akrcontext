@@ -195,7 +195,7 @@ export async function main(argv = process.argv): Promise<void> {
   addCommon(
     program
       .command("doctor")
-      .description("Audit the akrctx setup and write a readiness report to .akrctx/wiki/.")
+      .description("Mechanically audit akrctx readiness and write generated reports to .akrctx/wiki/.")
       .option("--ci", "fail with exit code 1 when the harness is incomplete or has actionable issues", false)
       .option("--fix", "automatically recreate missing files and repair config/policy gaps", false)
       .addHelpText(
@@ -203,6 +203,7 @@ export async function main(argv = process.argv): Promise<void> {
         [
           "",
           "Doctor checks:",
+          "  - The CLI performs deterministic setup checks; the installed Doctor skill performs semantic instruction review.",
           "  - Whether akrctx is installed.",
           "  - Which target adapters are present.",
           "  - Which required files are missing.",
@@ -1067,15 +1068,15 @@ function targetLabel(target: Target): string {
 
 function doctorPromptFor(target: Target): string {
   const shared =
-    "Run akrctx doctor. Inspect this repo's agent instructions and .akrctx wiki. Audit setup only; do not implement product features during doctor. Update .akrctx/wiki. For pending instruction merges, show the exact minimal diff and ask for explicit approval before editing the protected file.";
+    "Run `akrctx doctor` for deterministic checks, then use the `akrctx-doctor` skill to semantically audit this repo's agent instructions. Record instruction findings in .akrctx/wiki/instruction-audit.md. Audit setup only; do not implement product features. For pending instruction merges, show the exact minimal diff and ask for explicit approval before editing the protected file.";
   if (target === "pi") {
-    return "Run the akrctx doctor workflow. Inspect this repo's Pi Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
+    return "Run `akrctx doctor` for deterministic checks, then use the `akrctx-doctor` skill to semantically audit this repo's Pi Code harness. Record instruction findings in .akrctx/wiki/instruction-audit.md. Audit setup only; do not implement product features. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   if (target === "claude") {
-    return "Run the akrctx doctor skill. Inspect this repo's Claude Code harness and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
+    return "Run `akrctx doctor` for deterministic checks, then use the `akrctx-doctor` skill to semantically audit this repo's Claude Code harness. Record instruction findings in .akrctx/wiki/instruction-audit.md. Audit setup only; do not implement product features. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   if (target === "copilot") {
-    return "Use the akrctx doctor prompt. Inspect this repo's Copilot instructions and .akrctx wiki. Audit setup only; do not implement product features. Update .akrctx/wiki. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
+    return "Run `akrctx doctor` for deterministic checks, then use the akrctx Doctor prompt and skill to semantically audit this repo's Copilot instructions. Record instruction findings in .akrctx/wiki/instruction-audit.md. Audit setup only; do not implement product features. Show the exact minimal diff and ask for explicit approval before editing a protected instruction.";
   }
   return shared;
 }

@@ -51,6 +51,8 @@ The installed harness must teach the agent these workflows:
 
 ### akrctx Doctor
 
+Doctor has two cooperating layers. The CLI is deterministic: it checks harness files, configuration, policy, conflicts, and wiki integrity. The installed skill is semantic: the selected agent evaluates instruction meaning, evidence, duplication, and load tier. Semantic findings persist in `.akrctx/wiki/instruction-audit.md`; the CLI-generated readiness pages may be safely regenerated.
+
 Purpose:
 
 - inspect current agent instructions
@@ -60,6 +62,8 @@ Purpose:
 - identify missing docs/rules
 - detect contradictions
 - recommend improvements
+- classify coherent instruction blocks as keep, move, delete, or verify
+- record semantic instruction findings in `.akrctx/wiki/instruction-audit.md`
 - keep protected instructions read-only by default
 - show an exact minimal diff before requesting approval
 - edit a protected instruction only after explicit human approval of that diff in the current conversation

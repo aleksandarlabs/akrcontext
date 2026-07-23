@@ -152,7 +152,13 @@ With at least:
     "requireReviewChecklist": true
   },
   "writePolicy": {
-    "doctor": [".akrctx/wiki/agent-setup.md", "AGENTS.akrctx.suggested.md"],
+    "doctor": [
+      ".akrctx/wiki/agent-setup.md",
+      ".akrctx/wiki/gaps.md",
+      ".akrctx/wiki/recommendations.md",
+      ".akrctx/wiki/instruction-audit.md",
+      "AGENTS.akrctx.suggested.md"
+    ],
     "task": [".akrctx/tasks/TASK-XXX/"],
     "compile": [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
     "decisions": [".akrctx/wiki/decisions.md"]

@@ -91,7 +91,46 @@ ${body}
 
 const initBody =
   "Detect existing Codex, Claude, Copilot, and Pi Code setup. Preserve all user-authored instruction files. Add missing akrctx structure and create suggested files for conflicts.";
-const doctorBody = `Audit agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Treat the wiki as a living artifact: add architecture patterns, conventions, testing commands, and decisions as you discover them. Do not implement product features during doctor.
+const doctorBody = `You are the semantic Doctor workflow. The \`akrctx doctor\` CLI performs deterministic setup checks; your role is to interpret agent instructions, project docs, task templates, harness policy, and quality gates. Update .akrctx/wiki/ and propose instruction merges. Treat the wiki as a living artifact: add architecture patterns, conventions, testing commands, and decisions as you discover them. Do not implement product features during doctor.
+
+## Instruction placement rubric
+
+Classify each instruction or coherent block by load tier and discoverability. Use the narrowest tier that still loads the instruction before it is needed.
+
+### Tiers
+
+- **Always loaded** — \`CLAUDE.md\`, \`AGENTS.md\`, \`.github/copilot-instructions.md\`, and skill \`description\` fields. Keep only rules that are not quickly discoverable or must be known before search or action.
+- **Loaded on match** — skill bodies, subagent definitions, and scoped \`.github/instructions/*.instructions.md\`. Put specific workflows and path rules here.
+- **Loaded on invocation** — \`.github/prompts/*.prompt.md\` and \`.claude/commands/*.md\`. Check these for staleness and duplication, not length.
+
+Treat nested \`CLAUDE.md\` and \`AGENTS.md\` as always loaded within their subtree.
+
+### Verdicts
+
+Assign exactly one verdict:
+
+- **keep** — useful, not quickly discoverable, and already at the right tier.
+- **move** — useful but at the wrong tier. Prefer this verdict for misplaced content.
+- **delete** — already stated by code, configuration, or standard tooling.
+- **verify** — stale, unsupported, or maintainer-owned. Record the uncertainty; do not guess.
+
+Move down by default. Move up only when evidence shows the instruction must govern every applicable task or be known before discovery, especially safety, approval, and global workflow rules.
+
+### Always-loaded content
+
+Keep global safety and approval rules, exact commands with required flags and working directory, limits, environment-variable effects, intentional constraints, non-obvious structure, behavior outside the repository, and the shortest commands that validate common changes.
+
+Move or delete project summaries, tech-stack lists, obvious folder maps, endpoint schemas, generic advice, formatter or linter rules, and copied README content.
+
+### Routing metadata
+
+- Flag a missing or empty \`applyTo\` as unreliable routing.
+- Treat \`applyTo: "**"\` as repository-wide. Move its content to the root instruction surface or narrow the glob.
+- Test every glob against the current tree.
+- Require every skill or agent \`description\` to state what it does and when to use it.
+- Remove the same rule from multiple tiers.
+
+Apply this rubric before proposing a merge. Record verdicts, evidence, and destinations in \`.akrctx/wiki/instruction-audit.md\`; the CLI Doctor does not overwrite it. Route protected-file changes through the merge protocol below.
 
 ## Protected instruction merge
 
@@ -221,12 +260,12 @@ export const claudeCommands: Record<string, string> = {
 
 export const copilotFiles: Record<string, string> = {
   ".github/instructions/akrctx.instructions.md": `---
-applyTo: "**"
+applyTo: ".akrctx/**"
 ---
 
 # akrctx Instructions
 
-Use \`.akrctx/\` as the neutral source of truth. Preserve existing instruction files and avoid secrets. Do not read all of \`.akrctx/\` by default; open only the current task capsule, policy, and relevant wiki pages.
+When editing the akrctx harness, preserve existing instruction files and avoid secrets. Treat \`.akrctx/\` as the neutral source of truth, but open only the current task capsule, policy, and relevant wiki pages.
 `,
   ".github/prompts/akrctx-doctor.prompt.md":
     "# akrctx Doctor\n\nUse the `akrctx-doctor` skill. Audit agent setup, wiki coverage, task templates, and quality gates. Protected instructions are deny-by-default: show the exact minimal diff and obtain explicit human approval in the current conversation before editing one. Do not implement product features during doctor.\n",

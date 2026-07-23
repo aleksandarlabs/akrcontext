@@ -121,10 +121,15 @@ describe("akrctx init", () => {
     expect(index).toMatch(/^---\n/);
     expect(index).toContain("type: akrctx-wiki-index");
     expect(index).toContain("[Overview](/wiki/overview.md)");
+    expect(index).toContain("[Instruction Audit](/wiki/instruction-audit.md)");
 
     const log = await readFile(path.join(tmp, ".akrctx/wiki/log.md"), "utf8");
     expect(log).toContain("type: akrctx-wiki-log");
     expect(log).toMatch(/^---\n[\s\S]*# Log\n\n## \d{4}-\d{2}-\d{2}\n- akrctx initialized\.\n$/);
+
+    const instructionAudit = await readFile(path.join(tmp, ".akrctx/wiki/instruction-audit.md"), "utf8");
+    expect(instructionAudit).toContain("type: akrctx-wiki-instruction-audit");
+    expect(instructionAudit).toContain("does not overwrite this page");
   });
 
   it("creates an active Codex harness when AGENTS.md does not exist", async () => {
@@ -170,6 +175,7 @@ describe("akrctx init", () => {
       requireDiffPreview: true,
     });
     expect(policy.writePolicy.doctor).toContain("AGENTS.akrctx.suggested.md");
+    expect(policy.writePolicy.doctor).toContain(".akrctx/wiki/instruction-audit.md");
     expect(policy.writePolicy.doctor).not.toContain("AGENTS.md");
     expect(policy.enforcement.requireTaskCapsule).toBe(true);
     expect(policy.enforcement.requireWorkflowReason).toBe(true);
@@ -200,6 +206,24 @@ describe("akrctx init", () => {
     expect(skill).toContain("Show the exact proposed diff");
     expect(skill).toContain("apply only the shown changes");
     expect(skill).toContain("Never use `--force`");
+
+    const semanticDoctorSkills = [
+      ".agents/skills/akrctx-doctor/SKILL.md",
+      ".claude/skills/akrctx-doctor/SKILL.md",
+      ".github/skills/akrctx-doctor/SKILL.md",
+      ".pi/skills/akrctx-doctor/SKILL.md",
+    ];
+    for (const relativePath of semanticDoctorSkills) {
+      const content = await readFile(path.join(tmp, relativePath), "utf8");
+      expect(content, relativePath).toContain("instruction or coherent block");
+      expect(content, relativePath).toContain("missing or empty `applyTo`");
+      expect(content, relativePath).toContain("Move up only when evidence shows");
+      expect(content, relativePath).toContain(".akrctx/wiki/instruction-audit.md");
+    }
+
+    const copilotInstructions = await readFile(path.join(tmp, ".github/instructions/akrctx.instructions.md"), "utf8");
+    expect(copilotInstructions).toContain('applyTo: ".akrctx/**"');
+    expect(copilotInstructions).not.toContain('applyTo: "**"');
   });
 
   it("strict profile records stricter config and policy defaults", async () => {
@@ -702,6 +726,17 @@ describe("doctor", () => {
     expect(recommendations).toMatch(/^---\n/);
     expect(recommendations).toContain("type: akrctx-wiki-recommendations");
     expect(recommendations).toContain("# Recommendations");
+  });
+
+  it("preserves the semantic instruction audit when CLI Doctor regenerates mechanical reports", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const auditPath = path.join(tmp, ".akrctx/wiki/instruction-audit.md");
+    const semanticAudit = "# Instruction Audit\n\n- move: scope the TypeScript rule to src/**/*.ts\n";
+    await writeFile(auditPath, semanticAudit, "utf8");
+
+    await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(await readFile(auditPath, "utf8")).toBe(semanticAudit);
   });
 
   it("partitions gaps into missing files, config gaps, and policy gaps", async () => {
@@ -1802,6 +1837,23 @@ describe("upgrade", () => {
     expect(result.writes.find((write) => write.path === ".akrctx/wiki/architecture.md")?.reason).toContain(
       "never overwritten",
     );
+  });
+
+  it("introduces the persistent instruction audit without orphaning it from a custom wiki index", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const auditPath = path.join(tmp, ".akrctx/wiki/instruction-audit.md");
+    const indexPath = path.join(tmp, ".akrctx/wiki/index.md");
+    const customIndex = "# Wiki Index\n\n- [Architecture](/wiki/architecture.md) — Custom entry.\n";
+    await rm(auditPath);
+    await writeFile(indexPath, customIndex, "utf8");
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const upgradedIndex = await readFile(indexPath, "utf8");
+    expect(await pathExists(auditPath)).toBe(true);
+    expect(upgradedIndex).toContain(customIndex);
+    expect(upgradedIndex).toContain("[Instruction Audit](/wiki/instruction-audit.md)");
+    expect((await lintWiki(tmp)).orphans).not.toContain("instruction-audit.md");
   });
 
   it("treats a differing legacy generated file without a manifest as a conflict", async () => {
