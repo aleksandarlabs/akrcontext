@@ -1,6 +1,6 @@
 {
   "name": "akr-context",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Local CLI that installs akrctx agentic workflow harnesses into repositories.",
   "type": "module",
   "bin": {

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-01
+
 ### Added
 
 - `akrctx judge verify --run-tests` independently re-executes capsule-declared validation commands claimed as passing and rejects approvals when validation changes the reviewed boundary.
