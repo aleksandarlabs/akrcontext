@@ -202,6 +202,15 @@ ${selection.workflow}
 - Why this workflow: fill this in before implementation if the reason is not obvious.
 - Keep context loading proportional. Do not read all of .akrctx/ unless the task requires it.
 
+## Validation
+
+Commands that prove this task works. The judge must run at least one of these to
+approve, and \`akrctx judge verify --run-tests\` re-runs the ones the review claims
+passed. Nothing outside this list is ever executed.
+
+\`\`\`
+\`\`\`
+
 ## Out Of Scope
 
 - Work outside this task capsule's agreed scope.

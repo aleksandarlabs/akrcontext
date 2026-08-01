@@ -215,6 +215,8 @@ Packs are applied sequentially, so a project may compose several. Blocking file 
 
 `policy.json` (`blockedReadPatterns`, `protectedFiles`, `protectedFileMerge`, `enforcement.*`) and the write-policy skill are **prompt-level / convention-level controls, not technical enforcement**. They give a cooperative coding agent clear instructions about what not to read or overwrite — including the exact human-approval exception for protected instruction merges — but they do not sandbox the agent or resist a malicious or compromised agent, prompt injection, or a template pack designed to weaken them.
 
+**One narrow exception.** `akrctx judge scope` enforces `blockedReadPatterns` mechanically rather than by instruction: matching paths are removed from the diff at the Git level, so their contents are never read, hashed, or shown to the judge, and an unusable `policy.json` stops the command instead of degrading to a default pattern set. Only their paths appear, in `scope.excludedPaths`. This applies to the judge boundary alone — everywhere else in akrctx the patterns remain advisory, and the paragraph above still governs. See `docs/JUDGE.md`.
+
 Treat akrctx's policy as documentation the agent is expected to follow, not a security boundary. To actually restrict what an agent can read or write, complement it with:
 
 - Your coding agent's own permission system (e.g. Claude Code deny rules, sandboxed tool execution).

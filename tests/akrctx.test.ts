@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -18,7 +18,7 @@ import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
 import { runInit } from "../src/init.js";
-import { createJudgeScope, verifyJudgeRecord } from "../src/judge-enforcement.js";
+import { JUDGE_SCHEMA_VERSION, createJudgeScope, verifyJudgeRecord } from "../src/judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
@@ -181,6 +181,44 @@ describe("akrctx init", () => {
     expect(policy.enforcement.requireWorkflowReason).toBe(true);
     expect(policy.enforcement.requireAcceptanceCriteria).toBe(true);
     expect(policy.enforcement.requireReviewChecklist).toBe(true);
+  });
+
+  it("never leaves a weak judge verify in an instruction aimed at the primary agent", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+
+    // The primary agent is the only caller that can execute, so every surface that tells it to
+    // verify must say --run-tests. Read-only agents are excluded: passing the flag would break
+    // their contract, and they are checked separately below.
+    const readOnlyAgents = ["akrctx-judge", "akrctx-comprehension"];
+    const surfaces = (await readdir(tmp, { recursive: true, withFileTypes: true }))
+      .filter((entry) => entry.isFile() && /\.(md|toml)$/.test(entry.name))
+      .map((entry) => path.relative(tmp, path.join(entry.parentPath, entry.name)))
+      .filter((relativePath) => !readOnlyAgents.some((agent) => relativePath.includes(agent)));
+    expect(surfaces.length).toBeGreaterThan(0);
+
+    const weak: string[] = [];
+    for (const relativePath of surfaces) {
+      const content = await readFile(path.join(tmp, relativePath), "utf8");
+      for (const line of content.split("\n")) {
+        if (!line.includes("judge verify")) continue;
+        if (line.includes("--run-tests")) continue;
+        // `judge verify` named as a bare command reference rather than an instruction to run it.
+        if (/`akrctx judge verify`/.test(line)) continue;
+        weak.push(`${relativePath}: ${line.trim()}`);
+      }
+    }
+
+    expect(weak).toEqual([]);
+  });
+
+  it("tells the read-only agents not to re-execute validation", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+
+    const agent = await readFile(path.join(tmp, ".claude/agents/akrctx-comprehension.md"), "utf8");
+
+    expect(agent).toContain("Do not pass `--run-tests`");
   });
 
   it("teaches every Doctor target the narrow human-approved merge workflow", async () => {
@@ -2072,9 +2110,24 @@ describe("comprehension gate", () => {
 });
 
 describe("judge", () => {
-  async function createReviewFixture() {
+  async function createReviewFixture(
+    options: { declares?: string[]; claims?: string[]; legacyCapsule?: boolean } = {},
+  ) {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Enforce judge approvals", { cwd: tmp, nonInteractive: true });
+    // Fill the empty fenced block the generated capsule already ships under `## Validation`;
+    // appending a second section would be shadowed by the first one the parser finds. Defaults to
+    // a declared `pnpm test` so the fixture is a realistic completed capsule, not an unfinished one.
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    if (options.legacyCapsule) {
+      await writeFile(taskFile, original.replace(/\n## Validation\n[\s\S]*?(?=\n## )/, "\n"), "utf8");
+    } else {
+      const declares = options.declares ?? ["pnpm test"];
+      const filled = original.replace("```\n```", `\`\`\`\n${declares.join("\n")}\n\`\`\``);
+      expect(filled).not.toBe(original);
+      await writeFile(taskFile, filled, "utf8");
+    }
     await writeFile(path.join(tmp, "app.ts"), "export const value = 1;\n", "utf8");
     await execFileAsync("git", ["init"], { cwd: tmp });
     await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
@@ -2084,11 +2137,11 @@ describe("judge", () => {
     await writeFile(path.join(tmp, "app.ts"), "export const value = 2;\n", "utf8");
     const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
     const record = {
-      schemaVersion: 1,
+      schemaVersion: JUDGE_SCHEMA_VERSION,
       taskId: task.taskId,
       scope,
       verdict: "APPROVED",
-      tests: [{ command: "pnpm test", status: "passed" }],
+      tests: (options.claims ?? ["pnpm test"]).map((command) => ({ command, status: "passed" })),
       issues: [],
       reviewedAt: new Date().toISOString(),
     };
@@ -2109,6 +2162,8 @@ describe("judge", () => {
       verdict: "APPROVED",
       scopeDigest: scope.scopeDigest,
       reasons: [],
+      declaredCommands: ["pnpm test"],
+      reexecuted: [],
     });
   });
 
@@ -2132,7 +2187,7 @@ describe("judge", () => {
     expect(result.reasons).toContain("scope.changeDigest no longer matches the repository.");
   });
 
-  it("refuses to fingerprint untracked files blocked by policy", async () => {
+  it("withholds untracked files blocked by policy from the boundary", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Protect judge scope", { cwd: tmp, nonInteractive: true });
     await execFileAsync("git", ["init"], { cwd: tmp });
@@ -2142,7 +2197,68 @@ describe("judge", () => {
     await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
     await writeFile(path.join(tmp, ".env"), "SECRET=not-read\n", "utf8");
 
-    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow("blocked by policy: .env");
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+
+    expect(scope.excludedPaths).toContain(".env");
+    expect(scope.changedFiles).not.toContain(".env");
+  });
+
+  it("withholds tracked files blocked by policy from the diff and the digest", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Protect tracked secrets", { cwd: tmp, nonInteractive: true });
+    await writeFile(path.join(tmp, ".env"), "SECRET=base\n", "utf8");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 1;\n", "utf8");
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.name", "akrctx tests"], { cwd: tmp });
+    await execFileAsync("git", ["add", "-f", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
+    await writeFile(path.join(tmp, ".env"), "SECRET=rotated-in-boundary\n", "utf8");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 2;\n", "utf8");
+
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+    const withSecretOnly = await (async () => {
+      await writeFile(path.join(tmp, ".env"), "SECRET=rotated-again\n", "utf8");
+      return createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+    })();
+
+    expect(scope.excludedPaths).toContain(".env");
+    expect(scope.changedFiles).toEqual(["app.ts"]);
+    // The secret's content never enters the digest, so rotating it again does not move it.
+    expect(withSecretOnly.changeDigest).toBe(scope.changeDigest);
+  });
+
+  it("refuses to compute a boundary when policy.json cannot supply blocked patterns", async () => {
+    const { task } = await createReviewFixture();
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.blockedReadPatterns = "not-an-array";
+    await writeFile(policyPath, JSON.stringify(policy, null, 2), "utf8");
+
+    // Falling back to a default pattern set here would silently reduce the exclusion this
+    // feature promises, so an unusable policy has to stop the scope instead.
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow(
+      "blockedReadPatterns is missing or not an array",
+    );
+  });
+
+  it("refuses to compute a boundary when policy.json is malformed", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, ".akrctx/policy.json"), "{ not json", "utf8");
+
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow(
+      "Cannot apply policy.json blockedReadPatterns",
+    );
+  });
+
+  it("invalidates an approved review when a blocked path enters the boundary", async () => {
+    const { recordPath } = await createReviewFixture();
+    await writeFile(path.join(tmp, ".env"), "SECRET=appeared\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("scope.excludedPaths no longer matches the repository.");
   });
 
   it("invalidates an approved review when the task capsule changes", async () => {
@@ -2177,6 +2293,214 @@ describe("judge", () => {
 
     expect(result.approved).toBe(false);
     expect(result.reasons).toContain("Judge record contains failed validation.");
+  });
+
+  it("rejects APPROVED when no validation command was executed", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests = [];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("APPROVED requires at least one validation command that passed.");
+  });
+
+  it("rejects APPROVED when every validation command was left not-run", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests = [
+      { command: "pnpm test", status: "not-run", evidence: "sandbox is read-only" },
+      { command: "pnpm lint", status: "not-run" },
+    ];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("APPROVED requires at least one validation command that passed.");
+  });
+
+  it("rejects APPROVED backed only by a command the task capsule never declared", async () => {
+    const { recordPath } = await createReviewFixture({ declares: ["pnpm test", "pnpm lint"], claims: ["echo ok"] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.declaredCommands).toEqual(["pnpm test", "pnpm lint"]);
+    expect(result.reasons).toContain(
+      "APPROVED requires a passing run of a command the task capsule declares: pnpm test, pnpm lint.",
+    );
+  });
+
+  it("accepts APPROVED backed by a command the task capsule declares", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint"],
+      claims: ["pnpm lint", "echo extra-context"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.reasons).toEqual([]);
+    expect(result.approved).toBe(true);
+  });
+
+  it("leaves the declared-command rule dormant for a capsule predating the Validation section", async () => {
+    const { recordPath } = await createReviewFixture({ legacyCapsule: true, claims: ["cargo test"] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.declaredCommands).toEqual([]);
+    expect(result.approved).toBe(true);
+  });
+
+  it("rejects APPROVED when a current capsule left its Validation block empty", async () => {
+    // Distinct from a legacy capsule: the section exists, so the commands were meant to be filled in.
+    const { recordPath } = await createReviewFixture({ declares: [], claims: ["pnpm test"] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
+      "The task capsule has an empty or malformed `## Validation` block; declare the commands.",
+    );
+  });
+
+  it("--run-tests re-executes declared commands and rejects a false passing claim", async () => {
+    const failing = 'node -e "process.exit(1)"';
+    const { recordPath } = await createReviewFixture({ declares: [failing], claims: [failing] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(false);
+    expect(result.reexecuted).toEqual([{ command: failing, passed: false }]);
+    expect(result.reasons).toContain(`Independent re-run of \`${failing}\` failed; the record claims it passed.`);
+  });
+
+  it("--run-tests confirms an approval whose declared command really passes", async () => {
+    const passing = 'node -e "process.exit(0)"';
+    const { recordPath } = await createReviewFixture({ declares: [passing], claims: [passing] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(true);
+    expect(result.reexecuted).toEqual([{ command: passing, passed: true }]);
+  });
+
+  it("--run-tests rejects a command that passes but moves the boundary it approved", async () => {
+    // A formatter, a snapshot update or a codegen step exits 0 and leaves the worktree
+    // outside the reviewed boundary. Approving that is approving unreviewed code.
+    const mutating = "node -e \"require('fs').writeFileSync('app.ts', 'export const value = 3;\\n')\"";
+    const { recordPath } = await createReviewFixture({ declares: [mutating], claims: [mutating] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.reexecuted).toEqual([{ command: mutating, passed: true }]);
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
+      "Validation changed the repository: scope.changeDigest, scope.scopeDigest no longer match the boundary that was reviewed.",
+    );
+  });
+
+  it("--run-tests leaves the boundary intact for a non-mutating command", async () => {
+    const passing = 'node -e "process.exit(0)"';
+    const { recordPath } = await createReviewFixture({ declares: [passing], claims: [passing] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
+  });
+
+  it("--run-tests never executes a command that only the review record names", async () => {
+    const sentinel = path.join(tmp, "must-not-run.txt");
+    const injected = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
+    const { recordPath } = await createReviewFixture({ declares: ["pnpm test"], claims: [injected] });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.reexecuted).toEqual([]);
+    expect(await pathExists(sentinel)).toBe(false);
+    expect(result.approved).toBe(false);
+  });
+
+  it("invalidates a review produced by a different akrctx version", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.scope.cliVersion = "0.0.1-ancient";
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.some((reason: string) => reason.includes("produced by akrctx v0.0.1-ancient"))).toBe(true);
+  });
+
+  it("rejects a review record still using the previous schema version", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.schemaVersion = 1;
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain(`schemaVersion must be ${JUDGE_SCHEMA_VERSION}.`);
+  });
+
+  it("rejects APPROVED when the record still lists issues", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.issues = ["acceptance criterion 3 is not covered by any test"];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("APPROVED records must not list unresolved issues.");
+  });
+
+  it("applies the approval rules only to APPROVED verdicts", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.verdict = "NEEDS_CHANGES";
+    record.tests = [];
+    record.issues = ["missing edge-case handling in parseRef"];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toEqual(["Judge verdict is NEEDS_CHANGES, not APPROVED."]);
+  });
+
+  it("CLI judge scope prints a human summary by default and JSON only with --json", async () => {
+    const { task, scope } = await createReviewFixture();
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    const capture = async (args: string[]) => {
+      const writes: string[] = [];
+      console.log = (message?: unknown) => {
+        writes.push(String(message));
+      };
+      try {
+        process.chdir(tmp);
+        await main(["node", "akrctx", ...args]);
+      } finally {
+        process.chdir(previousCwd);
+        console.log = originalLog;
+      }
+      return writes.join("\n");
+    };
+
+    const human = await capture(["judge", "scope", task.taskId, "--base", "HEAD"]);
+    const asJson = await capture(["judge", "scope", task.taskId, "--base", "HEAD", "--json"]);
+
+    expect(human).toContain(scope.scopeDigest);
+    expect(human).toContain("app.ts");
+    expect(() => JSON.parse(human)).toThrow();
+    expect(JSON.parse(asJson)).toEqual(scope);
   });
 
   it("enable generates agent files for installed targets and sets enabled in config", async () => {

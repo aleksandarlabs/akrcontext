@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `akrctx judge verify --run-tests` independently re-executes capsule-declared validation commands claimed as passing and rejects approvals when validation changes the reviewed boundary.
+- Human-readable output for `akrctx judge scope`; `--json` retains the structured scope used in review records.
+
+### Changed
+
+- Upgraded the Judge review contract to schema v2 with CLI-version provenance and policy-withheld paths.
+- New task capsules include a `## Validation` declaration; present but empty or malformed declarations prevent approval, while legacy capsules without the section retain compatibility.
+- Primary agents always save Judge records and run strong verification before acting on a verdict; read-only Judge and comprehension agents never execute `--run-tests`.
+- Judge documentation now describes the actual trust boundary: re-execution moves trust from the review record to the agent-authored task capsule rather than eliminating it.
+
+### Fixed
+
+- Reject `APPROVED` records without passing validation or with unresolved issues.
+- Reject passing evidence based only on commands not declared by the task capsule.
+- Recompute the Judge boundary after validation so formatters, snapshot updates, and code generation cannot silently invalidate an approval.
+- Make the `judge scope --json` flag meaningful and route Judge CLI options through the common normalization path.
+
+### Security
+
+- Exclude tracked and untracked paths matching `blockedReadPatterns` from the Judge diff before their contents are fingerprinted.
+- Record withheld paths without their contents and include the path set in the boundary digest.
+- Fail closed when `policy.json` or `blockedReadPatterns` cannot be used instead of silently falling back to weaker defaults.
+
 ## [0.3.0] - 2026-07-14
 
 ### Added

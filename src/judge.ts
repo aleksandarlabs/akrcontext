@@ -5,6 +5,7 @@ import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "./templates.js";
+import { JUDGE_SCHEMA_ID } from "./templates/judge-contract.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -71,7 +72,7 @@ async function requireJudgeContract(cwd: string): Promise<void> {
   const schemaPath = path.join(cwd, ".akrctx/judge/schemas/review.schema.json");
   try {
     const schema = JSON.parse(await readFile(schemaPath, "utf8"));
-    if (schema.$id !== "akrctx-judge-review-v1" || schema.$schema !== "https://json-schema.org/draft/2020-12/schema") {
+    if (schema.$id !== JUDGE_SCHEMA_ID || schema.$schema !== "https://json-schema.org/draft/2020-12/schema") {
       throw new Error("wrong schema identity");
     }
   } catch {

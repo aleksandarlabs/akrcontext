@@ -41,7 +41,9 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 ## Independent Review and Comprehension
 
 - If judge.enabled is true, ask for confirmation before invoking akrctx-judge after implementation.
-- If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension. When judge is enabled, save the judge's exact JSON record under .akrctx/local/judge/, run akrctx judge verify on it, and invoke comprehension only when it is APPROVED and current.
+- Whenever a judge review comes back, save its exact JSON record under .akrctx/local/judge/ and run akrctx judge verify <record> --run-tests before acting on the verdict. This applies whether or not comprehension is enabled: an unverified verdict is a claim, not a result.
+- Always use the --run-tests form. Without it, verification accepts the judge's claim that validation passed; with it, the CLI re-runs the capsule's declared commands and fails if any fails or if running them moved the boundary. You are the trusted caller and you can execute; the read-only judge and comprehension agents cannot, so this check belongs here and nowhere else. It runs the commands declared in the capsule's task.md, so confirm that file says what you expect before using the flag.
+- If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension, and hand off only when the verification above reports APPROVED and current.
 - Give the comprehension agent only the task ID, exact base/candidate boundary, and verified judge-record path. Do not pass implementation explanations, suggested questions, expected answers, or the main conversation history as evidence.
 - The comprehension agent owns the interactive teaching session and personal learning artifacts. The primary agent must not ask or grade comprehension questions itself.
 - For a multi-turn checkpoint, have the developer select this agent directly or start `claude --agent akrctx-comprehension`; Claude subagents cannot ask UI questions.
