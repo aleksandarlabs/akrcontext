@@ -242,7 +242,7 @@ For each instruction or coherent block, record its current tier, verdict (keep, 
 
 export const taskTemplateFiles: Record<string, string> = {
   "tasks/_template/task.md":
-    "# Task\n\n## Goal\n\nDescribe the requested change.\n\n## Out Of Scope\n\n- Work outside this task capsule's agreed scope.\n",
+    "# Task\n\n## Goal\n\nDescribe the requested change.\n\n## Validation\n\nCommands that prove this task works. The judge must run at least one of these to\napprove, and `akrctx judge verify --run-tests` re-runs the ones the review claims\npassed. Nothing outside this list is ever executed.\n\n```\n```\n\n## Out Of Scope\n\n- Work outside this task capsule's agreed scope.\n",
   "tasks/_template/context.md":
     "# Context\n\n## Relevant Files\n\n- To be filled by the agent.\n\n## Blocked Reads\n\n- Secrets and credentials must not be read.\n",
   "tasks/_template/plan.md":

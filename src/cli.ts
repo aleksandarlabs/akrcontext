@@ -588,10 +588,37 @@ export async function main(argv = process.argv): Promise<void> {
     .argument("<task-id>", "task capsule ID, for example TASK-001")
     .requiredOption("--base <ref>", "base Git commit or ref")
     .option("--candidate <ref>", "candidate Git commit/ref, or WORKTREE", "WORKTREE")
-    .option("--json", "emit JSON output", false)
-    .action(async (taskId: string, raw: { base: string; candidate: string; json?: boolean }) => {
-      const scope = await createJudgeScope(process.cwd(), taskId, raw.base, raw.candidate);
-      console.log(JSON.stringify(scope, null, 2));
+    .option("--json", "emit the scope block to copy into the review record", false)
+    .action(async (taskId: string, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const scope = await createJudgeScope(
+        options.cwd ?? process.cwd(),
+        taskId,
+        raw.base as string,
+        raw.candidate as string,
+      );
+      if (options.json) {
+        console.log(JSON.stringify(scope, null, 2));
+        return;
+      }
+      log(`${bold("Judge scope:")} ${scope.taskId}`);
+      ln();
+      log(`  ${dim("base")}       ${scope.base} ${dim(`(${scope.baseCommit.slice(0, 12)})`)}`);
+      log(`  ${dim("candidate")}  ${scope.candidate} ${dim(`(${scope.candidateCommit.slice(0, 12)})`)}`);
+      log(`  ${dim("akrctx")}     v${scope.cliVersion}`);
+      log(`  ${dim("task")}       ${scope.taskDigest}`);
+      log(`  ${dim("change")}     ${scope.changeDigest}`);
+      log(`  ${dim("scope")}      ${scope.scopeDigest}`);
+      ln();
+      log(`  ${dim(`Changed files (${scope.changedFiles.length}):`)}`);
+      for (const f of scope.changedFiles) log(`    ${file(f)}`);
+      if (scope.excludedPaths.length) {
+        ln();
+        log(`  ${yellow(`Withheld by policy.json — not read, not fingerprinted (${scope.excludedPaths.length}):`)}`);
+        for (const f of scope.excludedPaths) log(`    ${minus()} ${file(f)}`);
+      }
+      ln();
+      log(`  ${dim("Run with")} ${cmd("--json")} ${dim("to emit the scope block for the review record.")}`);
     });
 
   judge
@@ -599,16 +626,46 @@ export async function main(argv = process.argv): Promise<void> {
     .description("Verify that a judge review is APPROVED and still matches the repository.")
     .argument("<review-file>", "path to the judge review JSON")
     .option("--json", "emit JSON output", false)
-    .action(async (reviewFile: string, raw: { json?: boolean }) => {
-      const result = await verifyJudgeRecord(process.cwd(), reviewFile);
-      if (raw.json) {
+    .option("--run-tests", "re-run the capsule-declared commands the record claims passed", false)
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Without --run-tests, a passing validation is taken from the record on trust.",
+        "With it, this CLI re-executes those commands itself, fails if any fails, and",
+        "fails if running them moved the reviewed boundary.",
+        "",
+        "Only commands declared in a fenced block under `## Validation` in the",
+        "capsule's task.md are ever executed, so a review record cannot get an",
+        "arbitrary command run. The capsule itself is usually written by an agent,",
+        "so this moves trust from the record to task.md rather than removing it.",
+        "Read task.md before using this on work you did not supervise.",
+      ].join("\n"),
+    )
+    .action(async (reviewFile: string, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const runTests = Boolean(raw.runTests);
+      const result = await verifyJudgeRecord(options.cwd ?? process.cwd(), reviewFile, { runTests });
+      if (options.json) {
         console.log(JSON.stringify(result, null, 2));
-      } else if (result.approved) {
-        log(`${bold("Judge verification:")} ${green("APPROVED and current")}`);
-        log(`  ${dim(result.scopeDigest ?? "")}`);
       } else {
-        log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
-        for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
+        if (result.approved) {
+          log(`${bold("Judge verification:")} ${green("APPROVED and current")}`);
+          log(`  ${dim(result.scopeDigest ?? "")}`);
+        } else {
+          log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
+          for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
+        }
+        for (const run of result.reexecuted) {
+          log(`  ${run.passed ? plus() : minus()} ${dim("re-ran")} ${cmd(run.command)}`);
+        }
+        if (result.reexecuted.length) {
+          log(`  ${dim("Commands came from the capsule's task.md `## Validation` block.")}`);
+        }
+        if (!runTests && result.declaredCommands.length) {
+          ln();
+          log(`  ${dim("Validation was taken on trust. Re-run it here with")} ${cmd("--run-tests")}${dim(".")}`);
+        }
       }
       if (!result.approved) process.exitCode = 1;
     });
