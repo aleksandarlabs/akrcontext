@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "cliVersion": "0.3.0",
+  "cliVersion": "0.4.0",
   "files": {
     ".akrctx/targets/claude.md": {
       "hash": "sha256:fc929359da9e3b0bfcea9eb2f1e070bc594c123ed4c1c3a64e594adeb9455201"

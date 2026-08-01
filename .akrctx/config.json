@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "installedVersion": "0.3.0",
+  "installedVersion": "0.4.0",
   "profile": "default",
   "judge": {
     "enabled": true,
