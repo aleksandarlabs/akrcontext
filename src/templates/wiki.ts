@@ -1,3 +1,4 @@
+import { type CapsuleContent, capsuleFiles } from "../harness-files.js";
 import type { DoctorResult, Suggestion, WikiLintResult } from "../types.js";
 
 export function wikiFrontmatter(
@@ -240,13 +241,25 @@ For each instruction or coherent block, record its current tier, verdict (keep, 
 `,
 };
 
-export const taskTemplateFiles: Record<string, string> = {
-  "tasks/_template/task.md":
+/**
+ * Typed by CapsuleContent so a new entry in `capsuleFiles` fails to compile until the
+ * shipped template ships it too. `taskTemplateFiles` is then derived rather than written
+ * out, which is what keeps `_template` from falling behind what Doctor and the judge
+ * require of a capsule.
+ */
+const capsuleTemplates: CapsuleContent = {
+  "task.md":
     "# Task\n\n## Goal\n\nDescribe the requested change.\n\n## Validation\n\nCommands that prove this task works. The judge must run at least one of these to\napprove, and `akrctx judge verify --run-tests` re-runs the ones the review claims\npassed. Nothing outside this list is ever executed.\n\n```\n```\n\n## Out Of Scope\n\n- Work outside this task capsule's agreed scope.\n",
-  "tasks/_template/context.md":
+  "context.md":
     "# Context\n\n## Relevant Files\n\n- To be filled by the agent.\n\n## Blocked Reads\n\n- Secrets and credentials must not be read.\n",
-  "tasks/_template/plan.md":
+  "plan.md":
     "# Plan\n\n## Workflow\n\n- research-first\n\n## Steps\n\n1. Inspect relevant context.\n2. Confirm scope.\n3. Implement only after context is ready.\n",
-  "tasks/_template/review-checklist.md":
+  "acceptance-criteria.md":
+    "# Acceptance Criteria\n\n- State each criterion so it can be checked, not interpreted.\n- Existing agent instruction files are preserved unless a human approves a merge.\n- Relevant validation commands are documented or run.\n- The review checklist is completed before handoff.\n",
+  "review-checklist.md":
     "# Review Checklist\n\n- [ ] Goal is clear.\n- [ ] Scope is controlled.\n- [ ] Tests or validation commands are defined.\n- [ ] Existing instructions were not overwritten.\n",
 };
+
+export const taskTemplateFiles: Record<string, string> = Object.fromEntries(
+  capsuleFiles.map((file) => [`tasks/_template/${file}`, capsuleTemplates[file]]),
+);

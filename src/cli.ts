@@ -1,7 +1,7 @@
 import { Command, Option } from "commander";
 import { runCompile } from "./compile.js";
 import { runComprehensionDisable, runComprehensionEnable, runComprehensionStatus } from "./comprehension.js";
-import { readConfigStrict, setConfigValue } from "./config.js";
+import { readConfig, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
 import { runInit } from "./init.js";
@@ -265,7 +265,7 @@ export async function main(argv = process.argv): Promise<void> {
   const config = program.command("config").description("Show or update akrctx project defaults.");
 
   addCommon(config.command("show").description("Print .akrctx/config.json."), false).action(async () => {
-    const result = await readConfigStrict(process.cwd());
+    const result = await readConfig(process.cwd());
     if (!result) {
       throw new Error("akrctx config not found. Run `akrctx init` first.");
     }

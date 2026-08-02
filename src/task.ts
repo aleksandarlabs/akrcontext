@@ -2,6 +2,7 @@ import { rm } from "node:fs/promises";
 import path from "node:path";
 import { normalizeWorkflow as normalizeConfigWorkflow, readConfig } from "./config.js";
 import { listDirs, pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
+import { type CapsuleContent, capsuleFiles } from "./harness-files.js";
 import type { CommandOptions, TaskWorkflow, Workflow, akrctxConfig } from "./types.js";
 import { workflows } from "./types.js";
 
@@ -56,11 +57,17 @@ export async function runTask(description: string, options: CommandOptions): Pro
     writes.push(result.path);
   };
 
-  await write("task.md", taskMarkdown(taskId, description, selection));
-  await write("context.md", contextMarkdown());
-  await write("plan.md", planMarkdown(selection.workflow));
-  await write("acceptance-criteria.md", acceptanceMarkdown(description));
-  await write("review-checklist.md", reviewMarkdown());
+  // Typed as CapsuleContent so a new entry in capsuleFiles fails to compile until the
+  // generated content for it exists here. Iterating the constant keeps the written set
+  // and the set Doctor and the judge require from drifting apart.
+  const content: CapsuleContent = {
+    "task.md": taskMarkdown(taskId, description, selection),
+    "context.md": contextMarkdown(),
+    "plan.md": planMarkdown(selection.workflow),
+    "acceptance-criteria.md": acceptanceMarkdown(description),
+    "review-checklist.md": reviewMarkdown(),
+  };
+  for (const name of capsuleFiles) await write(name, content[name]);
   await write(
     "exports/README.md",
     "# Exports\n\nRun `akrctx compile <taskId> --target <target>` to create agent-specific briefs.\n",
@@ -331,8 +338,7 @@ export async function showTask(cwd: string, taskId: string): Promise<TaskShowRes
   }
   const resolvedTaskId = parseTaskId(path.basename(taskDir));
   const files: Record<string, string> = {};
-  const fileNames = ["task.md", "context.md", "plan.md", "acceptance-criteria.md", "review-checklist.md"];
-  for (const name of fileNames) {
+  for (const name of capsuleFiles) {
     const content = await readTextIfExists(path.join(cwd, taskDir, name));
     if (content !== undefined) files[name] = content;
   }

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { readConfigStrict } from "./config.js";
+import { readConfig } from "./config.js";
 import { ensureTrailingNewline, pathExists, writePlannedFile } from "./fs-utils.js";
 import {
   type akrctxManifest,
@@ -64,7 +64,7 @@ const judgeAgents = {
 
 export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult> {
   const cwd = options.cwd ?? process.cwd();
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   const selectedTargets = resolveUpgradeTargets(config, options.target);
   const manifestExists = await pathExists(path.join(cwd, ".akrctx/manifest.json"));
