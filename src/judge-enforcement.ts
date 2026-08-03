@@ -411,7 +411,7 @@ async function resolveCommit(cwd: string, ref: string): Promise<string> {
  * policy that cannot be read is a reason to refuse to compute a boundary — not a reason to fall
  * back to a weaker default set and carry on as if the exclusion still held.
  */
-async function readBlockedPatterns(cwd: string): Promise<string[]> {
+export async function readBlockedPatterns(cwd: string): Promise<string[]> {
   const unusable = (why: string) =>
     new Error(`Cannot apply policy.json blockedReadPatterns (${why}). Run \`akrctx doctor --fix\` first.`);
   let policy: unknown;
@@ -428,7 +428,7 @@ async function readBlockedPatterns(cwd: string): Promise<string[]> {
   return patterns;
 }
 
-function matchesBlockedPattern(relativePath: string, pattern: string): boolean {
+export function matchesBlockedPattern(relativePath: string, pattern: string): boolean {
   const normalized = relativePath.split(path.sep).join("/");
   const parts = normalized.split("/");
   if (pattern.endsWith("/")) {

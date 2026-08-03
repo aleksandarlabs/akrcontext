@@ -4,6 +4,9 @@ import { runComprehensionDisable, runComprehensionEnable, runComprehensionStatus
 import { readConfig, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
 import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
+import { runHook } from "./hook/index.js";
+import { TRACE_MARKER, runTraceDisable, runTraceEnable, runTraceStatus } from "./hook/install.js";
+import { runTraceReport } from "./hook/report.js";
 import { runInit } from "./init.js";
 import { createJudgeScope, verifyJudgeRecord } from "./judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
@@ -670,6 +673,161 @@ export async function main(argv = process.argv): Promise<void> {
       if (!result.approved) process.exitCode = 1;
     });
 
+  // ── hook (hidden) ─────────────────────────────────────────────────────────
+  // Invoked by the host, never by a human. Reads the event payload on stdin.
+  //
+  // This command must never exit non-zero: on Copilot a non-zero exit from preToolUse
+  // denies the tool call, so a crash here would block every tool call in the session.
+  program
+    .command("hook <event>", { hidden: true })
+    .description("Internal: record a host hook event. Reads the payload on stdin.")
+    // The marker is declared so it is never an unknown option, and unknown options and
+    // excess arguments are tolerated too: commander rejects them with exit 1, which on
+    // Copilot's preToolUse denies the tool call before runHook is ever reached.
+    .option(`${TRACE_MARKER} `.trim(), "marks this entry as owned by akrctx")
+    .option("--akrctx-host <target>", "which agent host produced this event")
+    .allowUnknownOption()
+    .allowExcessArguments()
+    .action(async (event: string, raw: Record<string, unknown>) => {
+      const host = typeof raw.akrctxHost === "string" ? raw.akrctxHost : undefined;
+      const result = await runHook(event, await readStdin(), process.cwd(), { host }).catch(() => undefined);
+      if (result?.body) console.log(JSON.stringify(result.body));
+      process.exitCode = 0;
+    });
+
+  // ── trace ─────────────────────────────────────────────────────────────────
+  const trace = program
+    .command("trace")
+    .description("Record and report whether the harness contract was honored in a session.")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Tracing is opt-in and observes only — it never blocks or injects anything.",
+        "Records live in .akrctx/local/traces/, which is already git-ignored.",
+        "",
+        "  akrctx trace enable     wire the hooks for installed targets",
+        "  akrctx trace status     show what is wired and how many sessions were recorded",
+        "  akrctx trace report     derive the contract predicates from the recorded sessions",
+        "  akrctx trace disable    remove only the akrctx hook entries",
+      ].join("\n"),
+    );
+
+  addCommon(trace.command("enable").description("Start recording sessions for installed targets."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runTraceEnable(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Trace:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
+      for (const write of result.writes) log(`  ${plus()} ${file(write)}`);
+      ln();
+      // Every host, Pi included, is wired to an absolute interpreter and entry point, so
+      // nothing here depends on PATH.
+      log(`  ${dim("Pinned to this build; PATH is not consulted.")}`);
+      log(`  ${dim("Nothing is blocked or injected; this only records.")}`);
+    },
+  );
+
+  addCommon(trace.command("disable").description("Stop recording and remove akrctx hook entries."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runTraceDisable(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Trace:")} ${yellow("disabled")}`);
+      for (const write of result.writes) log(`  ${minus()} ${file(write)}`);
+      log(`  ${dim("Existing trace records were kept. Delete .akrctx/local/traces/ to discard them.")}`);
+    },
+  );
+
+  addCommon(trace.command("status").description("Show what is wired and how much has been recorded."), false).action(
+    async (raw) => {
+      const options = normalizeOptions(raw);
+      const result = await runTraceStatus(options);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Trace:")} ${result.enabled ? green("enabled") : yellow("disabled")}`);
+      log(`  ${dim("Wired:    ")} ${result.wiredTargets.length ? result.wiredTargets.join(", ") : gray("none")}`);
+      if (result.unwiredTargets.length) {
+        log(`  ${dim("Not wired:")} ${gray(result.unwiredTargets.join(", "))}`);
+      }
+      log(`  ${dim("Sessions: ")} ${result.traceCount}`);
+      if (result.unverified.length) {
+        ln();
+        log(`  ${yellow("Wired from vendor documentation, not from an observed run:")}`);
+        log(`    ${result.unverified.join(", ")}`);
+        log(`  ${dim("Treat these as unverified until a conformance run exercises them.")}`);
+      }
+    },
+  );
+
+  addCommon(
+    trace
+      .command("report")
+      .description("Derive the contract predicates from the recorded sessions.")
+      .addHelpText(
+        "after",
+        [
+          "",
+          "Reports two candidate definitions of an active capsule side by side:",
+          "  bound          a capsule was read or written at some point",
+          "  bound-first    a capsule was bound before the first mutating write",
+          "",
+          "They differ on resumed work, which is why both are measured before either",
+          "is used to block anything.",
+        ].join("\n"),
+      ),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runTraceReport(options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    const { totals } = result;
+    if (totals.sessions === 0) {
+      log(gray("No sessions recorded yet. Run `akrctx trace enable`, then use your agent normally."));
+      return;
+    }
+    log(
+      `${bold("Sessions recorded:")} ${totals.sessions}${totals.incomplete ? dim(` (${totals.incomplete} truncated, excluded)`) : ""}`,
+    );
+    log(`${bold("Sessions that changed anything outside .akrctx/:")} ${totals.mutating}`);
+    // Printed, not just carried in --json. A session held out of the rates has to be visible
+    // as held out, or "excluded honestly" is only true of the data structure.
+    if (totals.uncertain > 0) {
+      log(
+        `${bold("Sessions held out as unclassifiable:")} ${totals.uncertain} ${dim("(a shell command or an unresolved write could have changed the tree)")}`,
+      );
+    }
+    ln();
+    const pct = (value: number) => (totals.mutating ? `${Math.round((value / totals.mutating) * 100)}%` : "n/a");
+    log(
+      `  ${dim("capsule bound              ")} ${totals.capsuleBound} ${dim(`(${pct(totals.capsuleBound)} of those)`)}`,
+    );
+    log(
+      `  ${dim("capsule bound first       ")} ${totals.capsuleBeforeFirstMutation} ${dim(`(${pct(totals.capsuleBeforeFirstMutation)})`)}`,
+    );
+    log(`  ${dim("capsule complete          ")} ${totals.capsuleComplete} ${dim(`(${pct(totals.capsuleComplete)})`)}`);
+    log(
+      `  ${dim("validation declared       ")} ${totals.validationDeclared} ${dim(`(${pct(totals.validationDeclared)})`)}`,
+    );
+    log(
+      `  ${dim("validation observed       ")} ${totals.validationObserved} ${dim(`(${pct(totals.validationObserved)})`)}`,
+    );
+    log(`  ${dim("blocked path touched      ")} ${totals.blockedPathTouched}`);
+    ln();
+    log(`  ${dim("Run with")} ${cmd("--json")} ${dim("for the per-session records.")}`);
+  });
+
   // ── upgrade ───────────────────────────────────────────────────────────────
   addCommon(
     program
@@ -808,6 +966,49 @@ async function handleTaskCreate(description: string, raw: Record<string, unknown
   log(`  ${bold("Next:")} open your agent and ask:`);
   log(`        ${gray(`"Run akrctx task workflow for ${result.taskId}."`)}`);
   log(`  Or compile a brief: ${cmd(`akrctx compile ${result.taskId} --target codex`)}`);
+}
+
+/**
+ * Read the hook payload from stdin. Resolves to "" rather than rejecting on any failure.
+ *
+ * The cap has to sit under the tightest budget any host imposes — Claude Code's SessionEnd
+ * hooks share 1.5s — so it is well below that rather than merely below the generous
+ * per-hook defaults. Resolving is not enough on its own: an open pipe keeps the event loop
+ * alive and the process outlives the promise, so stdin is torn down explicitly on every
+ * exit path. Timing out is a safety net for a host that never closes the pipe, not the
+ * normal path, which ends on `end`.
+ */
+const STDIN_BUDGET_MS = 750;
+
+async function readStdin(): Promise<string> {
+  return new Promise((resolve) => {
+    if (process.stdin.isTTY) return resolve("");
+    let data = "";
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      // Stop the stream from holding the process open past the resolved promise.
+      process.stdin.pause();
+      process.stdin.destroy();
+      resolve(data);
+    };
+    const timer = setTimeout(done, STDIN_BUDGET_MS);
+    timer.unref?.();
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", (chunk) => {
+      data += chunk;
+    });
+    process.stdin.on("end", () => {
+      clearTimeout(timer);
+      done();
+    });
+    process.stdin.on("error", () => {
+      clearTimeout(timer);
+      done();
+    });
+  });
 }
 
 function normalizeOptions(raw: Record<string, unknown>): CommandOptions {

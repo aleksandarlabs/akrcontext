@@ -30,6 +30,11 @@ export interface JudgeConfig {
   trigger: "post-implementation";
 }
 
+/** Phase-1 session tracing. Absent means off: installing akrctx never starts recording. */
+export interface TraceConfig {
+  enabled: boolean;
+}
+
 export interface ComprehensionGateConfig {
   enabled: boolean;
   trigger: "agent-assessed-significance";
@@ -59,6 +64,7 @@ export interface akrctxConfig {
   installedVersion?: string;
   profile?: Profile;
   judge?: JudgeConfig;
+  trace?: TraceConfig;
   comprehensionGate: ComprehensionGateConfig;
   targets: Target[];
   templatePacks: AppliedTemplatePack[];
