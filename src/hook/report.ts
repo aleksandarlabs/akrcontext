@@ -287,8 +287,35 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
   const declaration = await readValidationDeclaration(cwd, report.capsuleId);
   report.validationDeclared = declaration.commands.length > 0;
   const declaredDigests = new Set(declaration.commands.map(digestCommand));
-  report.validationObserved = trace.observations.some(
-    (observation) => observation.commandDigest && declaredDigests.has(observation.commandDigest),
-  );
+  report.validationObserved = validationWasObserved(trace.observations, declaredDigests);
   return report;
+}
+
+/**
+ * A PreToolUse digest records intent, not execution. Count a validation only when a later
+ * successful post event carries the same host call id and the same command digest. This
+ * deliberately rejects missing outcomes, failures, anonymous calls, and successes from a
+ * different call — all four used to create false evidence that tests had run.
+ */
+function validationWasObserved(observations: Trace["observations"], declaredDigests: ReadonlySet<string>): boolean {
+  const attempted = new Map<string, Set<string>>();
+  for (const observation of observations) {
+    if (!observation.callId || !observation.commandDigest || !declaredDigests.has(observation.commandDigest)) {
+      continue;
+    }
+    if (observation.event === "pre-tool") {
+      const digests = attempted.get(observation.callId) ?? new Set<string>();
+      digests.add(observation.commandDigest);
+      attempted.set(observation.callId, digests);
+      continue;
+    }
+    if (
+      observation.event === "post-tool" &&
+      observation.outcome === "succeeded" &&
+      attempted.get(observation.callId)?.has(observation.commandDigest)
+    ) {
+      return true;
+    }
+  }
+  return false;
 }

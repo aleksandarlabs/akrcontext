@@ -1,0 +1,49 @@
+{
+  "id": "capsule-template-complete",
+  "title": "Generated capsule template contains every canonical file",
+  "changeType": "fix",
+  "hypothesis": "A fresh installation includes acceptance-criteria.md in the reusable capsule template.",
+  "fixture": "minimal-typescript",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "init", "--target", "claude", "--json"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 0
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/task.md"
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/context.md"
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/plan.md"
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/acceptance-criteria.md"
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/review-checklist.md"
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "invalid-generated-capsules",
+    "direction": "decrease",
+    "verdict": "improved"
+  }
+}

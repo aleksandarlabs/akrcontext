@@ -290,6 +290,8 @@ Los ficheros protegidos (`AGENTS.md`, `CLAUDE.md`, `copilot-instructions.md`) si
 | Ver configuración | `akrctx config show` |
 | Cambiar workflow por defecto | `akrctx config set defaultWorkflow SDD+TDD` |
 | Habilitar judge | `akrctx judge enable` |
+| Habilitar tracing observacional | `akrctx trace enable` |
+| Ver informe de conformidad | `akrctx trace report` |
 | Actualizar harness | `akrctx upgrade` |
 | Eliminar harness | `akrctx remove --target codex --force` |
 

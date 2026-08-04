@@ -1,0 +1,51 @@
+{
+  "id": "trace-observe-only",
+  "title": "Tracing observes without making host decisions",
+  "changeType": "observability",
+  "hypothesis": "A malformed hook payload exits successfully, emits no decision and stays below the host budget.",
+  "fixture": "initialized-claude",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "hook", "PreToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{not-json",
+      "timeoutMs": 1500
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 0
+    },
+    {
+      "type": "stdoutExcludes",
+      "step": 0,
+      "value": "decision"
+    },
+    {
+      "type": "durationUnder",
+      "step": 0,
+      "milliseconds": 1500
+    },
+    {
+      "type": "stdoutExcludes",
+      "step": 0,
+      "value": "Decision"
+    },
+    {
+      "type": "stdoutExcludes",
+      "step": 0,
+      "value": "DECISION"
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "observer-perturbation",
+    "direction": "decrease",
+    "verdict": "inconclusive"
+  }
+}

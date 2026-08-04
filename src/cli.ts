@@ -936,12 +936,16 @@ export async function main(argv = process.argv): Promise<void> {
         log(yellow("Dry-run — pass --force to apply:"));
       }
       printWriteGroup(result.dryRun ? "Would remove" : "Removed", result.planned);
+      printWriteGroup(
+        result.dryRun ? "Would update (remove trace hooks)" : "Updated (removed trace hooks)",
+        result.updated,
+      );
       if (result.protected.length > 0) {
         ln();
         log(`${dim("Protected (skipped — remove manually):")}`);
         for (const f of result.protected) log(`  ${gray(f)}`);
       }
-      if (result.planned.length === 0 && result.protected.length === 0) {
+      if (result.planned.length === 0 && result.updated.length === 0 && result.protected.length === 0) {
         log(gray("Nothing to remove."));
       }
     });

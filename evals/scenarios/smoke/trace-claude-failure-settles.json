@@ -1,0 +1,67 @@
+{
+  "id": "trace-claude-failure-settles",
+  "title": "Claude failed tool calls settle their pending attempts",
+  "changeType": "observability",
+  "hypothesis": "Claude wiring records PostToolUseFailure so a failed edit is read-only rather than uncertain.",
+  "fixture": "initialized-claude",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "trace", "enable", "--json"]
+    },
+    {
+      "command": ["$AKRCTX", "hook", "SessionStart", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\":\"claude-failure\",\"hook_event_name\":\"SessionStart\"}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PreToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\":\"claude-failure\",\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Edit\",\"tool_use_id\":\"edit-1\",\"tool_input\":{\"file_path\":\"src/a.ts\"}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PostToolUseFailure", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\":\"claude-failure\",\"hook_event_name\":\"PostToolUseFailure\",\"tool_name\":\"Edit\",\"tool_use_id\":\"edit-1\",\"tool_input\":{\"file_path\":\"src/a.ts\"},\"error\":\"permission denied\"}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "SessionEnd", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\":\"claude-failure\",\"hook_event_name\":\"SessionEnd\"}"
+    },
+    {
+      "command": ["$AKRCTX", "trace", "report", "--json"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "jsonPathEquals",
+      "path": ".claude/settings.json",
+      "jsonPath": "hooks.PostToolUseFailure.0.hooks.0.type",
+      "equals": "command"
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 5,
+      "jsonPath": "sessions.0.mutatedProject",
+      "equals": false
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 5,
+      "jsonPath": "sessions.0.mutationUncertain",
+      "equals": false
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 5,
+      "jsonPath": "totals.readOnly",
+      "equals": 1
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "trace-classification-accuracy",
+    "direction": "increase",
+    "verdict": "inconclusive"
+  }
+}

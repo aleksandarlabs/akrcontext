@@ -655,6 +655,23 @@ describe("mutations with no recognized path", () => {
 });
 
 describe("host-specific outcome delivery", () => {
+  it("settles a failed Claude edit through PostToolUseFailure with the same call id", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const settings = JSON.parse(await readFile(path.join(tmp, ".claude/settings.json"), "utf8"));
+    expect(settings.hooks.PostToolUseFailure).toBeDefined();
+    await runHook("SessionStart", payload(), tmp);
+    const call = { tool_name: "Edit", tool_use_id: "claude-edit-1", tool_input: { file_path: "src/a.ts" } };
+    await runHook("PreToolUse", payload(call), tmp);
+    await runHook("PostToolUseFailure", payload({ ...call, error: "permission denied" }), tmp);
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.sessions[0].mutatedProject).toBe(false);
+    expect(report.sessions[0].mutationUncertain).toBe(false);
+    expect(report.totals.readOnly).toBe(1);
+  });
+
   it("reads a Copilot tool failure as a settled failure, not an open attempt", async () => {
     // Copilot never routes a failed call to postToolUse; it goes to postToolUseFailure with
     // a top-level `error` string and no result object.
@@ -676,12 +693,15 @@ describe("host-specific outcome delivery", () => {
     expect(report.sessions[0].mutationUncertain).toBe(false);
   });
 
-  it("wires Copilot's failure event, which the other hosts do not have", async () => {
-    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+  it.each([
+    ["claude", ".claude/settings.json"],
+    ["copilot", ".github/hooks/akrctx-trace.json"],
+  ] as const)("wires %s PostToolUseFailure so failed calls settle", async (target, relative) => {
+    await runInit({ cwd: tmp, target, nonInteractive: true });
 
     await enableTrace(tmp);
 
-    const config = JSON.parse(await readFile(path.join(tmp, ".github/hooks/akrctx-trace.json"), "utf8"));
+    const config = JSON.parse(await readFile(path.join(tmp, relative), "utf8"));
     expect(Object.keys(config.hooks)).toContain("PostToolUseFailure");
   });
 
@@ -878,42 +898,80 @@ describe("trace report", () => {
     expect(report.totals.mutating).toBe(0);
   });
 
-  it("matches an observed validation command against the capsule declaration by digest", async () => {
+  async function validationSession(events: Array<[string, Record<string, unknown>]>) {
     await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
     await enableTrace(tmp);
     const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
     const taskFile = path.join(tmp, task.taskDir, "task.md");
     await writeFile(taskFile, (await readFile(taskFile, "utf8")).replace("```\n```", "```\npnpm test\n```"), "utf8");
+    await runHook("SessionStart", payload(), tmp);
+    await runHook("PreToolUse", readCapsule(task.taskId), tmp);
+    for (const [event, body] of events) await runHook(event, payload(body), tmp);
+    await runHook("SessionEnd", payload(), tmp);
+    return (await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0];
+  }
 
-    await session(tmp, [
-      ["SessionStart", payload()],
-      ["PreToolUse", readCapsule(task.taskId)],
-      ["PreToolUse", payload({ tool_name: "Bash", tool_input: { command: "pnpm test" } })],
+  it("does not count a validation requested by PreToolUse as executed", async () => {
+    const report = await validationSession([
+      ["PreToolUse", { tool_name: "Bash", tool_use_id: "validation-1", tool_input: { command: "pnpm test" } }],
     ]);
 
-    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
-
-    expect(report.sessions[0].validationDeclared).toBe(true);
-    expect(report.sessions[0].validationObserved).toBe(true);
+    expect(report.validationDeclared).toBe(true);
+    expect(report.validationObserved).toBe(false);
   });
 
-  it("reports a declared command that was never run as not observed", async () => {
-    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
-    await enableTrace(tmp);
-    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
-    const taskFile = path.join(tmp, task.taskDir, "task.md");
-    await writeFile(taskFile, (await readFile(taskFile, "utf8")).replace("```\n```", "```\npnpm test\n```"), "utf8");
-
-    await session(tmp, [
-      ["SessionStart", payload()],
-      ["PreToolUse", readCapsule(task.taskId)],
-      ["PreToolUse", payload({ tool_name: "Bash", tool_input: { command: "echo not-the-declared-command" } })],
+  it("does not count a failed validation as executed", async () => {
+    const call = { tool_name: "Bash", tool_use_id: "validation-1", tool_input: { command: "pnpm test" } };
+    const report = await validationSession([
+      ["PreToolUse", call],
+      ["PostToolUseFailure", { ...call, error: "tests failed" }],
     ]);
 
-    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.validationObserved).toBe(false);
+  });
 
-    expect(report.sessions[0].validationDeclared).toBe(true);
-    expect(report.sessions[0].validationObserved).toBe(false);
+  it("counts a successful validation correlated by call id and digest", async () => {
+    const call = { tool_name: "Bash", tool_use_id: "validation-1", tool_input: { command: "pnpm test" } };
+    const report = await validationSession([
+      ["PreToolUse", call],
+      ["PostToolUse", { ...call, tool_result: { exit_code: 0 } }],
+    ]);
+
+    expect(report.validationObserved).toBe(true);
+  });
+
+  it("does not let another call's success validate a pending command", async () => {
+    const report = await validationSession([
+      ["PreToolUse", { tool_name: "Bash", tool_use_id: "validation-1", tool_input: { command: "pnpm test" } }],
+      [
+        "PostToolUse",
+        {
+          tool_name: "Bash",
+          tool_use_id: "validation-2",
+          tool_input: { command: "pnpm test" },
+          tool_result: { exit_code: 0 },
+        },
+      ],
+    ]);
+
+    expect(report.validationObserved).toBe(false);
+  });
+
+  it("does not let the same call id validate a different command digest", async () => {
+    const report = await validationSession([
+      ["PreToolUse", { tool_name: "Bash", tool_use_id: "validation-1", tool_input: { command: "pnpm test" } }],
+      [
+        "PostToolUse",
+        {
+          tool_name: "Bash",
+          tool_use_id: "validation-1",
+          tool_input: { command: "pnpm lint" },
+          tool_result: { exit_code: 0 },
+        },
+      ],
+    ]);
+
+    expect(report.validationObserved).toBe(false);
   });
 
   it("excludes a truncated session from the aggregate instead of guessing", async () => {
@@ -1111,6 +1169,58 @@ describe("trace installation", () => {
     expect(status.unverified).toContain("copilot");
   });
 
+  it.each([
+    ["claude", ".claude/settings.json", "SessionStart"],
+    ["claude", ".claude/settings.json", "PreToolUse"],
+    ["claude", ".claude/settings.json", "PostToolUse"],
+    ["claude", ".claude/settings.json", "PostToolUseFailure"],
+    ["claude", ".claude/settings.json", "Stop"],
+    ["claude", ".claude/settings.json", "SessionEnd"],
+    ["codex", ".codex/hooks.json", "SessionStart"],
+    ["codex", ".codex/hooks.json", "PreToolUse"],
+    ["codex", ".codex/hooks.json", "PostToolUse"],
+    ["codex", ".codex/hooks.json", "Stop"],
+    ["codex", ".codex/hooks.json", "SessionEnd"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "SessionStart"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "PreToolUse"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "PostToolUse"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "PostToolUseFailure"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "Stop"],
+    ["copilot", ".github/hooks/akrctx-trace.json", "SessionEnd"],
+  ] as const)("reports %s as unwired when %s lacks %s", async (target, relative, missingEvent) => {
+    await runInit({ cwd: tmp, target, nonInteractive: true });
+    await enableTrace(tmp);
+    const configPath = path.join(tmp, relative);
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    delete config.hooks[missingEvent];
+    await writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+
+    const { runTraceStatus } = await import("../src/hook/install.js");
+    const status = await runTraceStatus({ cwd: tmp, nonInteractive: true });
+
+    expect(status.wiredTargets).not.toContain(target);
+    expect(status.unwiredTargets).toContain(target);
+  });
+
+  it.each([
+    ["the wrong host", "--akrctx-host claude", "--akrctx-host codex"],
+    ["the wrong event", "hook PreToolUse", "hook Stop"],
+    ["no ownership marker", "--akrctx-trace", "--not-akrctx-trace"],
+  ])("does not accept a hook command with %s", async (_label, current, replacement) => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const settingsPath = path.join(tmp, ".claude/settings.json");
+    const settings = JSON.parse(await readFile(settingsPath, "utf8"));
+    settings.hooks.PreToolUse.at(-1).hooks[0].command = settings.hooks.PreToolUse.at(-1).hooks[0].command.replace(
+      current,
+      replacement,
+    );
+    await writeFile(settingsPath, `${JSON.stringify(settings, null, 2)}\n`, "utf8");
+
+    const { runTraceStatus } = await import("../src/hook/install.js");
+    expect((await runTraceStatus({ cwd: tmp, nonInteractive: true })).wiredTargets).not.toContain("claude");
+  });
+
   it("wires an absolute path to this build, never a bare PATH lookup", async () => {
     // A bare `akrctx hook <event>` resolves against the agent's PATH. An older build has
     // no `hook` subcommand, commander exits 1, and on Copilot a non-zero exit from
@@ -1261,6 +1371,23 @@ describe("trace installation", () => {
     // Phase 1 observes only: the extension must never return a blocking result.
     expect(extension).not.toContain("block: true");
   });
+
+  it.each(['pi.on("session_start"', 'pi.on("tool_call"', 'pi.on("tool_result"', 'pi.on("session_shutdown"'])(
+    "reports Pi as unwired when the extension is missing %s",
+    async (listener) => {
+      await runInit({ cwd: tmp, target: "pi", nonInteractive: true });
+      await enableTrace(tmp);
+      const extensionPath = path.join(tmp, ".pi/extensions/akrctx-trace.ts");
+      await writeFile(
+        extensionPath,
+        (await readFile(extensionPath, "utf8")).replace(listener, 'pi.on("missing"'),
+        "utf8",
+      );
+
+      const { runTraceStatus } = await import("../src/hook/install.js");
+      expect((await runTraceStatus({ cwd: tmp, nonInteractive: true })).wiredTargets).not.toContain("pi");
+    },
+  );
 });
 
 // ── helpers ──────────────────────────────────────────────────────────────────

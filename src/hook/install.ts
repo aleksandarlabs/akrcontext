@@ -19,7 +19,20 @@ const tracedEvents = ["SessionStart", "PreToolUse", "PostToolUse", "Stop", "Sess
  * without this event every failed write there would stay an unfinished attempt and drag the
  * session into `uncertain` — even though the host reported a conclusive result.
  */
-const copilotEvents = [...tracedEvents, "PostToolUseFailure"] as const;
+const failedToolEvent = "PostToolUseFailure" as const;
+
+/**
+ * Host-specific lifecycle contracts, verified against the vendor references.
+ *
+ * Claude and Copilot route a failed call to PostToolUseFailure instead of PostToolUse.
+ * Codex deliberately does not list that event: its PostToolUse runs for Bash commands
+ * that exit non-zero and carries the result needed by outcomeOf.
+ */
+const eventsByTarget: Record<Exclude<Target, "pi">, readonly string[]> = {
+  claude: [...tracedEvents, failedToolEvent],
+  codex: tracedEvents,
+  copilot: [...tracedEvents, failedToolEvent],
+};
 
 /**
  * The absolute entry point of the build doing the wiring.
@@ -53,7 +66,8 @@ export function resolveCliEntry(): string {
 export const TRACE_MARKER = "--akrctx-trace";
 
 /** Legacy unpinned form written by earlier builds; still adopted so enable stays idempotent. */
-const legacyCommand = /(?:^|[\s"/\\])akrctx hook (?:SessionStart|PreToolUse|PostToolUse|Stop|SessionEnd)$/;
+const legacyCommand =
+  /(?:^|[\s"/\\])akrctx hook (?:SessionStart|PreToolUse|PostToolUse|PostToolUseFailure|Stop|SessionEnd)$/;
 
 /** Pi delivers a tool's outcome on `tool_result`, with the same `toolCallId` as `tool_call`. */
 const piToolEvents = { call: "tool_call", result: "tool_result" } as const;
@@ -122,11 +136,7 @@ export async function runTraceDisable(options: CommandOptions): Promise<TraceIns
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
 
-  const writes: string[] = [];
-  for (const target of config.targets) {
-    const removed = await unwireTarget(cwd, target, options);
-    if (removed) writes.push(removed);
-  }
+  const writes = await unwireTraceTargets(cwd, config.targets, options);
   if (!options.dryRun) {
     await writeConfig(cwd, { ...config, trace: { enabled: false } });
   }
@@ -137,6 +147,28 @@ export async function runTraceDisable(options: CommandOptions): Promise<TraceIns
     wiredTargets: [],
     skippedTargets: [...config.targets],
   };
+}
+
+/**
+ * Remove akrctx-owned trace wiring without consulting project config.
+ *
+ * `remove --all` must call this before deleting `.akrctx/config.json`; afterwards the
+ * normal `trace disable` command intentionally refuses to guess which targets existed.
+ * Taking an explicit target list also lets removal inspect every host, including stale
+ * wiring for a target no longer present in config. Shared settings retain all foreign
+ * entries, and dry-run performs the same reads without writing.
+ */
+export async function unwireTraceTargets(
+  cwd: string,
+  targetsToClean: readonly Target[],
+  options: Pick<CommandOptions, "dryRun"> = {},
+): Promise<string[]> {
+  const writes: string[] = [];
+  for (const target of new Set(targetsToClean)) {
+    const removed = await unwireTarget(cwd, target, options);
+    if (removed) writes.push(removed);
+  }
+  return writes;
 }
 
 export async function runTraceStatus(options: CommandOptions): Promise<TraceStatusResult> {
@@ -183,12 +215,20 @@ async function wireTarget(cwd: string, target: Target, options: CommandOptions):
   return relative;
 }
 
-async function unwireTarget(cwd: string, target: Target, options: CommandOptions): Promise<string | undefined> {
+async function unwireTarget(
+  cwd: string,
+  target: Target,
+  options: Pick<CommandOptions, "dryRun">,
+): Promise<string | undefined> {
   const relative = hostConfigPath[target];
   if (!(await pathExists(path.join(cwd, relative)))) return undefined;
   if (target === "pi") {
-    // The extension is a file akrctx wrote and owns outright, so disabling deletes it.
-    // Reporting it as removed while leaving it on disk would leave the trace running.
+    // The path is reserved by akrctx, but `remove --all` now inspects every target even
+    // when tracing was never enabled. Require the same explicit ownership marker used by
+    // JSON hook entries before deleting, or a coincidentally named foreign extension could
+    // be lost.
+    const content = await readFile(path.join(cwd, relative), "utf8");
+    if (!content.includes(TRACE_MARKER)) return undefined;
     if (!options.dryRun) await rm(path.join(cwd, relative), { force: true });
     return relative;
   }
@@ -222,9 +262,20 @@ async function unwireTarget(cwd: string, target: Target, options: CommandOptions
 async function isWired(cwd: string, target: Target): Promise<boolean> {
   const relative = hostConfigPath[target];
   if (target === "pi") {
-    return (await readFile(path.join(cwd, relative), "utf8").catch(() => "")).includes("akrctx");
+    return (await readFile(path.join(cwd, relative), "utf8").catch(() => "")) === piExtension();
   }
-  return isakrctxEntry((await readJson(cwd, relative)).hooks);
+  const hooks = (await readJson(cwd, relative)).hooks as Record<string, unknown> | undefined;
+  if (!hooks || typeof hooks !== "object" || Array.isArray(hooks)) return false;
+  return eventsByTarget[target].every((event) => hasExpectedCommand(hooks[event], hookCommand(event, target)));
+}
+
+/** Exact command ownership for status: marker, host, event, interpreter and entry point. */
+function hasExpectedCommand(entry: unknown, expected: string): boolean {
+  if (!entry || typeof entry !== "object") return false;
+  if (Array.isArray(entry)) return entry.some((value) => hasExpectedCommand(value, expected));
+  return Object.entries(entry as Record<string, unknown>).some(([key, value]) =>
+    key === "command" ? value === expected : hasExpectedCommand(value, expected),
+  );
 }
 
 /**
@@ -234,7 +285,8 @@ async function isWired(cwd: string, target: Target): Promise<boolean> {
  */
 function mergeHookTable(existing: Record<string, unknown>, host: Target): Record<string, unknown> {
   const hooks = { ...((existing.hooks as Record<string, unknown>) ?? {}) };
-  for (const event of tracedEvents) {
+  if (host === "pi") return existing;
+  for (const event of eventsByTarget[host]) {
     const current = Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : [];
     const foreign = current.filter((entry) => !isakrctxEntry(entry));
     hooks[event] = [
@@ -255,7 +307,7 @@ function mergeHookTable(existing: Record<string, unknown>, host: Target): Record
  */
 function mergeCopilot(existing: Record<string, unknown>, host: Target): Record<string, unknown> {
   const hooks = { ...((existing.hooks as Record<string, unknown>) ?? {}) };
-  for (const event of copilotEvents) {
+  for (const event of eventsByTarget.copilot) {
     const current = Array.isArray(hooks[event]) ? (hooks[event] as unknown[]) : [];
     hooks[event] = [
       ...current.filter((entry) => !isakrctxEntry(entry)),

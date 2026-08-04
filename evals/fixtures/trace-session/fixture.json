@@ -1,0 +1,14 @@
+{
+  "files": {
+    ".akrctx/config.json": "{\n  \"version\": 1,\n  \"targets\": [\n    \"claude\"\n  ],\n  \"trace\": {\n    \"enabled\": true\n  }\n}\n",
+    ".akrctx/policy.json": "{\n  \"blockedReadPatterns\": [\n    \".env\",\n    \"*.pem\"\n  ]\n}\n",
+    ".akrctx/local/.gitignore": "*\n!.gitignore\n",
+    ".akrctx/tasks/TASK-001-eval/task.md": "# TASK-001\n\n## Goal\n\nEvaluate tracing.\n\n## Validation\n\n```\nnpm test\n```\n",
+    ".akrctx/tasks/TASK-001-eval/context.md": "# Context\n",
+    ".akrctx/tasks/TASK-001-eval/plan.md": "# Plan\n",
+    ".akrctx/tasks/TASK-001-eval/acceptance-criteria.md": "# Acceptance Criteria\n",
+    ".akrctx/tasks/TASK-001-eval/review-checklist.md": "# Review Checklist\n",
+    "src/index.ts": "export const value = 1;\n"
+  },
+  "git": true
+}

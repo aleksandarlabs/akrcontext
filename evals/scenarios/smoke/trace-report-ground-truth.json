@@ -1,0 +1,116 @@
+{
+  "id": "trace-report-ground-truth",
+  "title": "Trace report matches a controlled session",
+  "changeType": "observability",
+  "hypothesis": "A known event sequence is reported as capsule-bound before mutation with declared validation observed.",
+  "fixture": "trace-session",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "hook", "SessionStart", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"SessionStart\", \"source\": \"startup\"}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PreToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"PreToolUse\", \"tool_name\": \"Read\", \"tool_input\": {\"file_path\": \".akrctx/tasks/TASK-001-eval/task.md\"}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PreToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"PreToolUse\", \"tool_name\": \"Edit\", \"tool_use_id\": \"edit-1\", \"tool_input\": {\"file_path\": \"src/index.ts\"}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PostToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"PostToolUse\", \"tool_name\": \"Edit\", \"tool_use_id\": \"edit-1\", \"tool_result\": {\"exit_code\": 0}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PreToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"PreToolUse\", \"tool_name\": \"Bash\", \"tool_use_id\": \"validation-1\", \"tool_input\": {\"command\": \"npm test\"}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "PostToolUse", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"PostToolUse\", \"tool_name\": \"Bash\", \"tool_use_id\": \"validation-1\", \"tool_input\": {\"command\": \"npm test\"}, \"tool_result\": {\"exit_code\": 0}}"
+    },
+    {
+      "command": ["$AKRCTX", "hook", "SessionEnd", "--akrctx-trace", "--akrctx-host", "claude"],
+      "stdin": "{\"session_id\": \"eval-session\", \"hook_event_name\": \"SessionEnd\", \"reason\": \"complete\"}"
+    },
+    {
+      "command": ["$AKRCTX", "trace", "report", "--json"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 1,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 2,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 3,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 4,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 5,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 6,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 7,
+      "equals": 0
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 7,
+      "jsonPath": "totals.sessions",
+      "equals": 1
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 7,
+      "jsonPath": "totals.mutating",
+      "equals": 1
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 7,
+      "jsonPath": "totals.capsuleBeforeFirstMutation",
+      "equals": 1
+    },
+    {
+      "type": "stdoutJsonPathEquals",
+      "step": 7,
+      "jsonPath": "totals.validationObserved",
+      "equals": 1
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "trace-classification-accuracy",
+    "direction": "increase",
+    "verdict": "inconclusive"
+  }
+}

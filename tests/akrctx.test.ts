@@ -1780,6 +1780,68 @@ describe("remove", () => {
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
   });
 
+  it("--all unwires tracing for every target before removing its config", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const claudeSettings = path.join(tmp, ".claude/settings.json");
+    await mkdir(path.dirname(claudeSettings), { recursive: true });
+    await writeFile(
+      claudeSettings,
+      JSON.stringify({
+        model: "keep-me",
+        hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "foreign-pre" }] }] },
+      }),
+      "utf8",
+    );
+    const { runTraceEnable } = await import("../src/hook/install.js");
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+
+    const result = await runRemove({ cwd: tmp, force: true, all: true, purgeLocal: true, nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
+    const preservedClaude = await readFile(claudeSettings, "utf8");
+    expect(preservedClaude).toContain("foreign-pre");
+    expect(preservedClaude).toContain("keep-me");
+    expect(preservedClaude).not.toContain("--akrctx-trace");
+    expect(await readFile(path.join(tmp, ".codex/hooks.json"), "utf8")).not.toContain("--akrctx-trace");
+    expect(await readFile(path.join(tmp, ".github/hooks/akrctx-trace.json"), "utf8")).not.toContain("--akrctx-trace");
+    expect(await pathExists(path.join(tmp, ".pi/extensions/akrctx-trace.ts"))).toBe(false);
+    expect(result.updated).toEqual(
+      expect.arrayContaining([
+        ".claude/settings.json",
+        ".codex/hooks.json",
+        ".github/hooks/akrctx-trace.json",
+        ".pi/extensions/akrctx-trace.ts",
+      ]),
+    );
+  });
+
+  it("--all dry-run plans trace cleanup without changing hooks", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const { runTraceEnable } = await import("../src/hook/install.js");
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+    const settingsPath = path.join(tmp, ".claude/settings.json");
+    const before = await readFile(settingsPath, "utf8");
+
+    const result = await runRemove({ cwd: tmp, all: true, nonInteractive: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.updated).toContain(".claude/settings.json");
+    expect(await readFile(settingsPath, "utf8")).toBe(before);
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".pi/extensions/akrctx-trace.ts"))).toBe(true);
+  });
+
+  it("--all preserves a foreign Pi extension at the trace path", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const extensionPath = path.join(tmp, ".pi/extensions/akrctx-trace.ts");
+    await mkdir(path.dirname(extensionPath), { recursive: true });
+    await writeFile(extensionPath, "// foreign extension with a coincidental filename\n", "utf8");
+
+    await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true });
+
+    expect(await readFile(extensionPath, "utf8")).toBe("// foreign extension with a coincidental filename\n");
+  });
+
   it("--all --force preserves .akrctx/tasks/ when task capsules exist", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });

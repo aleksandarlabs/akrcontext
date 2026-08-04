@@ -1,0 +1,11 @@
+{
+  "files": {
+    ".akrctx/config.json": "{\n  \"version\": 1,\n  \"targets\": [\"claude\", \"codex\", \"copilot\", \"pi\"]\n}\n",
+    ".akrctx/policy.json": "{\n  \"blockedReadPatterns\": [\".env\"]\n}\n",
+    ".akrctx/local/.gitignore": "*\n!.gitignore\n",
+    ".claude/settings.json": "{\n  \"model\": \"keep-claude\",\n  \"hooks\": {\n    \"PreToolUse\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"foreign-claude\"}]}]\n  }\n}\n",
+    ".codex/hooks.json": "{\n  \"description\": \"keep-codex\",\n  \"hooks\": {\n    \"PostToolUse\": [{\"hooks\": [{\"type\": \"command\", \"command\": \"foreign-codex\"}]}]\n  }\n}\n",
+    ".github/hooks/akrctx-trace.json": "{\n  \"version\": 1,\n  \"owner\": \"keep-copilot\",\n  \"hooks\": {\n    \"PreToolUse\": [{\"type\": \"command\", \"command\": \"foreign-copilot\"}]\n  }\n}\n"
+  },
+  "git": true
+}

@@ -111,9 +111,11 @@ async function observe(cwd: string, event: NormalizedEvent): Promise<TraceObserv
     // to the check above. The whole command line is screened here instead.
     if (await commandTouchesBlocked(cwd, command)) observation.blocked = true;
     // A shell command's effect on the tree is unknowable from the invocation, so it is
-    // neither a mutation nor a non-mutation.
+    // neither a mutation nor a non-mutation. Its execution outcome is still retained: a
+    // validation is only observed after the successful post event for the same call.
     observation.mutating = undefined;
-    observation.outcome = undefined;
+    if (event.event === "pre-tool") observation.outcome = "attempted";
+    else if (event.event === "post-tool") observation.outcome = outcomeOf(event);
     observation.shell = true;
   }
   return observation;

@@ -61,7 +61,9 @@ export interface TraceObservation {
    */
   mutating?: boolean;
   /**
-   * Whether the call was only requested, or ran and how it ended.
+   * Whether the call was only requested, or ran and how it ended. Shell commands retain
+   * this lifecycle solely to prove validation execution; `shell` keeps their tree effect
+   * uncertain regardless of outcome.
    *
    * A PreToolUse observation is an *attempt*: the user may still reject it, or the tool may
    * fail. Counting attempts as changes made the denominator wrong in both directions, so

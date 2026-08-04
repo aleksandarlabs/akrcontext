@@ -1,0 +1,68 @@
+{
+  "id": "trace-preserves-foreign-hooks",
+  "title": "Trace lifecycle preserves foreign host configuration",
+  "changeType": "observability",
+  "hypothesis": "Enable and disable are idempotent ownership operations that leave unrelated hooks and settings intact.",
+  "fixture": "existing-hooks",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "trace", "enable", "--json"]
+    },
+    {
+      "command": ["$AKRCTX", "trace", "enable", "--json"]
+    },
+    {
+      "command": ["$AKRCTX", "trace", "disable", "--json"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 1,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 2,
+      "equals": 0
+    },
+    {
+      "type": "jsonPathEquals",
+      "path": ".claude/settings.json",
+      "jsonPath": "permissions.allow.0",
+      "equals": "Read"
+    },
+    {
+      "type": "jsonPathEquals",
+      "path": ".claude/settings.json",
+      "jsonPath": "hooks.PreToolUse.0.hooks.0.command",
+      "equals": "foreign-pre"
+    },
+    {
+      "type": "jsonPathEquals",
+      "path": ".akrctx/config.json",
+      "jsonPath": "trace.enabled",
+      "equals": false
+    },
+    {
+      "type": "fileHashEquals",
+      "path": ".claude/settings.json",
+      "equals": "39da39ee4eedd4877b5fa27e1249f990f53188a6e6bd1a676d692c7e153947e0"
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "foreign-config-loss",
+    "direction": "decrease",
+    "verdict": "preserved"
+  }
+}

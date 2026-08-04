@@ -1,0 +1,38 @@
+{
+  "id": "invalid-config-fails-loudly",
+  "title": "Corrupt config cannot silently relax workflow selection",
+  "changeType": "fix",
+  "hypothesis": "Creating a task over corrupt config fails loudly instead of proceeding with permissive defaults.",
+  "fixture": "invalid-config",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "task", "fix regression", "--json"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 1
+    },
+    {
+      "type": "stderrContains",
+      "step": 0,
+      "value": "invalid JSON"
+    },
+    {
+      "type": "fileNotExists",
+      "path": ".akrctx/tasks/TASK-001-fix-regression/task.md"
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "silent-contract-degradation",
+    "direction": "decrease",
+    "verdict": "improved"
+  }
+}
