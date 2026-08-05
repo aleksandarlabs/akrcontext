@@ -3,11 +3,11 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { capsuleFiles } from "./harness-files.js";
 import { CLI_VERSION } from "./version.js";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
-const taskFiles = ["task.md", "context.md", "plan.md", "acceptance-criteria.md", "review-checklist.md"];
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
 export const JUDGE_SCHEMA_VERSION = 2;
@@ -100,7 +100,7 @@ export async function createJudgeScope(
   const uniqueChangedFiles = [...new Set(changedFiles)].sort();
   const taskRoot = await resolveTaskRoot(cwd, taskId);
   const taskParts: Array<string | Buffer> = [];
-  for (const fileName of taskFiles) {
+  for (const fileName of capsuleFiles) {
     const absolute = path.join(taskRoot, fileName);
     let content: Buffer;
     try {
@@ -411,7 +411,7 @@ async function resolveCommit(cwd: string, ref: string): Promise<string> {
  * policy that cannot be read is a reason to refuse to compute a boundary — not a reason to fall
  * back to a weaker default set and carry on as if the exclusion still held.
  */
-async function readBlockedPatterns(cwd: string): Promise<string[]> {
+export async function readBlockedPatterns(cwd: string): Promise<string[]> {
   const unusable = (why: string) =>
     new Error(`Cannot apply policy.json blockedReadPatterns (${why}). Run \`akrctx doctor --fix\` first.`);
   let policy: unknown;
@@ -428,7 +428,7 @@ async function readBlockedPatterns(cwd: string): Promise<string[]> {
   return patterns;
 }
 
-function matchesBlockedPattern(relativePath: string, pattern: string): boolean {
+export function matchesBlockedPattern(relativePath: string, pattern: string): boolean {
   const normalized = relativePath.split(path.sep).join("/");
   const parts = normalized.split("/");
   if (pattern.endsWith("/")) {

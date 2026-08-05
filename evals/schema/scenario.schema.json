@@ -1,0 +1,288 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aleksandarlabs.com/akrctx/evals/scenario.schema.json",
+  "title": "akrctx evaluation scenario",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "title", "changeType", "hypothesis", "fixture", "steps", "assertions", "comparison", "outcome"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "changeType": {
+      "enum": ["fix", "feature", "observability", "refactor", "docs"]
+    },
+    "hypothesis": {
+      "type": "string",
+      "minLength": 1
+    },
+    "fixture": {
+      "type": "string",
+      "minLength": 1
+    },
+    "suite": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["command"],
+        "properties": {
+          "command": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "type": "string",
+            "minLength": 1
+          },
+          "stdin": {
+            "type": "string"
+          },
+          "timeoutMs": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      }
+    },
+    "assertions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "equals"],
+            "properties": {
+              "type": {
+                "const": "exitCode"
+              },
+              "step": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "equals": {
+                "type": "integer"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "value"],
+            "properties": {
+              "type": {
+                "enum": ["stdoutContains", "stdoutExcludes", "stderrContains", "stderrExcludes"]
+              },
+              "step": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "value": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "jsonPath", "equals"],
+            "properties": {
+              "type": {
+                "const": "stdoutJsonPathEquals"
+              },
+              "step": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "jsonPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "equals": {}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "milliseconds"],
+            "properties": {
+              "type": {
+                "const": "durationUnder"
+              },
+              "step": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "milliseconds": {
+                "type": "number",
+                "exclusiveMinimum": 0
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "path"],
+            "properties": {
+              "type": {
+                "enum": ["fileExists", "fileNotExists"]
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "path", "jsonPath", "equals"],
+            "properties": {
+              "type": {
+                "const": "jsonPathEquals"
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "jsonPath": {
+                "type": "string",
+                "minLength": 1
+              },
+              "equals": {}
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "path", "equals"],
+            "properties": {
+              "type": {
+                "const": "fileHashEquals"
+              },
+              "path": {
+                "type": "string",
+                "minLength": 1
+              },
+              "equals": {
+                "type": "string",
+                "pattern": "^[0-9a-f]{64}$"
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["type", "equals"],
+            "properties": {
+              "type": {
+                "const": "gitClean"
+              },
+              "equals": {
+                "type": "boolean"
+              }
+            }
+          }
+        ]
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["baseExpected", "candidateExpected"],
+      "properties": {
+        "baseExpected": {
+          "enum": ["pass", "fail"]
+        },
+        "candidateExpected": {
+          "enum": ["pass", "fail"]
+        }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["metric", "direction"],
+      "properties": {
+        "metric": {
+          "type": "string",
+          "minLength": 1
+        },
+        "direction": {
+          "enum": ["increase", "decrease", "preserve"]
+        },
+        "verdict": {
+          "enum": ["improved", "preserved", "worsened", "inconclusive", "not-applicable"]
+        },
+        "threshold": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "changeType": {
+            "enum": ["feature", "observability", "refactor"]
+          },
+          "outcome": {
+            "properties": {
+              "verdict": {
+                "const": "improved"
+              }
+            },
+            "required": ["verdict"]
+          }
+        },
+        "required": ["changeType", "outcome"]
+      },
+      "then": false
+    },
+    {
+      "if": {
+        "properties": {
+          "changeType": {
+            "const": "docs"
+          }
+        },
+        "required": ["changeType"]
+      },
+      "then": {
+        "properties": {
+          "outcome": {
+            "properties": {
+              "verdict": {
+                "const": "not-applicable"
+              }
+            },
+            "required": ["verdict"]
+          }
+        }
+      }
+    }
+  ]
+}

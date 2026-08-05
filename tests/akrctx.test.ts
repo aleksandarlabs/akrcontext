@@ -13,10 +13,11 @@ import {
   runComprehensionEnable,
   runComprehensionStatus,
 } from "../src/comprehension.js";
-import { normalizeWorkflow, readConfig, readConfigStrict, setConfigValue } from "../src/config.js";
+import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js";
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
+import { capsuleFiles } from "../src/harness-files.js";
 import { runInit } from "../src/init.js";
 import { JUDGE_SCHEMA_VERSION, createJudgeScope, verifyJudgeRecord } from "../src/judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
@@ -24,6 +25,7 @@ import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
 import { runTemplateApply, runTemplateStatus } from "../src/template-apply.js";
+import { taskTemplateFiles } from "../src/templates.js";
 import { workflows } from "../src/types.js";
 import { runUpgrade } from "../src/upgrade.js";
 import { CLI_VERSION } from "../src/version.js";
@@ -1145,23 +1147,18 @@ describe("config", () => {
     );
   });
 
-  it("readConfig returns undefined (not throws) when config.json is corrupted", async () => {
+  // This pair previously pinned the opposite behavior: readConfig swallowed a corrupt
+  // config and returned undefined, which callers could not distinguish from "not
+  // installed". See the "silent degradation" block for the contract that replaced it.
+  it("readConfig throws on corrupt JSON instead of returning undefined", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
 
-    const config = await readConfig(tmp);
-    expect(config).toBeUndefined();
+    await expect(readConfig(tmp)).rejects.toThrow("invalid JSON");
   });
 
-  it("readConfigStrict throws on corrupt JSON instead of returning undefined", async () => {
-    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
-    await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
-
-    await expect(readConfigStrict(tmp)).rejects.toThrow("invalid JSON");
-  });
-
-  it("readConfigStrict returns undefined when config.json is simply missing", async () => {
-    await expect(readConfigStrict(tmp)).resolves.toBeUndefined();
+  it("readConfig returns undefined when config.json is simply missing", async () => {
+    await expect(readConfig(tmp)).resolves.toBeUndefined();
   });
 
   it("setConfigValue throws instead of silently overwriting a corrupt config", async () => {
@@ -1185,6 +1182,141 @@ describe("config", () => {
       process.chdir(previousCwd);
       console.log = originalLog;
     }
+  });
+});
+
+// ── silent degradation ───────────────────────────────────────────────────────
+
+describe("silent degradation", () => {
+  const corrupt = async (contents: string) => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/config.json"), contents, "utf8");
+  };
+
+  it("refuses to select a workflow from a corrupt config instead of allowing every workflow", async () => {
+    await corrupt("{ broken json");
+
+    // The defect: readConfig returned undefined, selectWorkflow fell back to the full
+    // workflow list, and the task capsule was written as if the project had configured
+    // no restrictions at all.
+    await expect(runTask("Add invoice API", { cwd: tmp, nonInteractive: true })).rejects.toThrow("invalid JSON");
+  });
+
+  it("reports a corrupt config from status instead of calling it not configured", async () => {
+    await corrupt("{ broken json");
+
+    await expect(runStatus({ cwd: tmp, nonInteractive: true })).rejects.toThrow("invalid JSON");
+  });
+
+  it("still diagnoses a repository whose config.json is corrupt", async () => {
+    await corrupt("{ broken json");
+
+    // Doctor is the one caller that must tolerate corruption: diagnosing broken
+    // repositories is its entire job. It reports the corruption rather than crashing.
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/config.json — invalid JSON (run akrctx init to regenerate)");
+  });
+
+  it.each([
+    ["null", "null"],
+    ["an array", "[]"],
+    ["a number", "42"],
+  ])("rejects a config that is %s rather than defaulting to a codex install", async (_label, contents) => {
+    await corrupt(contents);
+
+    await expect(readConfig(tmp)).rejects.toThrow("not a JSON object");
+  });
+
+  it("rejects a config that declares no recognizable target instead of inventing codex", async () => {
+    await corrupt(JSON.stringify({ version: 1, targets: ["not-a-real-agent"] }));
+
+    // The defect: normalizeConfig substituted ["codex"] here, so a claude-only repo with
+    // a damaged targets list silently became a codex install.
+    await expect(readConfig(tmp)).rejects.toThrow("no recognized target");
+  });
+
+  it("reports a target-less config as a doctor gap rather than crashing on it", async () => {
+    await corrupt(JSON.stringify({ version: 1, targets: [] }));
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/config.json — targets must list at least one supported target");
+  });
+});
+
+// ── canonical capsule file list ──────────────────────────────────────────────
+
+describe("canonical capsule file list", () => {
+  // Deliberately no literal list here. A third copy of the names in the tests would let
+  // a sixth capsule file be added to the constant while `task create` and `_template`
+  // quietly kept producing five — which is the defect this block exists to prevent.
+  it("ships every capsule file in the _template directory", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const shipped = await readdir(path.join(tmp, ".akrctx/tasks/_template"));
+
+    expect(shipped.sort()).toEqual([...capsuleFiles].sort());
+  });
+
+  it("derives the shipped template from the canonical list", () => {
+    expect(Object.keys(taskTemplateFiles).sort()).toEqual(capsuleFiles.map((f) => `tasks/_template/${f}`).sort());
+  });
+
+  it("writes every capsule file when task create generates a capsule", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+
+    for (const name of capsuleFiles) {
+      expect(task.writes).toContain(path.posix.join(task.taskDir, name));
+    }
+  });
+
+  it("computes a judge scope for a capsule copied verbatim from _template", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    // The defect end to end: _template shipped four files, createJudgeScope required
+    // five, so `akrctx judge scope` failed on a capsule the harness itself produced.
+    const capsule = path.join(tmp, ".akrctx/tasks/TASK-001-copied-from-template");
+    await mkdir(capsule, { recursive: true });
+    for (const name of await readdir(path.join(tmp, ".akrctx/tasks/_template"))) {
+      await writeFile(
+        path.join(capsule, name),
+        await readFile(path.join(tmp, ".akrctx/tasks/_template", name)),
+        "utf8",
+      );
+    }
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.name", "akrctx tests"], { cwd: tmp });
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
+
+    const scope = await createJudgeScope(tmp, "TASK-001", "HEAD", "WORKTREE");
+
+    expect(scope.taskId).toBe("TASK-001");
+    expect(scope.taskDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("requires every capsule template file in doctor", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await rm(path.join(tmp, ".akrctx/tasks/_template/acceptance-criteria.md"));
+
+    const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(result.missing).toContain(".akrctx/tasks/_template/acceptance-criteria.md");
+  });
+
+  it("creates the capsule template file missing from an older installation on upgrade", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    const existing = path.join(tmp, ".akrctx/tasks/_template/task.md");
+    await writeFile(existing, "# Task\n\nProject-owned edit that must survive.\n", "utf8");
+    await rm(path.join(tmp, ".akrctx/tasks/_template/acceptance-criteria.md"));
+
+    await runUpgrade({ cwd: tmp, nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/tasks/_template/acceptance-criteria.md"))).toBe(true);
+    expect(await readFile(existing, "utf8")).toContain("Project-owned edit that must survive.");
   });
 });
 
@@ -1646,6 +1778,68 @@ describe("remove", () => {
     await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true } as Parameters<typeof runRemove>[0]);
 
     expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
+  });
+
+  it("--all unwires tracing for every target before removing its config", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const claudeSettings = path.join(tmp, ".claude/settings.json");
+    await mkdir(path.dirname(claudeSettings), { recursive: true });
+    await writeFile(
+      claudeSettings,
+      JSON.stringify({
+        model: "keep-me",
+        hooks: { PreToolUse: [{ hooks: [{ type: "command", command: "foreign-pre" }] }] },
+      }),
+      "utf8",
+    );
+    const { runTraceEnable } = await import("../src/hook/install.js");
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+
+    const result = await runRemove({ cwd: tmp, force: true, all: true, purgeLocal: true, nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(false);
+    const preservedClaude = await readFile(claudeSettings, "utf8");
+    expect(preservedClaude).toContain("foreign-pre");
+    expect(preservedClaude).toContain("keep-me");
+    expect(preservedClaude).not.toContain("--akrctx-trace");
+    expect(await readFile(path.join(tmp, ".codex/hooks.json"), "utf8")).not.toContain("--akrctx-trace");
+    expect(await readFile(path.join(tmp, ".github/hooks/akrctx-trace.json"), "utf8")).not.toContain("--akrctx-trace");
+    expect(await pathExists(path.join(tmp, ".pi/extensions/akrctx-trace.ts"))).toBe(false);
+    expect(result.updated).toEqual(
+      expect.arrayContaining([
+        ".claude/settings.json",
+        ".codex/hooks.json",
+        ".github/hooks/akrctx-trace.json",
+        ".pi/extensions/akrctx-trace.ts",
+      ]),
+    );
+  });
+
+  it("--all dry-run plans trace cleanup without changing hooks", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const { runTraceEnable } = await import("../src/hook/install.js");
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+    const settingsPath = path.join(tmp, ".claude/settings.json");
+    const before = await readFile(settingsPath, "utf8");
+
+    const result = await runRemove({ cwd: tmp, all: true, nonInteractive: true });
+
+    expect(result.dryRun).toBe(true);
+    expect(result.updated).toContain(".claude/settings.json");
+    expect(await readFile(settingsPath, "utf8")).toBe(before);
+    expect(await pathExists(path.join(tmp, ".akrctx/config.json"))).toBe(true);
+    expect(await pathExists(path.join(tmp, ".pi/extensions/akrctx-trace.ts"))).toBe(true);
+  });
+
+  it("--all preserves a foreign Pi extension at the trace path", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const extensionPath = path.join(tmp, ".pi/extensions/akrctx-trace.ts");
+    await mkdir(path.dirname(extensionPath), { recursive: true });
+    await writeFile(extensionPath, "// foreign extension with a coincidental filename\n", "utf8");
+
+    await runRemove({ cwd: tmp, force: true, all: true, nonInteractive: true });
+
+    expect(await readFile(extensionPath, "utf8")).toBe("// foreign extension with a coincidental filename\n");
   });
 
   it("--all --force preserves .akrctx/tasks/ when task capsules exist", async () => {
@@ -2625,6 +2819,42 @@ describe("doctor --fix", () => {
 
     expect(result.fixed?.some((f) => f.includes("akrctx-doctor/SKILL.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(true);
+  });
+
+  it.each([
+    // The config is written through JSON.stringify, which omits undefined values, so the
+    // first case really does produce a file with no `targets` key at all.
+    ["absent", (config: Record<string, unknown>) => Object.assign(config, { targets: undefined })],
+    ["empty", (config: Record<string, unknown>) => Object.assign(config, { targets: [] })],
+    ["unrecognizable", (config: Record<string, unknown>) => Object.assign(config, { targets: ["not-an-agent"] })],
+  ])("leaves a config whose targets list is %s untouched and keeps the gap", async (_label, damage) => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    damage(config);
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    const result = await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    // Repair must not answer "which agent is this repository for?" by guessing. Writing
+    // ["codex"] into a Claude install both retargets the project and clears the gap that
+    // would have told the human to fix it, which is worse than leaving it broken.
+    const repaired = JSON.parse(await readFile(configPath, "utf8"));
+    expect(repaired.targets ?? []).not.toContain("codex");
+    expect(result.missing).toContain(".akrctx/config.json — targets must list at least one supported target");
+    expect(result.readiness).toBeLessThan(100);
+  });
+
+  it("repairs a partly invalid targets list from the entries it can trust", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.targets = ["claude", "not-an-agent"];
+    await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
+
+    await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+
+    expect(JSON.parse(await readFile(configPath, "utf8")).targets).toEqual(["claude"]);
   });
 
   it("repairs config gaps without overwriting user values", async () => {

@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Opt-in session tracing and contract-conformance reports for Claude Code, Codex, GitHub Copilot, and Pi. Tracing is observational and fail-open; it does not enforce host decisions.
+- A deterministic black-box evaluation loop under `evals/`, with disposable fixtures, validated scenario contracts, candidate-only smoke runs, immutable Git-ref comparison, cached builds, and JSON/Markdown reports.
+- Initial regression scenarios for task capsule completeness and corrupt-config handling, plus conformance scenarios for trace behavior and hook ownership.
+
+### Changed
+
+- Evaluation reports separate mechanism conformance from independently supported outcomes; candidate-only runs cannot claim improvement without a baseline. Report artifacts omit raw process output and arguments, fixture paths resolve symlinks before access, and cached builds are published atomically with full `dist/` integrity checks.
+- Trace reports now distinguish a known project mutation from unknown first-mutation ordering. Unclassified shell calls before capsule binding produce `capsuleBeforeFirstMutation: null`, while capsule and validation evidence remains in the known-mutating denominator.
+
+### Fixed
+
+- Fresh task capsule templates include `acceptance-criteria.md`.
+- Task creation fails loudly on invalid `.akrctx/config.json` instead of silently falling back to permissive defaults.
+- Full removal unwires akrctx-owned trace hooks for every host before deleting project configuration, while preserving foreign entries.
+- Claude failed-tool events settle their matching attempts, validation requires a successful correlated outcome, and trace status rejects partial or mismatched wiring.
+
 ## [0.4.0] - 2026-08-01
 
 ### Added

@@ -56,6 +56,11 @@ akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
 akrctx judge verify .akrctx/local/judge/TASK-001/review.json
 akrctx comprehension enable            # enable developer understanding checkpoints
 akrctx comprehension status
+akrctx trace enable                    # opt in to observational session tracing
+akrctx trace status
+akrctx trace report                    # human summary; unknown ordering is shown explicitly
+akrctx trace report --json             # per-session and aggregate contract-conformance metrics
+akrctx trace disable                   # remove only akrctx-owned hook entries
 akrctx remove --target codex --force   # remove harness for a target
 akrctx templates list                  # list bundled enterprise templates
 akrctx templates apply NAME            # apply bundled template after init
@@ -231,3 +236,14 @@ pnpm test
 akrctx init --target codex --dry-run
 akrctx doctor --json
 ```
+
+## Evaluating Changes
+
+The repository includes deterministic black-box evaluations for features and fixes. They run the compiled CLI against disposable fixtures rather than your working project.
+
+```bash
+corepack pnpm eval
+corepack pnpm eval:compare -- --base origin/main --candidate HEAD
+```
+
+`eval` proves only that the candidate satisfies the scenario assertions, so its outcome remains inconclusive. `eval:compare` materializes immutable Git refs and can establish a regression or improvement. Before merging a feature or fix, add or update a scenario under `evals/scenarios/`, run both commands, and review the generated Markdown report. See [`evals/README.md`](evals/README.md) for the scenario contract and verdict rules.

@@ -13,7 +13,9 @@
     "lint:fix": "biome check --write .",
     "format": "biome format --write .",
     "prepare": "pnpm build",
-    "akrctx": "node dist/index.js"
+    "akrctx": "node dist/index.js",
+    "eval": "node evals/cli.mjs run --suite smoke",
+    "eval:compare": "node evals/cli.mjs compare --suite smoke"
   },
   "engines": {
     "node": ">=20"

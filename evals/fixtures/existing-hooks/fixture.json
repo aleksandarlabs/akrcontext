@@ -1,0 +1,9 @@
+{
+  "files": {
+    ".akrctx/config.json": "{\n  \"version\": 1,\n  \"targets\": [\n    \"claude\"\n  ]\n}\n",
+    ".akrctx/policy.json": "{\n  \"blockedReadPatterns\": [\n    \".env\"\n  ]\n}\n",
+    ".akrctx/local/.gitignore": "*\n!.gitignore\n",
+    ".claude/settings.json": "{\n  \"permissions\": {\n    \"allow\": [\n      \"Read\"\n    ]\n  },\n  \"hooks\": {\n    \"PreToolUse\": [\n      {\n        \"matcher\": \"Read\",\n        \"hooks\": [\n          {\n            \"type\": \"command\",\n            \"command\": \"foreign-pre\"\n          }\n        ]\n      }\n    ]\n  }\n}\n"
+  },
+  "git": true
+}

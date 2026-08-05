@@ -1,0 +1,7 @@
+{
+  "files": {
+    "package.json": "{\n  \"name\": \"fixture\",\n  \"type\": \"module\"\n}\n",
+    "src/index.ts": "export const value = 1;\n"
+  },
+  "git": true
+}

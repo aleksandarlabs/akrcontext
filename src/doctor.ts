@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { comprehensionAgentFilesByTarget, isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
-import { readConfig, writeConfig } from "./config.js";
+import { readConfigForDiagnosis, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { neutralRequired, protectedFiles, targetReferenceFile, targetRequired } from "./harness-files.js";
@@ -22,6 +22,7 @@ import {
   type Target,
   type WikiLintResult,
   profiles,
+  targets,
 } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 import { lintWiki } from "./wiki-lint.js";
@@ -57,8 +58,8 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
       const rawText = await readFile(configPath, "utf8");
       const raw = JSON.parse(rawText);
       const normalized = normalizeConfigForFix(raw);
-      const nextText = `${JSON.stringify(normalized, null, 2)}\n`;
-      if (nextText !== rawText) {
+      const nextText = normalized ? `${JSON.stringify(normalized, null, 2)}\n` : rawText;
+      if (nextText !== rawText && normalized) {
         await writeConfig(cwd, normalized, options.dryRun);
         if (!options.dryRun) fixed.push(".akrctx/config.json");
       }
@@ -80,15 +81,34 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
 }
 
 async function readProfile(cwd: string): Promise<Profile> {
-  const config = await readConfig(cwd);
+  // Doctor is the one command that must survive an unusable config: it exists to report
+  // that damage, and `getConfigGaps` already does. Falling back to the default profile
+  // here is a reporting decision, not a silent contract change.
+  const config = await readConfigForDiagnosis(cwd);
   return config?.profile && profiles.includes(config.profile as Profile) ? (config.profile as Profile) : "default";
 }
 
-function normalizeConfigForFix(config: import("./types.js").akrctxConfig): import("./types.js").akrctxConfig {
-  const base = defaultConfig(config.targets?.length ? config.targets : ["codex"], config.profile);
+/**
+ * Merge missing keys into an existing config, or refuse.
+ *
+ * Returns undefined when the config names no target this CLI recognizes. Repair must not
+ * answer "which agent is this repository for?" by guessing: substituting ["codex"] both
+ * retargets the project and clears the very gap that would have told the human to fix it,
+ * so `--fix` would report readiness 100 on a Claude install it had just pointed at Codex.
+ * Leaving the file untouched keeps the gap visible until there is reliable information.
+ */
+function normalizeConfigForFix(
+  config: import("./types.js").akrctxConfig,
+): import("./types.js").akrctxConfig | undefined {
+  const configuredTargets = Array.isArray(config.targets)
+    ? config.targets.filter((target): target is Target => targets.includes(target))
+    : [];
+  if (configuredTargets.length === 0) return undefined;
+  const base = defaultConfig(configuredTargets, config.profile);
   return {
     ...base,
     ...config,
+    targets: configuredTargets,
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",
     defaults: {
@@ -337,6 +357,14 @@ async function getConfigGaps(cwd: string): Promise<{ gaps: string[]; installedVe
   try {
     const config = JSON.parse(await readFile(configPath, "utf8"));
     const gaps: string[] = [];
+    // Every other consumer refuses to read a config with no recognizable target rather
+    // than inventing one, so doctor has to be the place that names the gap.
+    if (
+      !Array.isArray(config.targets) ||
+      !config.targets.some((target: unknown) => targets.includes(target as Target))
+    ) {
+      gaps.push(".akrctx/config.json — targets must list at least one supported target");
+    }
     if (!config.defaults?.workflow) gaps.push(".akrctx/config.json — missing defaults.workflow");
     if (!config.defaults?.allowedWorkflows) gaps.push(".akrctx/config.json — missing defaults.allowedWorkflows");
     if (typeof config.defaults?.requireTaskCapsule !== "boolean")

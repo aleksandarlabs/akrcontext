@@ -3,12 +3,15 @@ import path from "node:path";
 import { comprehensionAgentFilesByTarget } from "./comprehension.js";
 import { pathExists } from "./fs-utils.js";
 import { protectedFiles, targetRequired } from "./harness-files.js";
+import { unwireTraceTargets } from "./hook/install.js";
 import type { CommandOptions, Target } from "./types.js";
 import { targets } from "./types.js";
 
 export interface RemoveResult {
   /** Files that were removed (or would be removed in dry-run). */
   planned: string[];
+  /** Shared host settings updated only to remove akrctx-owned trace entries. */
+  updated: string[];
   /** Protected files that were skipped (require manual action). */
   protected: string[];
   dryRun: boolean;
@@ -20,6 +23,11 @@ export async function runRemove(
   const cwd = options.cwd ?? process.cwd();
   // Default to dry-run unless --force is explicitly passed.
   const dryRun = options.dryRun || !options.force;
+
+  // Trace wiring lives in shared host settings rather than in targetRequired. Remove its
+  // owned entries first, while config and the pinned CLI still exist. For --all, inspect
+  // every host rather than trusting a possibly stale targets list in config.json.
+  const updated = await unwireTraceTargets(cwd, removalTargets(options), { dryRun });
 
   const candidates = collectCandidates(options);
 
@@ -83,7 +91,7 @@ export async function runRemove(
     }
   }
 
-  return { planned, protected: skippedProtected, dryRun };
+  return { planned, updated, protected: skippedProtected, dryRun };
 }
 
 async function pruneEmptyAncestors(cwd: string, relativePath: string): Promise<string[]> {
@@ -193,6 +201,11 @@ function collectCandidates(options: CommandOptions & { all?: boolean }): string[
   candidates.push(...targetRequired[target as Target]);
   candidates.push(...comprehensionAgentCandidates(target as Target));
   return candidates;
+}
+
+function removalTargets(options: CommandOptions & { all?: boolean }): Target[] {
+  if (options.all || options.target === "all") return [...targets];
+  return options.target && targets.includes(options.target as Target) ? [options.target as Target] : [];
 }
 
 function comprehensionAgentCandidates(target: Target): string[] {

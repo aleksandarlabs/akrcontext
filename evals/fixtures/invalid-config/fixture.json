@@ -1,0 +1,6 @@
+{
+  "files": {
+    ".akrctx/config.json": "{ invalid json\n"
+  },
+  "git": true
+}

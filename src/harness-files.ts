@@ -1,5 +1,33 @@
 import type { Target } from "./types.js";
 
+/**
+ * The files that make up a task capsule, in the order they are meant to be read.
+ *
+ * This list is the single source of truth. `createJudgeScope` refuses to compute a
+ * boundary when any of them is missing, so a shipped `_template` that omitted one made
+ * `akrctx judge scope` fail on a capsule the harness itself had produced. Derive from
+ * this constant rather than repeating the names.
+ */
+export const capsuleFiles = [
+  "task.md",
+  "context.md",
+  "plan.md",
+  "acceptance-criteria.md",
+  "review-checklist.md",
+] as const;
+
+export type CapsuleFile = (typeof capsuleFiles)[number];
+
+/**
+ * Content for every capsule file, keyed by name.
+ *
+ * Producers are typed with this rather than listing names inline, so adding an entry to
+ * `capsuleFiles` fails the build everywhere the content has to be supplied — the shipped
+ * `_template` and `akrctx task` alike. Consumers that only check for presence can iterate
+ * `capsuleFiles` directly.
+ */
+export type CapsuleContent = Record<CapsuleFile, string>;
+
 export const neutralRequired = [
   ".akrctx/config.json",
   ".akrctx/manifest.json",
@@ -24,10 +52,7 @@ export const neutralRequired = [
   ".akrctx/wiki/write-policy.md",
   ".akrctx/wiki/log.md",
   ".akrctx/wiki/index.md",
-  ".akrctx/tasks/_template/task.md",
-  ".akrctx/tasks/_template/context.md",
-  ".akrctx/tasks/_template/plan.md",
-  ".akrctx/tasks/_template/review-checklist.md",
+  ...capsuleFiles.map((file) => `.akrctx/tasks/_template/${file}`),
 ];
 
 /** Given an installed target, the target reference file doctor should require. */

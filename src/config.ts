@@ -23,23 +23,20 @@ const validConfigKeys = [
   "defaults.contextBudget",
 ] as const;
 
-export async function readConfig(cwd: string): Promise<akrctxConfig | undefined> {
-  const absolute = path.join(cwd, configPath);
-  if (!(await pathExists(absolute))) return undefined;
-  try {
-    return normalizeConfig(JSON.parse(await readFile(absolute, "utf8")));
-  } catch {
-    return undefined;
-  }
-}
-
 /**
- * Like readConfig, but distinguishes a missing config (returns undefined)
- * from a corrupt one (throws). Use this wherever following the "not found"
- * advice (running `akrctx init`) could clobber a broken config that a human
- * needs to inspect first.
+ * Read the project config, distinguishing a missing config (returns undefined) from an
+ * unusable one (throws).
+ *
+ * Both cases used to return undefined, and callers could not tell them apart. That is
+ * not a cosmetic difference: `runTask` reads the config to learn which workflows the
+ * project allows, and an undefined config there means "no restrictions", so a single
+ * stray character in config.json silently granted every workflow and dropped
+ * `defaults.workflow`. Failing loudly is the only behavior that keeps the declared
+ * contract and the enforced one in agreement.
+ *
+ * `readConfigForDiagnosis` is the sole exception, and it exists for exactly one caller.
  */
-export async function readConfigStrict(cwd: string): Promise<akrctxConfig | undefined> {
+export async function readConfig(cwd: string): Promise<akrctxConfig | undefined> {
   const absolute = path.join(cwd, configPath);
   if (!(await pathExists(absolute))) return undefined;
   let raw: unknown;
@@ -51,6 +48,22 @@ export async function readConfigStrict(cwd: string): Promise<akrctxConfig | unde
   return normalizeConfig(raw);
 }
 
+/**
+ * Read the config, treating an unusable one as absent.
+ *
+ * Only `doctor` may use this. Diagnosing a broken repository is its entire purpose, so
+ * it has to keep running over a config it cannot parse and report the damage through
+ * `getConfigGaps` instead of aborting on it. Every other caller acts on the config and
+ * must use `readConfig`, which refuses to guess.
+ */
+export async function readConfigForDiagnosis(cwd: string): Promise<akrctxConfig | undefined> {
+  try {
+    return await readConfig(cwd);
+  } catch {
+    return undefined;
+  }
+}
+
 export async function writeConfig(cwd: string, config: akrctxConfig, dryRun = false): Promise<void> {
   if (dryRun) return;
   const absolute = path.join(cwd, configPath);
@@ -59,19 +72,27 @@ export async function writeConfig(cwd: string, config: akrctxConfig, dryRun = fa
 }
 
 export function normalizeConfig(raw: unknown): akrctxConfig {
-  if (!raw || typeof raw !== "object") {
-    return defaultConfig(["codex"]);
+  // A config that is valid JSON but not an object carries no target list, and the old
+  // fallback answered that by inventing a codex install. Silently retargeting somebody
+  // else's repository is worse than refusing to read it.
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    throw new Error(".akrctx/config.json is not a JSON object — fix it manually or restore from git.");
   }
   const partial = raw as Partial<akrctxConfig>;
   const configuredTargets = Array.isArray(partial.targets)
     ? partial.targets.filter((target): target is Target => targets.includes(target as Target))
     : [];
-  const base = defaultConfig(configuredTargets.length ? configuredTargets : ["codex"]);
+  if (configuredTargets.length === 0) {
+    throw new Error(
+      `.akrctx/config.json lists no recognized target. Valid targets: ${targets.join(", ")}. Run \`akrctx doctor\` to see the gap.`,
+    );
+  }
+  const base = defaultConfig(configuredTargets);
 
   return {
     ...base,
     ...partial,
-    targets: configuredTargets.length ? configuredTargets : base.targets,
+    targets: configuredTargets,
     templatePacks: normalizeTemplatePacks(partial.templatePacks),
     sourceOfTruth: ".akrctx",
     createdBy: "akrctx",
@@ -151,7 +172,7 @@ export async function setConfigValue(cwd: string, key: string, value: string, dr
     throw new Error(`Unsupported config key: "${normalizedKey}". Valid keys: ${validConfigKeys.join(", ")}.`);
   }
 
-  const current = (await readConfigStrict(cwd)) ?? defaultConfig(["codex"]);
+  const current = (await readConfig(cwd)) ?? defaultConfig(["codex"]);
   const next = structuredClone(current);
 
   if (normalizedKey === "defaultWorkflow" || normalizedKey === "defaults.workflow") {

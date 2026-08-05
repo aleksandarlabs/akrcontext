@@ -1,5 +1,5 @@
 import path from "node:path";
-import { readConfigStrict, writeConfig } from "./config.js";
+import { readConfig, writeConfig } from "./config.js";
 import { pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
 import {
@@ -62,7 +62,7 @@ export async function hasValidLocalIgnore(cwd: string): Promise<boolean> {
 
 export async function runComprehensionEnable(options: CommandOptions): Promise<ComprehensionEnableResult> {
   const cwd = options.cwd ?? process.cwd();
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   if (config.installedVersion !== CLI_VERSION) {
     throw new Error("Harness is not current. Run `akrctx upgrade` before enabling comprehension checkpoints.");
@@ -113,7 +113,7 @@ export async function runComprehensionEnable(options: CommandOptions): Promise<C
 
 export async function runComprehensionDisable(options: CommandOptions): Promise<ComprehensionStatusResult> {
   const cwd = options.cwd ?? process.cwd();
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   const next = { ...config, comprehensionGate: { ...config.comprehensionGate, enabled: false } };
   if (!options.dryRun) await writeConfig(cwd, next);
@@ -122,7 +122,7 @@ export async function runComprehensionDisable(options: CommandOptions): Promise<
 
 export async function runComprehensionStatus(options: CommandOptions): Promise<ComprehensionStatusResult> {
   const cwd = options.cwd ?? process.cwd();
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   return buildStatus(cwd, config);
 }

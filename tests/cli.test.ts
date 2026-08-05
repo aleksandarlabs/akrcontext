@@ -3,6 +3,11 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { main } from "../src/cli.js";
+import { runHook } from "../src/hook/index.js";
+import { runTraceEnable } from "../src/hook/install.js";
+import { runTraceReport } from "../src/hook/report.js";
+import { runInit } from "../src/init.js";
+import { runTask } from "../src/task.js";
 
 let tmp: string;
 let previousCwd: string;
@@ -129,5 +134,87 @@ describe("CLI layer — main(argv)", () => {
       expect(parsed.enabled).toBe(expected);
       expect(parsed.localIgnoreValid).toBe(true);
     }
+  });
+
+  it("renders an unknown first-mutation ordering instead of a false zero-percent result", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    const emit = (event: string, body: Record<string, unknown>) => runHook(event, JSON.stringify(body), tmp);
+    const shell = { tool_name: "Bash", tool_use_id: "shell", tool_input: { command: "ls" } };
+    const edit = { tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } };
+
+    await emit("SessionStart", { session_id: "unknown-order" });
+    await emit("PreToolUse", { session_id: "unknown-order", ...shell });
+    await emit("PostToolUse", { session_id: "unknown-order", ...shell, tool_result: { exit_code: 0 } });
+    await emit("PreToolUse", {
+      session_id: "unknown-order",
+      tool_name: "Read",
+      tool_input: { file_path: `${task.taskDir}/task.md` },
+    });
+    await emit("PreToolUse", { session_id: "unknown-order", ...edit });
+    await emit("PostToolUse", { session_id: "unknown-order", ...edit, tool_result: { exit_code: 0 } });
+    await emit("SessionEnd", { session_id: "unknown-order" });
+
+    const { logs, restore } = captureLogs();
+    try {
+      await main(["node", "akrctx", "trace", "report"]);
+    } finally {
+      restore();
+    }
+    const orderingLine = logs.find((line) => line.includes("capsule bound first"));
+    expect(orderingLine).toContain("unknown");
+    expect(orderingLine).not.toContain("0%");
+  });
+
+  it("uses only known first-mutation orderings in the human percentage", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await runTraceEnable({ cwd: tmp, nonInteractive: true });
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    const emit = (event: string, body: Record<string, unknown>) => runHook(event, JSON.stringify(body), tmp);
+    const capsule = { tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } };
+    const completedEdit = async (sessionId: string, callId: string) => {
+      const edit = {
+        session_id: sessionId,
+        tool_name: "Edit",
+        tool_use_id: callId,
+        tool_input: { file_path: "src/a.ts" },
+      };
+      await emit("PreToolUse", edit);
+      await emit("PostToolUse", { ...edit, tool_result: { exit_code: 0 } });
+    };
+
+    await emit("SessionStart", { session_id: "ordered-true" });
+    await emit("PreToolUse", { session_id: "ordered-true", ...capsule });
+    await completedEdit("ordered-true", "true-edit");
+    await emit("SessionEnd", { session_id: "ordered-true" });
+
+    await emit("SessionStart", { session_id: "ordered-false" });
+    await completedEdit("ordered-false", "false-edit");
+    await emit("PreToolUse", { session_id: "ordered-false", ...capsule });
+    await emit("SessionEnd", { session_id: "ordered-false" });
+
+    const shell = { tool_name: "Bash", tool_use_id: "unknown-shell", tool_input: { command: "ls" } };
+    await emit("SessionStart", { session_id: "ordered-unknown" });
+    await emit("PreToolUse", { session_id: "ordered-unknown", ...shell });
+    await emit("PostToolUse", { session_id: "ordered-unknown", ...shell, tool_result: { exit_code: 0 } });
+    await emit("PreToolUse", { session_id: "ordered-unknown", ...capsule });
+    await completedEdit("ordered-unknown", "unknown-edit");
+    await emit("SessionEnd", { session_id: "ordered-unknown" });
+
+    expect((await runTraceReport({ cwd: tmp, nonInteractive: true })).totals).toMatchObject({
+      orderingKnown: 2,
+      orderingUnknown: 1,
+      capsuleBeforeFirstMutation: 1,
+    });
+
+    const { logs, restore } = captureLogs();
+    try {
+      await main(["node", "akrctx", "trace", "report"]);
+    } finally {
+      restore();
+    }
+    expect(logs.find((line) => line.includes("First-mutation ordering unknown:"))).toContain("1");
+    expect(logs.find((line) => line.includes("capsule bound first"))).toContain("1 (50% of 2 known)");
   });
 });

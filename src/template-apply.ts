@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { normalizeConfig, readConfigStrict, writeConfig } from "./config.js";
+import { normalizeConfig, readConfig, writeConfig } from "./config.js";
 import { ensureTrailingNewline, pathExists, suggestedPathFor, writePlannedFile } from "./fs-utils.js";
 import { readManifest, templateHash, writeManifest } from "./manifest.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
@@ -41,7 +41,7 @@ export async function runTemplateApply(options: TemplateApplyOptions): Promise<T
   const cwd = options.cwd ?? process.cwd();
   if (options.force)
     throw new Error("templates apply does not support --force; resolve generated candidates explicitly.");
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   const manifest = await readManifest(cwd);
   if (!manifest) throw new Error("A valid .akrctx/manifest.json is required. Run `akrctx upgrade` first.");
@@ -105,7 +105,7 @@ export async function runTemplateApply(options: TemplateApplyOptions): Promise<T
 
 export async function runTemplateStatus(options: CommandOptions): Promise<TemplateStatusResult> {
   const cwd = options.cwd ?? process.cwd();
-  const config = await readConfigStrict(cwd);
+  const config = await readConfig(cwd);
   return { installed: Boolean(config), templates: config?.templatePacks ?? [] };
 }
 

@@ -3,7 +3,7 @@ type: akrctx-wiki-gaps
 title: "Gaps"
 description: "Identified gaps in the akrctx harness."
 tags: ["gaps", "doctor"]
-timestamp: 2026-07-23T07:08:31.232Z
+timestamp: 2026-08-02T16:07:24.559Z
 ---
 
 # Gaps

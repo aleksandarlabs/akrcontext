@@ -3,7 +3,7 @@ type: akrctx-wiki-agent-setup
 title: "Agent Setup"
 description: "Readiness report for the akrctx harness."
 tags: ["agent-setup", "doctor"]
-timestamp: 2026-07-23T07:08:31.232Z
+timestamp: 2026-08-02T16:07:24.559Z
 ---
 
 # Agent Setup

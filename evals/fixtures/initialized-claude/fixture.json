@@ -1,0 +1,8 @@
+{
+  "files": {
+    ".akrctx/config.json": "{\n  \"version\": 1,\n  \"targets\": [\n    \"claude\"\n  ]\n}\n",
+    ".akrctx/policy.json": "{\n  \"blockedReadPatterns\": [\n    \".env\",\n    \"*.pem\"\n  ]\n}\n",
+    ".akrctx/local/.gitignore": "*\n!.gitignore\n"
+  },
+  "git": true
+}
