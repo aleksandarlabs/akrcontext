@@ -9,12 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A clarification step before implementation. A question exists only when two plausible answers would produce different implementation, validation, or scope; there is no cap on how many are asked and no "assume and proceed" option. Answers are recorded in the capsule under `## Clarifications` beneath a dated session heading, and any answer that changes a criterion propagates into `acceptance-criteria.md`.
+- `## Clarifications` and `## Open Questions` sections in generated task capsules and in the shipped capsule template. One entry is one top-level `- ` bullet; section prose is never content.
+- `akrctx judge verify` reports unresolved open questions as a non-blocking notice. The CLI still blocks only on what it can check mechanically, so a notice never changes `valid`, `approved`, or the exit code.
 - Opt-in session tracing and contract-conformance reports for Claude Code, Codex, GitHub Copilot, and Pi. Tracing is observational and fail-open; it does not enforce host decisions.
 - A deterministic black-box evaluation loop under `evals/`, with disposable fixtures, validated scenario contracts, candidate-only smoke runs, immutable Git-ref comparison, cached builds, and JSON/Markdown reports.
 - Initial regression scenarios for task capsule completeness and corrupt-config handling, plus conformance scenarios for trace behavior and hook ownership.
 
 ### Changed
 
+- `## Open Questions` in a task capsule stops being an unused placeholder and gains a defined meaning: ambiguity still unresolved, written as a question. Running headless with nobody to answer, recording it is the correct outcome rather than predicting the answer.
+- The `akrctx-task` skill carries the full clarification procedure and is emitted identically to all four targets. Hosts with a native question UI are told to prefer it in their target reference only; the artifact written to the capsule is the same everywhere.
 - Evaluation reports separate mechanism conformance from independently supported outcomes; candidate-only runs cannot claim improvement without a baseline. Report artifacts omit raw process output and arguments, fixture paths resolve symlinks before access, and cached builds are published atomically with full `dist/` integrity checks.
 - Trace reports now distinguish a known project mutation from unknown first-mutation ordering. Unclassified shell calls before capsule binding produce `capsuleBeforeFirstMutation: null`, while capsule and validation evidence remains in the known-mutating denominator.
 

@@ -43,6 +43,15 @@ export interface JudgeVerifyResult {
   verdict?: JudgeReviewRecord["verdict"];
   scopeDigest?: string;
   reasons: string[];
+  /**
+   * Observations that never change `valid` or `approved`.
+   *
+   * Whether an unresolved open question would have changed the implementation is a
+   * judgement, and this CLI only blocks on what it can check mechanically — declared
+   * commands and boundary digests. Wiring a judgement into the exit code would create a
+   * gate whose cheapest workaround is deleting a bullet from task.md.
+   */
+  notices: string[];
   /** Commands the capsule declares under `## Validation` in task.md. */
   declaredCommands: string[];
   /** Commands this CLI re-executed itself, with the exit status it observed. */
@@ -150,7 +159,11 @@ export async function verifyJudgeRecord(
   recordPath: string,
   options: JudgeVerifyOptions = {},
 ): Promise<JudgeVerifyResult> {
-  const empty = { declaredCommands: [] as string[], reexecuted: [] as JudgeVerifyResult["reexecuted"] };
+  const empty = {
+    notices: [] as string[],
+    declaredCommands: [] as string[],
+    reexecuted: [] as JudgeVerifyResult["reexecuted"],
+  };
   let raw: unknown;
   try {
     raw = JSON.parse(await readFile(path.resolve(cwd, recordPath), "utf8"));
@@ -240,12 +253,24 @@ export async function verifyJudgeRecord(
     }
   }
 
+  // Reported, never enforced: see the `notices` field on JudgeVerifyResult.
+  const notices: string[] = [];
+  const clarification = await readClarificationState(cwd, record.taskId);
+  const open = clarification.openQuestions.length;
+  if (open > 0) {
+    notices.push(
+      `The task capsule lists ${open} unresolved open question${open === 1 ? "" : "s"}; ` +
+        `confirm ${open === 1 ? "it" : "they"} would not have changed the implementation.`,
+    );
+  }
+
   return {
     valid: reasons.length === 0,
     approved: reasons.length === 0 && record.verdict === "APPROVED",
     verdict: record.verdict,
     scopeDigest: record.scope.scopeDigest,
     reasons,
+    notices,
     declaredCommands,
     reexecuted,
   };
@@ -306,6 +331,71 @@ export async function readValidationDeclaration(cwd: string, taskId: string): Pr
     ),
   ];
   return { sectionPresent: true, commands };
+}
+
+export interface ClarificationState {
+  /**
+   * Whether task.md has a `## Clarifications` section. Absent means a capsule written
+   * before the clarification step existed, not an unfinished one — same distinction
+   * `ValidationDeclaration.sectionPresent` draws for pre-v2 capsules.
+   */
+  clarificationsSectionPresent: boolean;
+  clarifications: string[];
+  openQuestions: string[];
+}
+
+/** The bullet both sections ship with; every consumer reads it as "empty". */
+const CLARIFICATION_PLACEHOLDER = "None recorded yet.";
+
+/**
+ * Bullets under `## Clarifications` and `## Open Questions` in the capsule's task.md.
+ *
+ * Both sections open with explanatory prose before the bullets, so only lines that are
+ * bullets are collected; the prose is instruction for the agent, not content.
+ */
+export async function readClarificationState(cwd: string, taskId: string): Promise<ClarificationState> {
+  const absent: ClarificationState = { clarificationsSectionPresent: false, clarifications: [], openQuestions: [] };
+  let taskMarkdown: string;
+  try {
+    taskMarkdown = await readFile(path.join(await resolveTaskRoot(cwd, taskId), "task.md"), "utf8");
+  } catch {
+    return absent;
+  }
+  const clarifications = sectionBody(taskMarkdown, "Clarifications");
+  return {
+    clarificationsSectionPresent: clarifications !== undefined,
+    clarifications: sectionBullets(clarifications),
+    openQuestions: sectionBullets(sectionBody(taskMarkdown, "Open Questions")),
+  };
+}
+
+/**
+ * Body of a level-2 section, up to the next level-2 heading.
+ *
+ * The lookahead requires whitespace after `##`, so a `### Session YYYY-MM-DD` heading
+ * inside `## Clarifications` does not terminate the section.
+ */
+function sectionBody(markdown: string, heading: string): string | undefined {
+  const match = new RegExp(`\\n##\\s+${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`).exec(markdown);
+  return match ? match[1] : undefined;
+}
+
+function sectionBullets(body: string | undefined): string[] {
+  if (body === undefined) return [];
+  const entries: string[] = [];
+  for (const line of body.split("\n")) {
+    const bullet = /^-\s+(.*)$/.exec(line);
+    if (bullet) {
+      entries.push(bullet[1].trim());
+      continue;
+    }
+    // Capsule prose wraps at ~100 columns, so an indented line continues the bullet above
+    // it. Unindented prose belongs to the section's explanatory paragraph and is dropped.
+    if (entries.length > 0 && /^\s+\S/.test(line)) {
+      entries[entries.length - 1] = `${entries[entries.length - 1]} ${line.trim()}`;
+    }
+  }
+  return entries.filter((entry) => entry !== CLARIFICATION_PLACEHOLDER);
 }
 
 async function runValidationCommand(cwd: string, command: string): Promise<boolean> {

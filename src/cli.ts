@@ -659,6 +659,9 @@ export async function main(argv = process.argv): Promise<void> {
           log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
           for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
         }
+        // Printed for an approved run too: notices never change the verdict, so the only
+        // place they can do any good is in front of the human reading the approval.
+        for (const notice of result.notices) log(`  ${yellow("!")} ${notice}`);
         for (const run of result.reexecuted) {
           log(`  ${run.passed ? plus() : minus()} ${dim("re-ran")} ${cmd(run.command)}`);
         }

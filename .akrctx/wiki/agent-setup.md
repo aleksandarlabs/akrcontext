@@ -3,12 +3,12 @@ type: akrctx-wiki-agent-setup
 title: "Agent Setup"
 description: "Readiness report for the akrctx harness."
 tags: ["agent-setup", "doctor"]
-timestamp: 2026-08-02T16:07:24.559Z
+timestamp: 2026-08-05T17:03:32.056Z
 ---
 
 # Agent Setup
 
-Agent readiness: 65/100
+Agent readiness: 100/100
 
 ## Detected Targets
 
@@ -22,13 +22,7 @@ Agent readiness: 65/100
 
 ## Missing Files
 
-- .agents/skills/akrctx-init/SKILL.md
-- .agents/skills/akrctx-doctor/SKILL.md
-- .agents/skills/akrctx-task/SKILL.md
-- .agents/skills/akrctx-review/SKILL.md
-- .agents/skills/akrctx-workflow/SKILL.md
-- .agents/skills/akrctx-write-policy/SKILL.md
-- .akrctx/targets/codex.md
+- None
 
 ## Human-Approved Merge Needed
 
@@ -36,4 +30,4 @@ Agent readiness: 65/100
 
 ## Suggested Safe Next Steps
 
-- [error] 7 file(s) missing. Run `akrctx init --target codex` to restore them.
+- [info] Setup is complete. You can create a task capsule with `akrctx task "<description>"`.

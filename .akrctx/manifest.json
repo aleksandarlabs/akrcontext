@@ -3,7 +3,7 @@
   "cliVersion": "0.4.0",
   "files": {
     ".akrctx/targets/claude.md": {
-      "hash": "sha256:fc929359da9e3b0bfcea9eb2f1e070bc594c123ed4c1c3a64e594adeb9455201"
+      "hash": "sha256:5f9ae336e923e6ddf76b3c7c2318d1a78506fbde5b1f3de86e0bb84fc79ba0a5"
     },
     ".akrctx/comprehension/README.md": {
       "hash": "sha256:0ecab31dc6d5b8912b6c13523674eba31d5f4fe78173fa04a81bbfd0d4288e8b"
@@ -36,7 +36,7 @@
       "hash": "sha256:5718fafae31ea81cadb9c57b3e41ee9bfe0e2352d6d16114c711bb2262413058"
     },
     ".claude/skills/akrctx-task/SKILL.md": {
-      "hash": "sha256:8bdf68c626e07fba0a6716054065448ed756b91d124e2a57fc236feda74ed5cd"
+      "hash": "sha256:dfb874c90d63b31dfe2730aaa8b240dfa48533caaf1bc94ad5d529a441b3e9f8"
     },
     ".claude/skills/akrctx-review/SKILL.md": {
       "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
@@ -49,6 +49,30 @@
     },
     ".claude/agents/akrctx-judge.md": {
       "hash": "sha256:a6e8b2178d49558cd50415b1cc70c8141c8cf8b1c5d60e62228a9a5c498fb4f9"
+    },
+    ".akrctx/targets/codex.md": {
+      "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
+    },
+    ".agents/skills/akrctx-init/SKILL.md": {
+      "hash": "sha256:64202c11c3e0b4e6f7e27c369769711ebd44f1cb781cb28ea966bfa404353a40"
+    },
+    ".agents/skills/akrctx-doctor/SKILL.md": {
+      "hash": "sha256:5718fafae31ea81cadb9c57b3e41ee9bfe0e2352d6d16114c711bb2262413058"
+    },
+    ".agents/skills/akrctx-task/SKILL.md": {
+      "hash": "sha256:dfb874c90d63b31dfe2730aaa8b240dfa48533caaf1bc94ad5d529a441b3e9f8"
+    },
+    ".agents/skills/akrctx-review/SKILL.md": {
+      "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
+    },
+    ".agents/skills/akrctx-workflow/SKILL.md": {
+      "hash": "sha256:fa43384604f0dbcb170fb4d9b8664f233ed95553de8246b5d9915975e4c27f3c"
+    },
+    ".agents/skills/akrctx-write-policy/SKILL.md": {
+      "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
+    },
+    ".codex/agents/akrctx-judge.toml": {
+      "hash": "sha256:c17180380db14f87628c53b48a3fbe3325cb168a30cd4ea4375451d077c422a6"
     }
   }
 }

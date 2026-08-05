@@ -3,7 +3,7 @@ import type { Target } from "../types.js";
 export const targetReferenceTemplates: Record<Target, string> = {
   codex: "# Codex Target\n\nUse `AGENTS.md` and `.agents/skills/akrctx-*` as the primary akrctx harness.\n",
   claude:
-    "# Claude Code Target\n\nUse `CLAUDE.md`, `.claude/skills/akrctx-*`, and `.claude/commands/` as the target adapter.\n",
+    "# Claude Code Target\n\nUse `CLAUDE.md`, `.claude/skills/akrctx-*`, and `.claude/commands/` as the target adapter.\n\nFor the clarification step in `akrctx-task`, this host has a native question UI (`AskUserQuestion`); prefer it over enumerating options in prose. This is a rendering detail only — what gets written to the capsule is identical on every target.\n",
   copilot:
     "# GitHub Copilot Target\n\nUse `.github/copilot-instructions.md`, `.github/instructions/`, `.github/prompts/`, and `.github/skills/akrctx-*` as the target adapter. Skills are the reusable workflow surface; prompts are for one-shot invocation.\n",
   pi: "# Pi Code Target\n\nUse `.pi/prompts/` and `.pi/skills/akrctx-*` as the target adapter.\n",
@@ -31,12 +31,21 @@ When the user asks to implement a feature, fix, refactor, or meaningful code cha
 1. Read .akrctx/config.json and .akrctx/policy.json.
 2. Create or update a task capsule under .akrctx/tasks/TASK-XXX-.../ before implementation.
 3. Record the chosen workflow and the reason in the capsule.
-4. Follow the workflow from config unless the user explicitly overrides it.
-5. Load only relevant context. Do not read all of .akrctx/ by default.
-6. After implementation, update the task review checklist and run relevant validation.
-7. After implementation, follow the independent review and comprehension handoff below.
+4. Resolve ambiguity before implementing. See the clarification step below.
+5. Follow the workflow from config unless the user explicitly overrides it.
+6. Load only relevant context. Do not read all of .akrctx/ by default.
+7. After implementation, update the task review checklist and run relevant validation.
+8. After implementation, follow the independent review and comprehension handoff below.
 
 Create the task capsule yourself — do not ask the user to run \`akrctx task\`. The CLI task command is a headless fallback for scripts and CI. During normal agent use, YOU are responsible for creating and filling the task capsule with real context from the codebase.
+
+## Clarification
+
+Ask the user before implementing when two plausible answers would produce different implementation, validation, or scope. If every plausible answer leads to the same code, it is not a question — do not ask it. There is no cap on the number of questions and no budget; the count follows from that test. There is no "assume and proceed" option, because the test already excludes trivia.
+
+Record each answer under \`## Clarifications\` in the capsule's task.md, beneath a \`### Session YYYY-MM-DD\` heading, and propagate any answer that changes a criterion into acceptance-criteria.md. Ambiguity you did not resolve goes under \`## Open Questions\` as a question. Running headless with nobody to answer, recording it is the correct outcome; never close the gap by prediction.
+
+In both sections one entry is one top-level \`- \` bullet, wrapped with indented continuation lines. \`akrctx judge verify\` reads only top-level bullets, so an entry written as a bare paragraph is invisible to it. The \`akrctx-task\` skill holds the full procedure.
 
 ## Workflow Selection
 
@@ -145,8 +154,25 @@ Protected files remain deny-by-default. When a matching \`.akrctx.suggested.md\`
 5. Show the resulting diff, verify the intended instructions are present, rerun \`akrctx doctor\`, and remove the matching suggested file only after the merge is verified.
 
 This is the only Doctor exception to \`protectedFiles\` and \`writePolicy.doctor\`. Never use \`--force\` to bypass it.`;
-const taskBody =
-  "Turn the request into a task capsule with goal, scope, context, explicit workflow choice, acceptance criteria, validation commands, and an implementation brief. Do not invent unknowns; record open questions.";
+const taskBody = `Turn the request into a task capsule with goal, scope, context, explicit workflow choice, acceptance criteria, validation commands, and an implementation brief.
+
+## Clarify before implementing
+
+Resolve ambiguity with the human before writing code, and leave the resolution in the capsule where the judge can read it.
+
+**When a question exists.** Ask only when two plausible answers would produce different implementation, validation, or scope. If every plausible answer leads to the same code, it is not a question — do not ask it.
+
+**How many.** There is no cap and no budget; the count falls out of the test above. A well-specified patch yields zero questions. An undefined contract yields as many as it takes. Never pad the list to look thorough, and never stop while a real ambiguity is left.
+
+There is no "assume and proceed" option. The test above already excludes trivia, so assuming would only ever mean guessing about something that mattered.
+
+**How to ask.** Plain text in a normal turn: one question, its alternatives enumerated, and what each would change. Ask one at a time so a later question can use an earlier answer. Decide matters of style yourself, and do not ask the human to design the implementation for you.
+
+**Where the answer goes.** After each answer, before asking the next, append it under \`## Clarifications\` in task.md beneath a \`### Session YYYY-MM-DD\` heading carrying today's date. If the answer changes a criterion, propagate it into acceptance-criteria.md. The capsule is the artifact; the conversation is not.
+
+**What stays open.** Ambiguity you did not resolve goes under \`## Open Questions\`, written as a question. Running headless with nobody to answer, that is the correct outcome: record it and treat the capsule as not ready. Never close the gap by prediction.
+
+**Format, in both sections.** One entry is one top-level \`- \` bullet; wrap long entries with indented continuation lines. \`akrctx judge verify\` reads only top-level bullets, because both sections also carry explanatory prose that must not be mistaken for content. An entry written as a bare paragraph is invisible to it — the section reads as empty and no notice is emitted.`;
 const reviewBody =
   "Check whether the task capsule is ready: goal clarity, testability, relevant context, blocked secrets, scope control, validation commands, and human-approved merge strategy.";
 const workflowBody = `Use the workflow named in the task capsule.

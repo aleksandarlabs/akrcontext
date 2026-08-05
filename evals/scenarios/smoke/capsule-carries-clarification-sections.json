@@ -1,0 +1,64 @@
+{
+  "id": "capsule-carries-clarification-sections",
+  "title": "Generated capsule carries the clarification contract",
+  "changeType": "feature",
+  "hypothesis": "A capsule created by the CLI ships `## Clarifications` and `## Open Questions`, with no stamped session date, so the clarification step has somewhere to write and capsule creation stays deterministic.",
+  "fixture": "minimal-typescript",
+  "suite": "smoke",
+  "steps": [
+    {
+      "command": ["$AKRCTX", "init", "--target", "claude", "--json"]
+    },
+    {
+      "command": ["$AKRCTX", "task", "Add invoice export", "--json"]
+    },
+    {
+      "command": ["$AKRCTX", "task", "show", "TASK-001"]
+    }
+  ],
+  "assertions": [
+    {
+      "type": "exitCode",
+      "step": 0,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 1,
+      "equals": 0
+    },
+    {
+      "type": "exitCode",
+      "step": 2,
+      "equals": 0
+    },
+    {
+      "type": "stdoutContains",
+      "step": 2,
+      "value": "## Clarifications"
+    },
+    {
+      "type": "stdoutContains",
+      "step": 2,
+      "value": "## Open Questions"
+    },
+    {
+      "type": "stdoutExcludes",
+      "step": 2,
+      "value": "### Session 20"
+    },
+    {
+      "type": "fileExists",
+      "path": ".akrctx/tasks/_template/task.md"
+    }
+  ],
+  "comparison": {
+    "baseExpected": "fail",
+    "candidateExpected": "pass"
+  },
+  "outcome": {
+    "metric": "capsules-without-a-place-to-record-clarifications",
+    "direction": "decrease",
+    "verdict": "inconclusive"
+  }
+}

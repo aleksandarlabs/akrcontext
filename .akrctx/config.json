@@ -12,7 +12,8 @@
     "evaluationMode": "prefer-independent"
   },
   "targets": [
-    "claude"
+    "claude",
+    "codex"
   ],
   "templatePacks": [],
   "sourceOfTruth": ".akrctx",

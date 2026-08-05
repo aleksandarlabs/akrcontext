@@ -1,4 +1,4 @@
-# CLAUDE.md - akrctx
+# AGENTS.md - akrctx
 
 This repository uses akrctx as a local agentic workflow harness. Treat .akrctx/ as the workflow source of truth.
 
@@ -55,7 +55,7 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 - If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension, and hand off only when the verification above reports APPROVED and current.
 - Give the comprehension agent only the task ID, exact base/candidate boundary, and verified judge-record path. Do not pass implementation explanations, suggested questions, expected answers, or the main conversation history as evidence.
 - The comprehension agent owns the interactive teaching session and personal learning artifacts. The primary agent must not ask or grade comprehension questions itself.
-- For a multi-turn checkpoint, have the developer select this agent directly or start `claude --agent akrctx-comprehension`; Claude subagents cannot ask UI questions.
+- Spawn the project `akrctx-comprehension` agent, keep it in a separate thread, and direct the developer to continue the checkpoint in that thread.
 
 ## Safety
 

@@ -3,9 +3,9 @@ type: akrctx-wiki-recommendations
 title: "Recommendations"
 description: "Suggested next steps for the akrctx harness."
 tags: ["recommendations", "doctor"]
-timestamp: 2026-08-02T16:07:24.559Z
+timestamp: 2026-08-05T17:03:32.056Z
 ---
 
 # Recommendations
 
-- [error] 7 file(s) missing. Run `akrctx init --target codex` to restore them.
+- [info] Setup is complete. You can create a task capsule with `akrctx task "<description>"`.

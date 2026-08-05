@@ -19,13 +19,25 @@ import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
 import { capsuleFiles } from "../src/harness-files.js";
 import { runInit } from "../src/init.js";
-import { JUDGE_SCHEMA_VERSION, createJudgeScope, verifyJudgeRecord } from "../src/judge-enforcement.js";
+import {
+  JUDGE_SCHEMA_VERSION,
+  createJudgeScope,
+  readClarificationState,
+  verifyJudgeRecord,
+} from "../src/judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
 import { runTemplateApply, runTemplateStatus } from "../src/template-apply.js";
-import { taskTemplateFiles } from "../src/templates.js";
+import {
+  claudeSkills,
+  codexSkills,
+  copilotSkills,
+  piSkills,
+  targetReferenceTemplates,
+  taskTemplateFiles,
+} from "../src/templates.js";
 import { workflows } from "../src/types.js";
 import { runUpgrade } from "../src/upgrade.js";
 import { CLI_VERSION } from "../src/version.js";
@@ -2356,9 +2368,39 @@ describe("judge", () => {
       verdict: "APPROVED",
       scopeDigest: scope.scopeDigest,
       reasons: [],
+      notices: [],
       declaredCommands: ["pnpm test"],
       reexecuted: [],
     });
+  });
+
+  it("reports unresolved open questions as a notice without blocking approval", async () => {
+    const { recordPath, task } = await createReviewFixture();
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    // Replace the section in place. Appending a second `## Open Questions` would be shadowed
+    // by the generated one, which still holds the placeholder.
+    const filled = original.replace(
+      /\n## Open Questions\n[\s\S]*$/,
+      "\n## Open Questions\n\n- Whether legacy invoices are in scope.\n",
+    );
+    expect(filled).not.toBe(original);
+    await writeFile(taskFile, filled, "utf8");
+    // The capsule is part of the reviewed boundary, so re-anchor the record to the edited tree;
+    // otherwise this would assert a digest failure rather than the notice.
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    // A judgement, not a mechanical check: it is surfaced, and it never moves the exit code.
+    expect(result.notices).toEqual([
+      "The task capsule lists 1 unresolved open question; confirm it would not have changed the implementation.",
+    ]);
+    expect(result.reasons).toEqual([]);
+    expect(result.valid).toBe(true);
+    expect(result.approved).toBe(true);
   });
 
   it("invalidates an approved review when code changes", async () => {
@@ -2987,5 +3029,195 @@ describe("doctor --fix", () => {
 
     expect(result.fixed?.some((f) => f.includes("akrctx-doctor/SKILL.md"))).toBe(true);
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-doctor/SKILL.md"))).toBe(false);
+  });
+});
+
+// ── clarification gate ────────────────────────────────────────────────────────
+
+describe("clarification gate", () => {
+  async function capsuleWith(sections: string): Promise<string> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    // Replace from `## Clarifications` to end of file: both sections are the tail of the
+    // generated capsule, so a fixture supplies them together or not at all.
+    const replaced = original.replace(/\n## Clarifications\n[\s\S]*$/, `\n${sections}`);
+    expect(replaced).not.toBe(original);
+    await writeFile(taskFile, replaced, "utf8");
+    return task.taskId;
+  }
+
+  it("generates both sections empty, with no date and no session heading", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+
+    const taskMd = await readFile(path.join(tmp, task.taskDir, "task.md"), "utf8");
+
+    expect(taskMd).toContain("## Clarifications");
+    expect(taskMd).toContain("## Open Questions");
+    // A session heading is stamped when a question is actually answered. Emitting one at
+    // creation would date a session that never happened and make the file non-deterministic.
+    // The section's instructions name the `### Session YYYY-MM-DD` format, so this asserts
+    // no heading was written, not that the format is never mentioned.
+    expect(taskMd).not.toMatch(/^### Session/m);
+    expect(taskMd).not.toMatch(/\d{4}-\d{2}-\d{2}/);
+  });
+
+  it("produces byte-identical task.md across runs (no clock dependency)", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const first = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+    const firstMd = await readFile(path.join(tmp, first.taskDir, "task.md"), "utf8");
+    await rm(path.join(tmp, first.taskDir), { recursive: true, force: true });
+    const second = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+
+    const secondMd = await readFile(path.join(tmp, second.taskDir, "task.md"), "utf8");
+
+    expect(secondMd).toBe(firstMd);
+  });
+
+  it("ships both sections in the shipped _template", async () => {
+    const template = taskTemplateFiles["tasks/_template/task.md"];
+
+    expect(template).toContain("## Clarifications");
+    expect(template).toContain("## Open Questions");
+  });
+
+  it("does not add a capsule file: the capsule is still exactly five files", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+
+    const entries = await readdir(path.join(tmp, task.taskDir));
+
+    expect(entries.filter((entry) => entry.endsWith(".md")).sort()).toEqual([...capsuleFiles].sort());
+  });
+
+  it("reads the bullets of each section", async () => {
+    const taskId = await capsuleWith(
+      [
+        "## Clarifications",
+        "",
+        "### Session 2026-08-05",
+        "",
+        "- Q: Cents or minor units? / A: Minor units.",
+        "",
+        "## Open Questions",
+        "",
+        "- Whether legacy invoices are in scope.",
+        "",
+      ].join("\n"),
+    );
+
+    const state = await readClarificationState(tmp, taskId);
+
+    expect(state.clarificationsSectionPresent).toBe(true);
+    expect(state.clarifications).toEqual(["Q: Cents or minor units? / A: Minor units."]);
+    expect(state.openQuestions).toEqual(["Whether legacy invoices are in scope."]);
+  });
+
+  it("joins a bullet wrapped across lines into one entry", async () => {
+    const taskId = await capsuleWith(
+      [
+        "## Clarifications",
+        "",
+        "- None recorded yet.",
+        "",
+        "## Open Questions",
+        "",
+        "- Whether Copilot really emits snake_case is taken from its published",
+        "  reference, not from execution.",
+        "- A second question.",
+        "",
+      ].join("\n"),
+    );
+
+    const state = await readClarificationState(tmp, taskId);
+
+    expect(state.openQuestions).toEqual([
+      "Whether Copilot really emits snake_case is taken from its published reference, not from execution.",
+      "A second question.",
+    ]);
+  });
+
+  it("treats the generated placeholder as empty", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+
+    const state = await readClarificationState(tmp, task.taskId);
+
+    expect(state.clarificationsSectionPresent).toBe(true);
+    expect(state.clarifications).toEqual([]);
+    expect(state.openQuestions).toEqual([]);
+  });
+
+  it("reports a capsule written before this section existed without erroring", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    // A TASK-001…005-shaped capsule: `## Open Questions` exists, `## Clarifications` does not.
+    await writeFile(taskFile, original.replace(/\n## Clarifications\n[\s\S]*?(?=\n## Open Questions\n)/, "\n"), "utf8");
+
+    const state = await readClarificationState(tmp, task.taskId);
+
+    expect(state.clarificationsSectionPresent).toBe(false);
+    expect(state.clarifications).toEqual([]);
+    expect(state.openQuestions).toEqual([]);
+  });
+
+  it("returns an absent state for a task id that has no capsule", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const state = await readClarificationState(tmp, "TASK-999");
+
+    expect(state).toEqual({ clarificationsSectionPresent: false, clarifications: [], openQuestions: [] });
+  });
+
+  it("ignores a question written as a bare paragraph, which is why the skill demands a bullet", async () => {
+    const taskId = await capsuleWith(
+      [
+        "## Clarifications",
+        "",
+        "- None recorded yet.",
+        "",
+        "## Open Questions",
+        "",
+        "Whether legacy invoices are in scope is still undecided.",
+        "",
+      ].join("\n"),
+    );
+
+    const state = await readClarificationState(tmp, taskId);
+
+    // The parser cannot accept paragraphs: both sections carry explanatory prose by design,
+    // so prose-as-content would make every generated capsule look full of questions. The
+    // instruction therefore has to require the bullet, and this pins the consequence of the
+    // two drifting apart — a question nobody sees.
+    expect(state.openQuestions).toEqual([]);
+  });
+
+  it("emits the same akrctx-task skill text to all four targets", () => {
+    const bodyOf = (files: Record<string, string>, prefix: string) => files[`${prefix}/akrctx-task/SKILL.md`];
+    const bodies = [
+      bodyOf(claudeSkills, ".claude/skills"),
+      bodyOf(codexSkills, ".agents/skills"),
+      bodyOf(copilotSkills, ".github/skills"),
+      bodyOf(piSkills, ".pi/skills"),
+    ];
+
+    expect(bodies.every((body) => typeof body === "string" && body.length > 0)).toBe(true);
+    expect(new Set(bodies).size).toBe(1);
+    expect(bodies[0]).toContain("Clarify before implementing");
+    // The clarification contract is portable: no target's copy may name a host-specific
+    // question UI, or the artifact would stop being identical across hosts.
+    for (const body of bodies) expect(body).not.toContain("AskUserQuestion");
+  });
+
+  it("names the native question UI in the claude target reference only", () => {
+    const mentioning = Object.entries(targetReferenceTemplates)
+      .filter(([, text]) => text.includes("AskUserQuestion"))
+      .map(([target]) => target);
+
+    expect(mentioning).toEqual(["claude"]);
   });
 });
