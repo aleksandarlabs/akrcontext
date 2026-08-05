@@ -382,19 +382,217 @@ describe("command recording", () => {
 });
 
 describe("mutation semantics", () => {
-  const write = (file: string) => payload({ tool_name: "Edit", tool_input: { file_path: file } });
+  async function successfulCall(call: Record<string, unknown>) {
+    await runHook("PreToolUse", payload(call), tmp);
+    await runHook("PostToolUse", payload({ ...call, tool_result: { exit_code: 0 } }), tmp);
+  }
+
+  it("keeps capsule and validation metrics when a shell makes only mutation ordering unknown", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    await successfulCall({ tool_name: "Bash", tool_use_id: "explore", tool_input: { command: "ls" } });
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    await writeFile(taskFile, (await readFile(taskFile, "utf8")).replace("```\n```", "```\npnpm test\n```"), "utf8");
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
+      tmp,
+    );
+    await successfulCall({ tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } });
+    await successfulCall({ tool_name: "Bash", tool_use_id: "validation", tool_input: { command: "pnpm test" } });
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+
+    expect(report.sessions[0]).toMatchObject({
+      mutatedProject: true,
+      capsuleBound: true,
+      capsuleBeforeFirstMutation: null,
+      unclassifiedShellBeforeBinding: 1,
+      capsuleComplete: true,
+      validationDeclared: true,
+      validationObserved: true,
+    });
+    expect(report.totals).toMatchObject({
+      mutating: 1,
+      orderingKnown: 0,
+      orderingUnknown: 1,
+      capsuleBound: 1,
+      capsuleBeforeFirstMutation: 0,
+      capsuleComplete: 1,
+      validationDeclared: 1,
+      validationObserved: 1,
+    });
+  });
+
+  it("reports false when a known mutation precedes binding without shell uncertainty", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    await runHook("SessionStart", payload(), tmp);
+    await successfulCall({ tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } });
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
+      tmp,
+    );
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.sessions[0].capsuleBeforeFirstMutation).toBe(false);
+    expect(report.totals.orderingKnown).toBe(1);
+  });
+
+  it("keeps a known false ordering when a later write never reports an outcome", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    await runHook("SessionStart", payload(), tmp);
+    await successfulCall({ tool_name: "Edit", tool_use_id: "first-edit", tool_input: { file_path: "src/a.ts" } });
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Edit", tool_use_id: "pending-edit", tool_input: { file_path: "src/b.ts" } }),
+      tmp,
+    );
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
+      tmp,
+    );
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+
+    expect(report.sessions[0]).toMatchObject({
+      mutatedProject: true,
+      mutationUncertain: true,
+      capsuleBound: true,
+      capsuleBeforeFirstMutation: false,
+    });
+    expect(report.totals).toMatchObject({ mutating: 1, orderingKnown: 1, orderingUnknown: 0 });
+  });
+
+  it("reports true when binding precedes a known mutation without shell uncertainty", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    await runHook("SessionStart", payload(), tmp);
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
+      tmp,
+    );
+    await successfulCall({ tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } });
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.sessions[0].capsuleBeforeFirstMutation).toBe(true);
+    expect(report.totals.orderingKnown).toBe(1);
+  });
+
+  it("counts correlated shell pre and post events once before binding", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    await successfulCall({ tool_name: "Bash", tool_use_id: "explore", tool_input: { command: "find ." } });
+    await runHook("SessionEnd", payload(), tmp);
+
+    expect((await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0].unclassifiedShellBeforeBinding).toBe(
+      1,
+    );
+  });
+
+  it("counts an anonymous shell pre and post as one call before binding", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    const shell = { tool_name: "Bash", tool_input: { command: "ls" } };
+    await runHook("PreToolUse", payload(shell), tmp);
+    await runHook("PostToolUse", payload({ ...shell, tool_result: { exit_code: 0 } }), tmp);
+    await runHook("SessionEnd", payload(), tmp);
+
+    expect((await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0].unclassifiedShellBeforeBinding).toBe(
+      1,
+    );
+  });
+
+  it("counts concurrent anonymous shell calls from their pre events, not post ordering", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    const first = { tool_name: "Bash", tool_input: { command: "find ." } };
+    const second = { tool_name: "Bash", tool_input: { command: "cat package.json" } };
+    await runHook("PreToolUse", payload(first), tmp);
+    await runHook("PreToolUse", payload(second), tmp);
+    await runHook("PostToolUse", payload({ ...second, tool_result: { exit_code: 0 } }), tmp);
+    await runHook("PostToolUse", payload({ ...first, tool_result: { exit_code: 0 } }), tmp);
+    await runHook("SessionEnd", payload(), tmp);
+
+    expect((await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0].unclassifiedShellBeforeBinding).toBe(
+      2,
+    );
+  });
+
+  it("does not invent an anonymous shell call from a post without its pre", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    await runHook(
+      "PostToolUse",
+      payload({ tool_name: "Bash", tool_input: { command: "ls" }, tool_result: { exit_code: 0 } }),
+      tmp,
+    );
+    await runHook("SessionEnd", payload(), tmp);
+
+    const session = (await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0];
+    expect(session).toMatchObject({
+      unclassifiedShellBeforeBinding: 0,
+      mutationUncertain: true,
+      uncertainBeforeBinding: true,
+    });
+  });
+
+  it("does not make the first mutation's ordering unknown for a later shell", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    const task = await runTask("Add invoice API", { cwd: tmp, nonInteractive: true });
+    await runHook("SessionStart", payload(), tmp);
+    await runHook(
+      "PreToolUse",
+      payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
+      tmp,
+    );
+    await successfulCall({ tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } });
+    await successfulCall({ tool_name: "Bash", tool_use_id: "later", tool_input: { command: "git status" } });
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.sessions[0]).toMatchObject({ capsuleBeforeFirstMutation: true, unclassifiedShellBeforeBinding: 0 });
+    expect(report.totals.orderingKnown).toBe(1);
+  });
+
+  it("keeps a shell-only session in uncertain rather than mutating", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await enableTrace(tmp);
+    await runHook("SessionStart", payload(), tmp);
+    await successfulCall({ tool_name: "Bash", tool_use_id: "explore", tool_input: { command: "cat package.json" } });
+    await runHook("SessionEnd", payload(), tmp);
+
+    const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
+    expect(report.sessions[0].capsuleBeforeFirstMutation).toBeNull();
+    expect(report.totals).toMatchObject({ mutating: 0, uncertain: 1, readOnly: 0 });
+  });
 
   it("does not count an attempt that was observed to fail", async () => {
     await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
     await enableTrace(tmp);
     await runHook("SessionStart", payload(), tmp);
 
-    await runHook("PreToolUse", write("src/a.ts"), tmp);
-    await runHook(
-      "PostToolUse",
-      payload({ tool_name: "Edit", tool_input: { file_path: "src/a.ts" }, tool_result: { is_error: true } }),
-      tmp,
-    );
+    const failed = { tool_name: "Edit", tool_use_id: "failed", tool_input: { file_path: "src/a.ts" } };
+    await runHook("PreToolUse", payload(failed), tmp);
+    await runHook("PostToolUse", payload({ ...failed, tool_result: { is_error: true } }), tmp);
 
     const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
     expect(report.sessions[0].mutatedProject).toBe(false);
@@ -405,17 +603,14 @@ describe("mutation semantics", () => {
     await enableTrace(tmp);
     await runHook("SessionStart", payload(), tmp);
 
-    await runHook("PreToolUse", write("src/a.ts"), tmp);
-    await runHook(
-      "PostToolUse",
-      payload({ tool_name: "Edit", tool_input: { file_path: "src/a.ts" }, tool_result: { exit_code: 0 } }),
-      tmp,
-    );
+    const completed = { tool_name: "Edit", tool_use_id: "completed", tool_input: { file_path: "src/a.ts" } };
+    await runHook("PreToolUse", payload(completed), tmp);
+    await runHook("PostToolUse", payload({ ...completed, tool_result: { exit_code: 0 } }), tmp);
 
     expect((await runTraceReport({ cwd: tmp, nonInteractive: true })).sessions[0].mutatedProject).toBe(true);
   });
 
-  it("holds a session out of the rates when a shell command could have mutated invisibly", async () => {
+  it("keeps known project mutations in the denominator when a shell obscures their ordering", async () => {
     // `sed -i`, `rm`, `git apply` and any script all mutate through a shell, and nothing in
     // the invocation says so. Guessing either way corrupts the number this phase produces.
     await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
@@ -429,16 +624,17 @@ describe("mutation semantics", () => {
       payload({ tool_name: "Read", tool_input: { file_path: `${task.taskDir}/task.md` } }),
       tmp,
     );
-    await runHook("PreToolUse", write("src/a.ts"), tmp);
+    await successfulCall({ tool_name: "Edit", tool_use_id: "edit", tool_input: { file_path: "src/a.ts" } });
     await runHook("SessionEnd", payload(), tmp);
 
     const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
 
     expect(report.sessions[0].mutationUncertain).toBe(true);
     expect(report.sessions[0].uncertainBeforeBinding).toBe(true);
-    expect(report.sessions[0].capsuleBeforeFirstMutation).toBe(false);
-    expect(report.totals.uncertain).toBe(1);
-    expect(report.totals.mutating).toBe(0);
+    expect(report.sessions[0].capsuleBeforeFirstMutation).toBeNull();
+    expect(report.totals.uncertain).toBe(0);
+    expect(report.totals.mutating).toBe(1);
+    expect(report.totals.orderingUnknown).toBe(1);
   });
 });
 
@@ -510,8 +706,8 @@ describe("outcome correlation", () => {
 
     const report = await runTraceReport({ cwd: tmp, nonInteractive: true });
     expect(report.sessions[0].mutationUncertain).toBe(true);
-    expect(report.sessions[0].capsuleBeforeFirstMutation).toBe(false);
-    expect(report.totals.uncertain).toBe(1);
+    expect(report.sessions[0].capsuleBeforeFirstMutation).toBeNull();
+    expect(report.totals).toMatchObject({ mutating: 1, uncertain: 0, orderingUnknown: 1 });
   });
 
   it("resolves overlapping anonymous calls when every outcome is a failure", async () => {

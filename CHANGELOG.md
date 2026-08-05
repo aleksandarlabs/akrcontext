@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - Evaluation reports separate mechanism conformance from independently supported outcomes; candidate-only runs cannot claim improvement without a baseline. Report artifacts omit raw process output and arguments, fixture paths resolve symlinks before access, and cached builds are published atomically with full `dist/` integrity checks.
+- Trace reports now distinguish a known project mutation from unknown first-mutation ordering. Unclassified shell calls before capsule binding produce `capsuleBeforeFirstMutation: null`, while capsule and validation evidence remains in the known-mutating denominator.
 
 ### Fixed
 

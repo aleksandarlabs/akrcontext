@@ -58,7 +58,8 @@ akrctx comprehension enable            # enable developer understanding checkpoi
 akrctx comprehension status
 akrctx trace enable                    # opt in to observational session tracing
 akrctx trace status
-akrctx trace report --json             # derive contract-conformance metrics
+akrctx trace report                    # human summary; unknown ordering is shown explicitly
+akrctx trace report --json             # per-session and aggregate contract-conformance metrics
 akrctx trace disable                   # remove only akrctx-owned hook entries
 akrctx remove --target codex --force   # remove harness for a target
 akrctx templates list                  # list bundled enterprise templates

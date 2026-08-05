@@ -801,21 +801,30 @@ export async function main(argv = process.argv): Promise<void> {
       `${bold("Sessions recorded:")} ${totals.sessions}${totals.incomplete ? dim(` (${totals.incomplete} truncated, excluded)`) : ""}`,
     );
     log(`${bold("Sessions that changed anything outside .akrctx/:")} ${totals.mutating}`);
-    // Printed, not just carried in --json. A session held out of the rates has to be visible
-    // as held out, or "excluded honestly" is only true of the data structure.
+    if (totals.orderingUnknown > 0) {
+      log(
+        `${bold("First-mutation ordering unknown:")} ${totals.orderingUnknown} ${dim("(their known mutation, capsule, and validation evidence remain counted)")}`,
+      );
+    }
+    // This bucket has no known mutation and is distinct from mutating sessions whose
+    // first-mutation ordering alone is unknown.
     if (totals.uncertain > 0) {
       log(
-        `${bold("Sessions held out as unclassifiable:")} ${totals.uncertain} ${dim("(a shell command or an unresolved write could have changed the tree)")}`,
+        `${bold("Sessions with no known mutation but possible change:")} ${totals.uncertain} ${dim("(a shell command or an unresolved write could have changed the tree)")}`,
       );
     }
     ln();
     const pct = (value: number) => (totals.mutating ? `${Math.round((value / totals.mutating) * 100)}%` : "n/a");
+    const orderingPct = () => {
+      if (totals.orderingKnown > 0) {
+        return `${Math.round((totals.capsuleBeforeFirstMutation / totals.orderingKnown) * 100)}% of ${totals.orderingKnown} known`;
+      }
+      return totals.orderingUnknown > 0 ? "unknown" : "n/a";
+    };
     log(
       `  ${dim("capsule bound              ")} ${totals.capsuleBound} ${dim(`(${pct(totals.capsuleBound)} of those)`)}`,
     );
-    log(
-      `  ${dim("capsule bound first       ")} ${totals.capsuleBeforeFirstMutation} ${dim(`(${pct(totals.capsuleBeforeFirstMutation)})`)}`,
-    );
+    log(`  ${dim("capsule bound first       ")} ${totals.capsuleBeforeFirstMutation} ${dim(`(${orderingPct()})`)}`);
     log(`  ${dim("capsule complete          ")} ${totals.capsuleComplete} ${dim(`(${pct(totals.capsuleComplete)})`)}`);
     log(
       `  ${dim("validation declared       ")} ${totals.validationDeclared} ${dim(`(${pct(totals.validationDeclared)})`)}`,

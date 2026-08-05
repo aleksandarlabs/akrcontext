@@ -62,8 +62,7 @@ export interface TraceObservation {
   mutating?: boolean;
   /**
    * Whether the call was only requested, or ran and how it ended. Shell commands retain
-   * this lifecycle solely to prove validation execution; `shell` keeps their tree effect
-   * uncertain regardless of outcome.
+   * this lifecycle solely to prove validation execution; their tree effect remains unknown.
    *
    * A PreToolUse observation is an *attempt*: the user may still reject it, or the tool may
    * fail. Counting attempts as changes made the denominator wrong in both directions, so
@@ -71,11 +70,11 @@ export interface TraceObservation {
    * observed to fail.
    */
   outcome?: "attempted" | "succeeded" | "failed";
-  /** A shell command ran. Its effect on the working tree is unknowable from here. */
+  /** A shell command ran. Its working-tree effect is intentionally unclassified. */
   shell?: boolean;
   /** The path matched policy.blockedReadPatterns. Recorded as a flag and nothing else. */
   blocked?: boolean;
-  /** First two tokens of a shell command — enough to read, not enough to leak. */
+  /** Safe executable label for a shell command, without arguments or paths. */
   commandHead?: string;
   /** Digest of the whole command, so a declared validation command can be matched exactly. */
   commandDigest?: string;

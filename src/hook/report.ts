@@ -24,20 +24,26 @@ export interface SessionReport {
   observations: number;
   /** A capsule was read or written at some point during the session. */
   capsuleBound: boolean;
-  /** A capsule was bound before the first mutating write outside .akrctx/. */
-  capsuleBeforeFirstMutation: boolean;
+  /**
+   * Whether the first known mutation outside `.akrctx/` followed capsule binding. `null`
+   * means there was no known mutation, or an unclassified shell obscured the ordering.
+   */
+  capsuleBeforeFirstMutation: boolean | null;
   /**
    * The session mutated something outside `.akrctx/`. Sessions that did not are not
    * contract failures, and are excluded from every rate below.
    */
   mutatedProject: boolean;
   /**
-   * A shell command ran, so this session may have changed the tree in a way no observation
-   * records. Its rates are reported but excluded from the aggregate.
+   * A shell command that may mutate ran, so this session may have changed the tree in a way
+   * no observation records. Without a known mutation it is `uncertain`; with one it remains
+   * mutating while its ordering may be unknown.
    */
   mutationUncertain: boolean;
-  /** A shell command ran before any capsule was bound, so the ordering cannot be trusted. */
+  /** A possible mutation before binding prevents proving first-mutation ordering. */
   uncertainBeforeBinding: boolean;
+  /** Distinct unclassified shell calls observed before capsule binding. */
+  unclassifiedShellBeforeBinding: number;
   capsuleId?: string;
   /** The bound capsule has all five files, checked now rather than during the session. */
   capsuleComplete?: boolean;
@@ -54,11 +60,7 @@ export interface TraceReport {
   totals: {
     sessions: number;
     incomplete: number;
-    /**
-     * Held out of the rates because the classification could not be settled — either the
-     * ordering is unknown, or nothing confirmed a change while something unobservable could
-     * have made one.
-     */
+    /** No known mutation, but a shell or unresolved write could have changed the tree. */
     uncertain: number;
     /**
      * Observed to change nothing outside `.akrctx/`, with nothing that could have changed
@@ -66,8 +68,12 @@ export interface TraceReport {
      * Reported so the three buckets account for every usable trace.
      */
     readOnly: number;
-    /** Sessions that changed something outside `.akrctx/` — the denominator every rate uses. */
+    /** Sessions with a known mutation outside `.akrctx/`. */
     mutating: number;
+    /** Known-mutating sessions whose first-mutation ordering is boolean evidence. */
+    orderingKnown: number;
+    /** Known-mutating sessions whose first-mutation ordering is `null`. */
+    orderingUnknown: number;
     capsuleBound: number;
     capsuleBeforeFirstMutation: number;
     capsuleComplete: number;
@@ -89,34 +95,30 @@ export async function runTraceReport(options: CommandOptions): Promise<TraceRepo
   // never bound a capsule" from "the record stops before it did", and counting it either
   // way would quietly bias the very number this phase exists to produce.
   const usable = sessions.filter((session) => session.complete);
-  // The contract predicates are counted over the sessions the contract applies to — those
-  // that changed something outside `.akrctx/` — because that is the denominator the rate is
-  // reported against. Counting them over every session instead produced rates above 100%.
-  // Sessions whose ordering a shell command could have changed invisibly are held out of
-  // the rates rather than counted as compliant or non-compliant. Reporting a number that
-  // cannot be justified is exactly the failure this phase exists to end.
-  const governed = usable.filter((session) => session.mutatedProject && !session.uncertainBeforeBinding);
-  // Held out, but never dropped. Two distinct doubts land here: the ordering could not be
-  // established, or nothing confirmed a change while something unobservable might have made
-  // one. Counting only the first let a session with a late shell command vanish from the
-  // aggregate entirely — neither in the rates nor in the caveat.
-  const uncertain = usable.filter(
-    (session) => session.uncertainBeforeBinding || (session.mutationUncertain && !session.mutatedProject),
-  );
-  const count = (predicate: (session: SessionReport) => boolean) => governed.filter(predicate).length;
+  // A known mutation keeps a session in the shared denominator even when a shell leaves the
+  // first-mutation ordering unknown. The three buckets partition usable traces; ordering is a
+  // separate refinement of the known-mutating bucket rather than a reason to drop evidence.
+  const mutating = usable.filter((session) => session.mutatedProject);
+  const uncertain = usable.filter((session) => !session.mutatedProject && session.mutationUncertain);
+  const readOnly = usable.filter((session) => !session.mutatedProject && !session.mutationUncertain);
+  const orderingKnown = mutating.filter((session) => session.capsuleBeforeFirstMutation !== null);
+  const orderingUnknown = mutating.filter((session) => session.capsuleBeforeFirstMutation === null);
+  const countMutating = (predicate: (session: SessionReport) => boolean) => mutating.filter(predicate).length;
   return {
     sessions,
     totals: {
       sessions: sessions.length,
       incomplete: sessions.length - usable.length,
       uncertain: uncertain.length,
-      readOnly: usable.length - governed.length - uncertain.length,
-      mutating: governed.length,
-      capsuleBound: count((s) => s.capsuleBound),
-      capsuleBeforeFirstMutation: count((s) => s.capsuleBeforeFirstMutation),
-      capsuleComplete: count((s) => s.capsuleComplete === true),
-      validationDeclared: count((s) => s.validationDeclared === true),
-      validationObserved: count((s) => s.validationObserved === true),
+      readOnly: readOnly.length,
+      mutating: mutating.length,
+      orderingKnown: orderingKnown.length,
+      orderingUnknown: orderingUnknown.length,
+      capsuleBound: countMutating((s) => s.capsuleBound),
+      capsuleBeforeFirstMutation: orderingKnown.filter((s) => s.capsuleBeforeFirstMutation === true).length,
+      capsuleComplete: countMutating((s) => s.capsuleComplete === true),
+      validationDeclared: countMutating((s) => s.validationDeclared === true),
+      validationObserved: countMutating((s) => s.validationObserved === true),
       // Not a contract rate: a blocked read matters in any session, mutating or not, so it
       // is counted over every usable trace and reported as a count rather than a percentage.
       blockedPathTouched: usable.filter((session) => session.blockedPathTouched).length,
@@ -133,10 +135,11 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
     complete: trace.complete,
     observations: trace.observations.length,
     capsuleBound: false,
-    capsuleBeforeFirstMutation: false,
+    capsuleBeforeFirstMutation: null,
     mutatedProject: false,
     mutationUncertain: false,
     uncertainBeforeBinding: false,
+    unclassifiedShellBeforeBinding: 0,
     blockedPathTouched: false,
   };
 
@@ -146,6 +149,8 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
   interface PendingAttempt {
     area?: Area;
     wasBound: boolean;
+    /** Whether this call started before the first known project mutation was established. */
+    precededFirstKnownMutation: boolean;
   }
   // Keep the attempt itself until its outcome arrives. A boolean "settled" flag cannot
   // recover the attempt's area when PostToolUse omits its input, and it cannot retract an
@@ -164,33 +169,56 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
   // its outcomes arrive, so an all-failure group can resolve cleanly while mixed ordering
   // remains conservative.
   const anonymousOverlaps = new Map<string, AnonymousOverlap>();
+  const shellCallsBeforeBinding = new Set<string>();
   const couldGovern = (attempt: PendingAttempt) => !attempt.area || governedAreas.includes(attempt.area);
-  const markUncertain = (wasBound: boolean) => {
+  const markUncertain = (wasBound: boolean, precededFirstKnownMutation: boolean) => {
     report.mutationUncertain = true;
-    report.uncertainBeforeBinding ||= !wasBound;
+    // Once a known first mutation fixes the order, a later unresolved call cannot erase
+    // that evidence. Calls that began before it remain relevant even if they resolve later.
+    report.uncertainBeforeBinding ||= precededFirstKnownMutation && !wasBound;
   };
-  for (const observation of trace.observations) {
+  for (const [observationIndex, observation] of trace.observations.entries()) {
     if (observation.blocked) report.blockedPathTouched = true;
     if (observation.capsuleId) {
       report.capsuleBound = true;
       report.capsuleId ??= observation.capsuleId;
       if (!firstMutationSeen) boundBeforeMutation ??= observation.capsuleId;
     }
-    // A shell command can rewrite the tree invisibly — `sed -i`, `rm`, `git apply`, any
-    // script. Nothing in the invocation says whether it did, so rather than guess, the
-    // session is marked uncertain and kept out of the rates.
+    // A shell command can rewrite the tree invisibly — including an apparently read-only
+    // executable with redirections, flags, or subcommands. Do not infer safety from its
+    // retained executable label. Identified calls are counted once across their lifecycle.
+    // For anonymous shells, only pre-tool creates a count: matching a later post by FIFO
+    // would invent correlation under concurrency, while a post without a pre is uncertainty
+    // evidence but not proof of another observed call.
     if (observation.shell) {
       report.mutationUncertain = true;
-      if (!firstMutationSeen) report.uncertainBeforeBinding ||= !report.capsuleBound;
+      if (!report.capsuleBound) {
+        if (observation.callId || observation.event === "pre-tool") {
+          const shellCall = observation.callId ? `call:${observation.callId}` : `pre:${observationIndex}`;
+          if (!shellCallsBeforeBinding.has(shellCall)) {
+            shellCallsBeforeBinding.add(shellCall);
+            report.unclassifiedShellBeforeBinding += 1;
+          }
+        }
+        // A shell after the first known mutation cannot change that mutation's ordering.
+        if (!firstMutationSeen) report.uncertainBeforeBinding = true;
+      }
     }
     if (observation.mutating && observation.outcome === "attempted") {
-      const attempt: PendingAttempt = { area: observation.area, wasBound: Boolean(boundBeforeMutation) };
+      const attempt: PendingAttempt = {
+        area: observation.area,
+        wasBound: Boolean(boundBeforeMutation),
+        precededFirstKnownMutation: !firstMutationSeen,
+      };
       if (observation.callId) {
         const previous = pendingAttempts.get(observation.callId);
         if (previous && (couldGovern(previous) || couldGovern(attempt))) {
           // Duplicate ids make exact pairing impossible. Keep measuring, but never claim an
           // ordering that depends on choosing which attempt the host meant.
-          markUncertain(previous.wasBound && attempt.wasBound);
+          markUncertain(
+            previous.wasBound && attempt.wasBound,
+            previous.precededFirstKnownMutation || attempt.precededFirstKnownMutation,
+          );
         }
         pendingAttempts.set(observation.callId, attempt);
       } else {
@@ -225,7 +253,10 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
             const boundStates = new Set(candidates.map((candidate) => candidate.wasBound));
             const areas = new Set(candidates.map((candidate) => candidate.area ?? "unknown"));
             if (overlap.sawSuccess && candidates.length && (boundStates.size > 1 || areas.size > 1)) {
-              markUncertain(candidates.every((candidate) => candidate.wasBound));
+              markUncertain(
+                candidates.every((candidate) => candidate.wasBound),
+                candidates.some((candidate) => candidate.precededFirstKnownMutation),
+              );
             }
             anonymousOverlaps.delete(tool);
           }
@@ -238,8 +269,9 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
 
       const area = observation.area ?? attempt?.area;
       const wasBound = attempt?.wasBound ?? Boolean(boundBeforeMutation);
+      const precededFirstKnownMutation = attempt?.precededFirstKnownMutation ?? !firstMutationSeen;
       if (!area) {
-        markUncertain(wasBound);
+        markUncertain(wasBound, precededFirstKnownMutation);
       } else if (governedAreas.includes(area)) {
         report.mutatedProject = true;
         if (!firstMutationSeen) firstMutationWasBound = wasBound;
@@ -251,19 +283,24 @@ async function summarize(cwd: string, trace: Trace): Promise<SessionReport> {
   // An attempt nobody ever reported the end of. The session may or may not have changed
   // anything, and saying which would be a guess.
   for (const attempt of pendingAttempts.values()) {
-    if (couldGovern(attempt)) markUncertain(attempt.wasBound);
+    if (couldGovern(attempt)) markUncertain(attempt.wasBound, attempt.precededFirstKnownMutation);
   }
   for (const attempts of anonymousAttempts.values()) {
     for (const attempt of attempts) {
-      if (couldGovern(attempt)) markUncertain(attempt.wasBound);
+      if (couldGovern(attempt)) markUncertain(attempt.wasBound, attempt.precededFirstKnownMutation);
     }
   }
   for (const overlap of anonymousOverlaps.values()) {
     const candidates = overlap.candidates.filter(couldGovern);
-    if (candidates.length) markUncertain(candidates.every((candidate) => candidate.wasBound));
+    if (candidates.length) {
+      markUncertain(
+        candidates.every((candidate) => candidate.wasBound),
+        candidates.some((candidate) => candidate.precededFirstKnownMutation),
+      );
+    }
   }
   report.capsuleBeforeFirstMutation =
-    (firstMutationSeen ? firstMutationWasBound : Boolean(boundBeforeMutation)) && !report.uncertainBeforeBinding;
+    !firstMutationSeen || report.uncertainBeforeBinding ? null : firstMutationWasBound;
 
   if (!report.capsuleId) return report;
   const taskDir = await findTaskDirectory(cwd, report.capsuleId);
