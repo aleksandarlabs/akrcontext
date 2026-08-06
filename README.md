@@ -52,8 +52,11 @@ akrctx task "Define invoice API examples" --workflow SDD+EDD
 akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
 akrctx judge status
-akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
-akrctx judge verify .akrctx/local/judge/TASK-001/review.json
+akrctx judge snapshot TASK-001 --base main --json
+akrctx judge scope TASK-001 --base main --candidate SNAPSHOT:<id> --json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
+akrctx judge current .akrctx/local/judge/TASK-001/review.json
+akrctx judge prune --keep 5            # preview; add --force to remove
 akrctx comprehension enable            # enable developer understanding checkpoints
 akrctx comprehension status
 akrctx trace enable                    # opt in to observational session tracing
@@ -221,6 +224,10 @@ Packs are applied sequentially, so a project may compose several. Blocking file 
 `policy.json` (`blockedReadPatterns`, `protectedFiles`, `protectedFileMerge`, `enforcement.*`) and the write-policy skill are **prompt-level / convention-level controls, not technical enforcement**. They give a cooperative coding agent clear instructions about what not to read or overwrite — including the exact human-approval exception for protected instruction merges — but they do not sandbox the agent or resist a malicious or compromised agent, prompt injection, or a template pack designed to weaken them.
 
 **One narrow exception.** `akrctx judge scope` enforces `blockedReadPatterns` mechanically rather than by instruction: matching paths are removed from the diff at the Git level, so their contents are never read, hashed, or shown to the judge, and an unusable `policy.json` stops the command instead of degrading to a default pattern set. Only their paths appear, in `scope.excludedPaths`. This applies to the judge boundary alone — everywhere else in akrctx the patterns remain advisory, and the paragraph above still governs. See `docs/JUDGE.md`.
+
+Snapshot capture also removes blocked tracked paths from the reviewable worktree, but it
+is not secret-history rewriting or encryption: its private shallow Git repository still
+contains candidate/base objects. Remove committed secrets from Git history separately.
 
 Treat akrctx's policy as documentation the agent is expected to follow, not a security boundary. To actually restrict what an agent can read or write, complement it with:
 

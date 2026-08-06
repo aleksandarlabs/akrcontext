@@ -3,7 +3,7 @@ type: akrctx-wiki-architecture
 title: "Architecture"
 description: "Project architecture discovered by the agent."
 tags: ["architecture"]
-timestamp: 2026-07-22T18:45:00.000Z
+timestamp: 2026-08-05T21:08:00.000Z
 ---
 
 # Architecture
@@ -35,6 +35,7 @@ Command modules are pure-ish: each exports a `run*` function taking `CommandOpti
 | `src/manifest.ts` | `.akrctx/manifest.json`: sha256 per installed file, used to tell tool-written files from user edits. |
 | `src/template-pack.ts`, `src/template-apply.ts` | Bundled template packs under `templates/`, and applying them post-init. |
 | `src/judge.ts`, `src/judge-enforcement.ts` | Optional judge subagent: enable/disable/status, plus scope creation and record verification. |
+| `src/judge-snapshot.ts` | Immutable local review snapshots, integrity checks, current-state classification, and catch-up chains. |
 | `src/comprehension.ts` | Optional comprehension gate and its local-only storage guarantees. |
 | `src/wiki-lint.ts` | Wiki link/orphan/timestamp linting, surfaced by doctor as warnings rather than errors. |
 | `src/fs-utils.ts` | File system helpers (`pathExists`, `safeWrite`, …). |
@@ -54,6 +55,23 @@ Command modules are pure-ish: each exports a `run*` function taking `CommandOpti
 - `src/version.ts` owns `CLI_VERSION`; `cli.ts`, `templates/defaults.ts`, and `doctor.ts` import it. Bump it there only.
 - `src/harness-files.ts` owns which files a target requires. Adding a generated file means editing that list, or doctor will never notice it is missing.
 - `src/templates/instructions.ts` is content other repos read. Edits there change every downstream project's agent behavior on `akrctx upgrade`.
+
+## Judge boundary model
+
+`WORKTREE` remains a strict compatibility boundary: any live edit invalidates its review.
+The normal concurrent-development path captures `SNAPSHOT:<id>` below the ignored
+`.akrctx/local/judge/snapshots/` directory. Capture creates a shallow private repository
+with the candidate and base commits, overlays allowed tracked and untracked changes,
+removes blocked paths from the reviewable worktree, copies local Node dependencies rather
+than linking them, and compares the complete allowed-content manifest before publishing.
+It does not change the source repository's branch, refs, index, stash, history, or files.
+
+Approval validity and live applicability are separate. Verification binds an approval
+to the immutable snapshot and re-runs declared validation in a disposable copy outside
+the project. `judge current` validates the record before reporting whether the live
+workspace is `CURRENT`, has `NEWER_CHANGES`, or has `DIVERGED`; a catch-up snapshot binds
+only the delta after strong parent verification and recursively preserves its ancestry.
+`judge prune` is the explicit dry-run-first retention boundary.
 
 ## Known sharp edge
 

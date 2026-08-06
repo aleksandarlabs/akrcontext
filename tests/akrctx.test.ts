@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -25,6 +25,14 @@ import {
   readClarificationState,
   verifyJudgeRecord,
 } from "../src/judge-enforcement.js";
+import {
+  captureJudgeCatchUpSnapshot,
+  captureJudgeSnapshot,
+  checkJudgeReviewCurrentState,
+  checkJudgeSnapshotCurrentState,
+  loadJudgeSnapshot,
+  pruneJudgeSnapshots,
+} from "../src/judge-snapshot.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
@@ -1927,6 +1935,22 @@ describe("skill content contract", () => {
     expect(skill, "skill missing UI review").toContain("UI review");
   });
 
+  it("teaches immutable review snapshots without authorizing Git mutations", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+
+    const workflow = await readFile(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"), "utf8");
+    const judge = await readFile(path.join(tmp, ".codex/agents/akrctx-judge.toml"), "utf8");
+    const contract = await readFile(path.join(tmp, ".akrctx/judge/README.md"), "utf8");
+
+    expect(workflow).toContain("akrctx judge snapshot TASK-XXX");
+    expect(workflow).toContain("never commits, stages, stashes, checks out, creates a branch or ref");
+    expect(judge).toContain(".akrctx/local/judge/snapshots/<id>/worktree");
+    expect(contract).toContain("CURRENT");
+    expect(contract).toContain("NEWER_CHANGES");
+    expect(contract).toContain("DIVERGED");
+  });
+
   it("installs comprehension as an independent agent instead of a main-context skill", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
@@ -1936,6 +1960,8 @@ describe("skill content contract", () => {
     expect(agent).toContain('sandbox_mode = "read-only"');
     expect(agent).toContain('model_reasoning_effort = "high"');
     expect(agent).toContain("Do not inherit the implementing agent's reasoning");
+    expect(agent).toContain("akrctx judge current <review.json> --json");
+    expect(agent).toContain("current state is 'CURRENT'");
     expect(agent).toContain("Ask one question at a time");
     expect(agent).toContain("Mermaid");
     expect(agent).toContain("test matrix");
@@ -2737,6 +2763,519 @@ describe("judge", () => {
     expect(human).toContain("app.ts");
     expect(() => JSON.parse(human)).toThrow();
     expect(JSON.parse(asJson)).toEqual(scope);
+  });
+
+  it("captures an ignored immutable snapshot without changing Git state", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "obsolete.ts"), "export const obsolete = true;\n", "utf8");
+    await execFileAsync("git", ["add", "obsolete.ts"], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "add obsolete fixture"], { cwd: tmp });
+    await rm(path.join(tmp, "obsolete.ts"));
+    await writeFile(path.join(tmp, "untracked.ts"), "export const untracked = true;\n", "utf8");
+    const gitState = async () => ({
+      head: (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tmp })).stdout,
+      branch: (await execFileAsync("git", ["branch", "--show-current"], { cwd: tmp })).stdout,
+      status: (await execFileAsync("git", ["status", "--porcelain=v1", "--untracked-files=all"], { cwd: tmp })).stdout,
+      staged: (await execFileAsync("git", ["diff", "--cached", "--binary"], { cwd: tmp })).stdout,
+      refs: (await execFileAsync("git", ["for-each-ref", "--format=%(refname) %(objectname)"], { cwd: tmp })).stdout,
+      stash: (await execFileAsync("git", ["stash", "list"], { cwd: tmp })).stdout,
+    });
+    const before = await gitState();
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect(await gitState()).toEqual(before);
+    expect(snapshot.candidate).toBe(`SNAPSHOT:${snapshot.id}`);
+    expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
+    expect(await pathExists(path.join(snapshot.worktreePath, "obsolete.ts"))).toBe(false);
+    expect(await readFile(path.join(snapshot.worktreePath, "untracked.ts"), "utf8")).toContain("untracked = true");
+    await execFileAsync("git", ["check-ignore", "-q", path.relative(tmp, snapshot.metadataPath)], { cwd: tmp });
+  });
+
+  it("removes blocked tracked paths from a shallow review worktree", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, ".env"), "DO_NOT_COPY=secret\n", "utf8");
+    await execFileAsync("git", ["add", ".env"], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "add blocked fixture"], { cwd: tmp });
+    await rm(path.join(tmp, ".env"));
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const { stdout } = await execFileAsync("git", ["rev-list", "--count", "--all"], { cwd: snapshot.worktreePath });
+    const remotes = await execFileAsync("git", ["remote"], { cwd: snapshot.worktreePath });
+
+    expect(snapshot.scope.excludedPaths).toContain(".env");
+    expect(await pathExists(path.join(snapshot.worktreePath, ".env"))).toBe(false);
+    expect(Number(stdout.trim())).toBeLessThanOrEqual(2);
+    expect(remotes.stdout).toBe("");
+  });
+
+  it("keeps snapshot approval valid while the live worktree moves", async () => {
+    const { task } = await createReviewFixture({ declares: ['node -e "process.exit(0)"'], claims: [] });
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const command = 'node -e "process.exit(0)"';
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(true);
+    expect(result.reexecuted).toEqual([{ command, passed: true }]);
+    expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
+  });
+
+  it("invalidates a snapshot approval when snapshot content is tampered with", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command: "pnpm test", status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(snapshot.worktreePath, "app.ts"), "export const value = 99;\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join("\n")).toContain("Snapshot integrity check failed");
+  });
+
+  it("invalidates a snapshot approval when the snapshot workspace is deleted", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command: "pnpm test", status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await rm(snapshot.worktreePath, { recursive: true, force: true });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join("\n")).toContain("Snapshot integrity check failed");
+  });
+
+  it("rejects a snapshot whose ignored dependency directory links to the live project", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    await mkdir(path.join(tmp, "node_modules"), { recursive: true });
+    await symlink(path.join(tmp, "node_modules"), path.join(snapshot.worktreePath, "node_modules"), "dir");
+
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("dependency directory is a symlink");
+  });
+
+  it("refuses to read an old snapshot after blocked-read policy changes", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command: "pnpm test", status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.blockedReadPatterns.push("*.new-secret");
+    await writeFile(policyPath, `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join("\n")).toContain("blocked-read policy changed after capture");
+  });
+
+  it("runs mutating snapshot validation away from the live worktree and detects it", async () => {
+    const mutating = "node -e \"require('fs').writeFileSync('app.ts', 'export const value = 7;\\n')\"";
+    const { task } = await createReviewFixture({ declares: [mutating], claims: [] });
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command: mutating, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join("\n")).toContain("Validation changed the snapshot");
+    expect(await readFile(path.join(tmp, "app.ts"), "utf8")).toContain("value = 2");
+    expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
+  });
+
+  it("copies local dependencies into validation without linking back to the live project", async () => {
+    const command = "node -e \"require('fs').writeFileSync('node_modules/../app.ts', 'export const value = 8;\\n')\"";
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\n", "utf8");
+    await mkdir(path.join(tmp, "node_modules"), { recursive: true });
+    await writeFile(path.join(tmp, "node_modules/fixture.txt"), "dependency fixture\n", "utf8");
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/dependency-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join("\n")).toContain("Validation changed the snapshot boundary");
+    expect((await lstat(path.join(snapshot.worktreePath, "node_modules"))).isSymbolicLink()).toBe(false);
+    expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
+    expect(await readFile(path.join(tmp, "app.ts"), "utf8")).toContain("value = 2");
+  });
+
+  it("allows ignored validation output inside the snapshot without touching live files", async () => {
+    const command =
+      "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/out.js','ok')\"";
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/snapshot-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+
+    expect(result.approved).toBe(true);
+    expect(await pathExists(path.join(snapshot.worktreePath, "dist/out.js"))).toBe(false);
+    expect(await pathExists(path.join(tmp, "dist/out.js"))).toBe(false);
+  });
+
+  it("reports snapshot currency separately from historical approval validity", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect((await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate)).status).toBe("CURRENT");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    const newer = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+    expect(newer.status).toBe("NEWER_CHANGES");
+    expect(newer.changedFiles).toContain("app.ts");
+
+    await execFileAsync("git", ["checkout", "--orphan", "other-lineage"], { cwd: tmp });
+    expect((await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate)).status).toBe("DIVERGED");
+  });
+
+  it("rejects current-state claims from non-approved snapshot records", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/rejected-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "NEEDS_CHANGES",
+          tests: [{ command: "pnpm test", status: "passed" }],
+          issues: ["not approved"],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    await expect(checkJudgeReviewCurrentState(tmp, recordPath)).rejects.toThrow("valid APPROVED");
+  });
+
+  it("captures a catch-up delta linked to a strongly verified approved snapshot", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    const parent = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const parentRecordPath = path.join(tmp, ".akrctx/local/judge/parent-review.json");
+    await writeFile(
+      parentRecordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: parent.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    await writeFile(path.join(tmp, "new.ts"), "export const added = true;\n", "utf8");
+
+    const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath);
+    const loaded = await loadJudgeSnapshot(tmp, catchUp.candidate);
+
+    expect(catchUp.scope.base).toBe(parent.candidate);
+    expect(catchUp.scope.changedFiles).toEqual(["app.ts", "new.ts"]);
+    expect(loaded.metadata.parent?.scopeDigest).toBe(parent.scope.scopeDigest);
+    expect(loaded.metadata.parent?.recordDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("rejects catch-up when the parent passing claim fails independent re-execution", async () => {
+    const command = 'node -e "process.exit(1)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    const parent = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const parentRecordPath = path.join(tmp, ".akrctx/local/judge/false-parent-review.json");
+    await writeFile(
+      parentRecordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: parent.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath)).rejects.toThrow("Independent re-run");
+  });
+
+  it("invalidates a catch-up snapshot when an ancestor snapshot is removed", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    const parent = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const parentRecordPath = path.join(tmp, ".akrctx/local/judge/ancestor-review.json");
+    await writeFile(
+      parentRecordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: parent.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    const child = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath);
+    await rm(parent.worktreePath, { recursive: true, force: true });
+
+    await expect(loadJudgeSnapshot(tmp, child.candidate)).rejects.toThrow("parent snapshot");
+  });
+
+  it("prunes old snapshots explicitly and is dry-run by default", async () => {
+    const { task } = await createReviewFixture();
+    const first = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    const second = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    const preview = await pruneJudgeSnapshots(tmp, { keep: 1 });
+    expect(preview.dryRun).toBe(true);
+    expect(preview.removed).toHaveLength(1);
+    expect(await pathExists(path.dirname(first.metadataPath))).toBe(true);
+    expect(await pathExists(path.dirname(second.metadataPath))).toBe(true);
+
+    const applied = await pruneJudgeSnapshots(tmp, { keep: 1, dryRun: false });
+    expect(applied.removed).toHaveLength(1);
+    expect(applied.kept).toHaveLength(1);
+    expect(
+      Number(await pathExists(path.dirname(first.metadataPath))) +
+        Number(await pathExists(path.dirname(second.metadataPath))),
+    ).toBe(1);
+  });
+
+  it("rejects catch-up from non-approved or boundary-invalid parent records", async () => {
+    const { task } = await createReviewFixture();
+    const parent = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const parentRecordPath = path.join(tmp, ".akrctx/local/judge/parent-review.json");
+    const record = {
+      schemaVersion: JUDGE_SCHEMA_VERSION,
+      taskId: task.taskId,
+      scope: parent.scope,
+      verdict: "NEEDS_CHANGES",
+      tests: [{ command: "pnpm test", status: "passed" }],
+      issues: ["still needs work"],
+      reviewedAt: new Date().toISOString(),
+    };
+    await writeFile(parentRecordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath)).rejects.toThrow("APPROVED");
+
+    await writeFile(
+      parentRecordPath,
+      `${JSON.stringify(
+        {
+          ...record,
+          verdict: "APPROVED",
+          issues: [],
+          scope: { ...parent.scope, changeDigest: "sha256:invalid" },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath)).rejects.toThrow("verified current");
+  });
+
+  it("CLI judge snapshot keeps human output short and exposes full JSON on demand", async () => {
+    const { task } = await createReviewFixture();
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    const capture = async (args: string[]) => {
+      const writes: string[] = [];
+      console.log = (message?: unknown) => writes.push(String(message));
+      try {
+        process.chdir(tmp);
+        await main(["node", "akrctx", ...args]);
+      } finally {
+        process.chdir(previousCwd);
+        console.log = originalLog;
+      }
+      return writes.join("\n");
+    };
+
+    const human = await capture(["judge", "snapshot", task.taskId]);
+    const json = JSON.parse(await capture(["judge", "snapshot", task.taskId, "--json"]));
+
+    expect(human).toContain("You can keep working");
+    expect(human).not.toContain("scopeDigest");
+    expect(json.candidate).toMatch(/^SNAPSHOT:[0-9a-f]{20}$/);
+    expect(json.scope.scopeDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(json.worktreePath).toContain(".akrctx/local/judge/snapshots/");
+
+    const recordPath = path.join(tmp, ".akrctx/local/judge/cli-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: json.scope,
+          verdict: "APPROVED",
+          tests: [{ command: "pnpm test", status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    expect(await capture(["judge", "current", recordPath])).toContain("CURRENT");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    const currentJson = JSON.parse(await capture(["judge", "current", recordPath, "--json"]));
+    expect(currentJson.status).toBe("NEWER_CHANGES");
+    expect(currentJson.changedFiles).toContain("app.ts");
+
+    await capture(["judge", "snapshot", task.taskId]);
+    const prunePreview = JSON.parse(await capture(["judge", "prune", "--keep", "1", "--json"]));
+    expect(prunePreview.dryRun).toBe(true);
+    expect(prunePreview.removed).toHaveLength(1);
+    const pruneApplied = JSON.parse(await capture(["judge", "prune", "--keep", "1", "--force", "--json"]));
+    expect(pruneApplied.dryRun).toBe(false);
+    expect(pruneApplied.removed).toHaveLength(1);
   });
 
   it("enable generates agent files for installed targets and sets enabled in config", async () => {

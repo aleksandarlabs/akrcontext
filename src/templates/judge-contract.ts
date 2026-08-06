@@ -81,9 +81,9 @@ const reviewSchema = {
 export const judgeContractFiles: Record<string, string> = {
   ".akrctx/judge/README.md": `# Judge Enforcement Contract
 
-The judge first runs \`akrctx judge scope TASK-XXX --base <ref> --candidate <ref|WORKTREE> --json\` and copies that exact scope into its review record. A trusted caller saves the judge's JSON output under \`.akrctx/local/judge/\`; the read-only judge does not write it itself.
+The trusted caller normally captures \`akrctx judge snapshot TASK-XXX --base <ref>\` before invoking the judge. Capture creates an immutable ignored local copy without committing, staging, stashing, checking out, creating refs, or changing live files. The private repository is shallow, policy-blocked paths are absent from its reviewable worktree, local Node dependencies are copied instead of linked when present, and \`akrctx judge prune --keep <n>\` provides dry-run-first retention. The judge then runs \`akrctx judge scope TASK-XXX --base <ref> --candidate SNAPSHOT:<id> --json\` and copies that exact scope into its review record. Commit and legacy \`WORKTREE\` candidates remain supported.
 
-Before using an approval, run \`akrctx judge verify <review.json> --run-tests\`. Verification checks the record shape and recomputes SHA-256 digests for the task capsule and exact code boundary. Any code or task change invalidates the approval. This binds a verdict to evidence; it does not cryptographically prove which model produced the verdict.
+Before using an approval, run \`akrctx judge verify <review.json> --run-tests\`. Verification checks the record shape and recomputes SHA-256 digests for the task capsule and exact code boundary. A snapshot approval remains valid when the live workspace moves; tampering with the snapshot or any catch-up ancestor invalidates it. \`akrctx judge current <review.json>\` first rejects an invalid or non-approved record, then reports whether live content is \`CURRENT\`, has \`NEWER_CHANGES\`, or \`DIVERGED\`. This binds a verdict to evidence; it does not cryptographically prove which model produced the verdict.
 
 An \`APPROVED\` verdict additionally requires evidence and coherence:
 
@@ -96,7 +96,7 @@ When the capsule's \`task.md\` declares commands in a fenced block under \`## Va
 
 ## Independent re-execution
 
-\`akrctx judge verify <review.json> --run-tests\` re-runs the capsule-declared commands the record claims passed, instead of trusting the claim. It fails if any of them fails, or if running them moved the boundary — validation that rewrites the worktree can exit 0 and leave the repository outside the reviewed change set, so the scope is recomputed afterwards.
+\`akrctx judge verify <review.json> --run-tests\` re-runs the capsule-declared commands the record claims passed, instead of trusting the claim. Snapshot commands run in a disposable copy outside the live project, with private local Node dependencies when present, and cannot corrupt the immutable snapshot through ordinary relative writes. Verification still fails if validation rewrites tracked content. This is process isolation for normal tooling, not an OS sandbox for an intentionally malicious command with absolute paths.
 
 Run it from the trusted caller, before any handoff. The judge and the comprehension evaluator are read-only by contract and must not pass this flag.
 

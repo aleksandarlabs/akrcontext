@@ -3,7 +3,7 @@ type: akrctx-wiki-decisions
 title: "Decisions"
 description: "Important project and agent-workflow decisions."
 tags: ["decisions"]
-timestamp: 2026-07-22T17:54:14.665Z
+timestamp: 2026-08-05T21:08:00.000Z
 ---
 
 # Decisions
@@ -11,6 +11,29 @@ timestamp: 2026-07-22T17:54:14.665Z
 Record important project and agent-workflow decisions here.
 
 Include the date, the decision, the context, and the consequences. Link to relevant issues, PRs, or wiki pages when possible.
+
+## 2026-08-05 — Judge reviews bind to local immutable snapshots
+
+**Decision.** The default concurrent-development boundary is an ignored,
+content-addressed `SNAPSHOT:<id>`, not an automatically created commit. akrctx never
+commits, stages, stashes, checks out, creates refs, or changes live files to obtain a
+review boundary. Commit and strict live-`WORKTREE` candidates remain compatible.
+
+**Context.** A judge could review the correct code while developers or agents kept
+editing the same worktree. The old verifier then rejected that valid result because the
+live digest had moved, encouraging repeated reviews and quiet periods. Requiring an
+automatic commit would make the boundary immutable but would take control of Git state
+away from the developer.
+
+**Consequences.** Capture uses shallow private Git storage, removes blocked paths from the
+reviewable worktree, and copies rather than links local Node dependencies. Strong
+verification runs in a disposable workspace so it cannot corrupt immutable source
+evidence. Historical approval validity is independent from `CURRENT`, `NEWER_CHANGES`,
+or `DIVERGED` applicability to the live workspace. Newer work uses a catch-up snapshot
+linked to a strongly verified, recursively intact parent review, so approval is
+incremental without silently covering code the judge did not inspect. Retention is
+explicit and dry-run-first through `judge prune`. See
+`.akrctx/tasks/TASK-007-immutable-judge-snapshots/`.
 
 ## 2026-07-22 — Doctor gains an instruction placement rubric
 

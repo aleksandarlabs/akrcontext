@@ -259,11 +259,20 @@ akrctx judge enable           # enable + install agent files for installed targe
 akrctx judge enable --dry-run # preview files that would be created
 akrctx judge disable          # disable (files are kept, remove manually if needed)
 akrctx judge status           # show enabled state and which agent files exist
+akrctx judge snapshot TASK-001 --base main --json
 akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
-akrctx judge verify .akrctx/local/judge/TASK-001/review.json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
+akrctx judge current .akrctx/local/judge/TASK-001/review.json
+akrctx judge snapshot TASK-001 --from-review .akrctx/local/judge/TASK-001/review.json
+akrctx judge prune --keep 5       # preview
+akrctx judge prune --keep 5 --force
 ```
 
-`scope` hashes the task capsule and exact code boundary. `verify` rejects malformed, non-approved, or stale review records and returns a non-zero exit code, so it can gate Comprehension or CI.
+`snapshot` captures a shallow immutable local boundary without changing live Git state.
+`scope` hashes the task capsule and exact code boundary. `verify --run-tests` re-executes
+declared passing validation in a disposable workspace. `current` separates historical
+approval validity from live applicability, catch-up reviews only the newer delta, and
+`prune` is dry-run-first local retention.
 
 Pi is not supported — it has no native subagent API.
 

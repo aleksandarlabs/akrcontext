@@ -65,6 +65,14 @@ export async function createJudgeScope(
   candidate = "WORKTREE",
 ): Promise<JudgeScope> {
   requireTaskId(taskId);
+  const { isSnapshotCandidate, loadJudgeSnapshot } = await import("./judge-snapshot.js");
+  if (isSnapshotCandidate(candidate)) {
+    const snapshot = await loadJudgeSnapshot(cwd, candidate);
+    if (snapshot.scope.taskId !== taskId) {
+      throw new Error(`Snapshot ${snapshot.id} belongs to ${snapshot.scope.taskId}, not ${taskId}.`);
+    }
+    return snapshot.scope;
+  }
   if (!base.trim()) throw new Error("A non-empty --base Git ref is required.");
   const baseCommit = await resolveCommit(cwd, base);
   const worktree = candidate.toUpperCase() === "WORKTREE";
@@ -174,6 +182,13 @@ export async function verifyJudgeRecord(
   const shapeReasons = validateRecord(raw);
   if (shapeReasons.length > 0) return { valid: false, approved: false, reasons: shapeReasons, ...empty };
   const record = raw as JudgeReviewRecord;
+  const { createJudgeSnapshotValidationWorkspace, isSnapshotCandidate, loadJudgeSnapshot } = await import(
+    "./judge-snapshot.js"
+  );
+  const snapshot = isSnapshotCandidate(record.scope.candidate)
+    ? await loadJudgeSnapshot(cwd, record.scope.candidate).catch(() => undefined)
+    : undefined;
+  const reviewCwd = snapshot?.worktreePath ?? cwd;
   let current: JudgeScope;
   try {
     current = await createJudgeScope(cwd, record.taskId, record.scope.base, record.scope.candidate);
@@ -207,7 +222,7 @@ export async function verifyJudgeRecord(
     reasons.push("Judge record contains failed validation.");
   }
 
-  const declaration = await readValidationDeclaration(cwd, record.taskId);
+  const declaration = await readValidationDeclaration(reviewCwd, record.taskId);
   const declaredCommands = declaration.commands;
   const claimedPassing = record.tests.filter((test) => test.status === "passed").map((test) => test.command);
   const declaredAndPassing = claimedPassing.filter((command) => declaredCommands.includes(command));
@@ -235,27 +250,44 @@ export async function verifyJudgeRecord(
     if (declaredAndPassing.length === 0) {
       reasons.push("--run-tests found no capsule-declared command claimed as passing to re-execute.");
     }
-    for (const command of [...new Set(declaredAndPassing)]) {
-      const passed = await runValidationCommand(cwd, command);
-      reexecuted.push({ command, passed });
-      if (!passed) reasons.push(`Independent re-run of \`${command}\` failed; the record claims it passed.`);
-    }
-    // Validation can mutate the worktree — formatters, snapshot updates, codegen all exit 0 and
-    // leave the repository outside the boundary that was reviewed. Approving that would approve
-    // code no judge ever saw, so the boundary is recomputed after every command has run.
-    if (reexecuted.length > 0) {
-      const drifted = await boundaryDrift(cwd, record, current);
-      if (drifted.length > 0) {
-        reasons.push(
-          `Validation changed the repository: ${drifted.join(", ")} no longer match the boundary that was reviewed.`,
-        );
+    let validationCwd = reviewCwd;
+    let cleanup: (() => Promise<void>) | undefined;
+    try {
+      if (snapshot) {
+        const validationWorkspace = await createJudgeSnapshotValidationWorkspace(cwd, record.scope.candidate);
+        validationCwd = validationWorkspace.worktreePath;
+        cleanup = validationWorkspace.cleanup;
       }
+      for (const command of [...new Set(declaredAndPassing)]) {
+        const passed = await runValidationCommand(validationCwd, command);
+        reexecuted.push({ command, passed });
+        if (!passed) reasons.push(`Independent re-run of \`${command}\` failed; the record claims it passed.`);
+      }
+      // Validation can mutate its workspace — formatters, snapshot updates and codegen can all
+      // exit 0 after changing reviewed source. Snapshot validation uses a disposable workspace so
+      // this check never corrupts the immutable evidence it is verifying.
+      if (reexecuted.length > 0) {
+        const drifted = snapshot
+          ? await snapshotValidationDrift(validationCwd, snapshot.metadata.sourceScope)
+          : await boundaryDrift(cwd, record, current);
+        if (drifted.length > 0) {
+          reasons.push(
+            snapshot
+              ? `Validation changed the snapshot boundary in its disposable workspace: ${drifted.join(", ")} no longer match the reviewed boundary.`
+              : `Validation changed the repository: ${drifted.join(", ")} no longer match the boundary that was reviewed.`,
+          );
+        }
+      }
+    } catch (error) {
+      reasons.push(`Cannot create or inspect the validation workspace: ${messageOf(error)}`);
+    } finally {
+      await cleanup?.();
     }
   }
 
   // Reported, never enforced: see the `notices` field on JudgeVerifyResult.
   const notices: string[] = [];
-  const clarification = await readClarificationState(cwd, record.taskId);
+  const clarification = await readClarificationState(reviewCwd, record.taskId);
   const open = clarification.openQuestions.length;
   if (open > 0) {
     notices.push(
@@ -287,6 +319,20 @@ async function boundaryDrift(cwd: string, record: JudgeReviewRecord, before: Jud
   } catch (error) {
     return [`the boundary could not be recomputed (${messageOf(error)})`];
   }
+  return scopeDrift(before, after);
+}
+
+async function snapshotValidationDrift(cwd: string, before: JudgeScope): Promise<string[]> {
+  let after: JudgeScope;
+  try {
+    after = await createJudgeScope(cwd, before.taskId, before.base, "WORKTREE");
+  } catch (error) {
+    return [`the boundary could not be recomputed (${messageOf(error)})`];
+  }
+  return scopeDrift(before, after);
+}
+
+function scopeDrift(before: JudgeScope, after: JudgeScope): string[] {
   const drifted: string[] = [];
   for (const field of ["taskDigest", "changeDigest", "scopeDigest"] as const) {
     if (before[field] !== after[field]) drifted.push(`scope.${field}`);

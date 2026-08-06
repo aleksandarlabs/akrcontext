@@ -118,10 +118,11 @@ Purpose:
 
 - independently review the task capsule against the exact code boundary
 - remain read-only and refuse implementation work
-- obtain its boundary from deterministic `akrctx judge scope` output
+- prefer a trusted-caller `SNAPSHOT:<id>` and obtain its boundary from deterministic `akrctx judge scope` output
 - emit a schema-valid review record with validation evidence
-- require `akrctx judge verify` to recompute task and change digests before an approval is consumed
-- invalidate approval when code, task content, refs, or verdict no longer match
+- require `akrctx judge verify --run-tests` to recompute digests and independently re-run declared passing validation before an approval is consumed
+- preserve historical snapshot approval while `akrctx judge current` separately classifies live applicability
+- require catch-up review for newer changes and intact parent evidence throughout the chain
 
 ## CLI-level workflows
 

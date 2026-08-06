@@ -14,21 +14,35 @@ The judge reports its exact base/candidate boundary, validation evidence, and a 
 
 ## Deterministic enforcement
 
-Before review, the judge computes the boundary:
+Before review, the trusted caller captures the boundary and passes the immutable candidate
+to the judge:
 
 ```bash
-akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
+akrctx judge snapshot TASK-001 --base main --json
+akrctx judge scope TASK-001 --base main --candidate SNAPSHOT:<id> --json
 ```
 
-The result contains SHA-256 digests of the five task-capsule documents and the exact Git diff, including untracked non-ignored files. The judge copies this scope unchanged into its final JSON record. Because the judge remains read-only, the trusted caller saves that output under `.akrctx/local/judge/`.
+Capture writes only below the ignored `.akrctx/local/judge/snapshots/` directory. It creates
+a shallow private Git repository containing the candidate and base commits, overlays
+tracked and allowed untracked changes, removes policy-blocked paths from the reviewable
+worktree, and copies local Node dependencies when present instead of linking to the live
+project. It does not change live refs, branch, index, stash, worktree files, or history.
+
+The scope contains SHA-256 digests of the five task-capsule documents and exact changed
+boundary. The judge copies it unchanged into the final JSON record. Commit and strict
+`WORKTREE` candidates remain supported for compatibility.
 
 Before accepting the verdict or starting comprehension:
 
 ```bash
-akrctx judge verify .akrctx/local/judge/TASK-001/review.json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
 ```
 
-Verification validates the record and recomputes the scope. It exits unsuccessfully when the verdict is not `APPROVED`, the task changed, the code changed, a ref moved, the record was produced by a different akrctx version, or the record is malformed.
+Verification validates the record and recomputes its immutable scope. It exits
+unsuccessfully when the verdict is not `APPROVED`, the snapshot or one of its catch-up
+ancestors changed or disappeared, the record was produced by a different akrctx version,
+or the record is malformed. New edits in the live project do not invalidate a correct
+historical approval.
 
 The version check is deliberate: approval rules change between releases, so a record written under older rules must not silently satisfy a newer gate.
 
@@ -75,7 +89,15 @@ By default a passing command is taken from the record on trust. To check it inst
 akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
 ```
 
-This re-runs the capsule-declared commands the record claims passed. Verification fails if any of them fails, **or if running them moved the boundary** — a formatter, a snapshot update or a codegen step can exit 0 and leave the worktree outside the reviewed change set, and approving that would approve code no judge ever saw. The scope is recomputed after every command has run.
+This re-runs the capsule-declared commands the record claims passed. Snapshot validation
+runs in a disposable copy outside the live project, including the snapshot's private Node
+dependencies when present. Verification fails if a command fails or changes tracked
+reviewed content. Ignored build output is discarded with the disposable workspace and the
+immutable snapshot is never mutated by verification.
+
+This is isolation for ordinary relative writes, not an operating-system sandbox. A
+malicious command can still use absolute paths or external programs, so read the capsule's
+validation block before executing work you did not supervise.
 
 **What `--run-tests` executes, and whose trust that is.** It runs the commands declared in the capsule's `task.md` through a shell. Two things follow:
 
@@ -92,15 +114,20 @@ This is why the flag is opt-in and lives with the primary agent rather than the 
 |---|---|---|
 | Judge | none — it produces the record | Read-only; it reports what it ran |
 | Primary agent, before handoff | `judge verify --run-tests` | The only trusted caller that can execute |
-| Comprehension evaluator | `judge verify --json` | Read-only contract; confirms the approval is current, not that tests re-ran |
+| Comprehension evaluator | `judge verify --json` plus `judge current --json` | Read-only contract; confirms approval validity and live applicability, not that tests re-ran |
 
 A re-execution result is not transferable: a later agent that only runs plain `verify` learns the boundary is intact, not that validation was independently repeated. If you need that guarantee to survive the handoff, it has to come from CI or another trusted orchestrator, not from the record.
 
 ### Withheld paths
 
-Files matching `blockedReadPatterns` in `policy.json` are excluded from the diff at the Git level and listed by path in `scope.excludedPaths`. Their contents are never read or fingerprinted, so rotating a secret inside the boundary does not move the digest. The path list is itself part of the boundary, so a blocked file appearing or disappearing still invalidates a stale approval.
+Files matching `blockedReadPatterns` in `policy.json` are excluded from the diff at the Git level and listed by path in `scope.excludedPaths`. Their contents are never fingerprinted, and blocked tracked paths are removed from the snapshot's reviewable worktree after checkout. The path list is itself part of the boundary, so a blocked file appearing or disappearing still invalidates a stale approval.
 
-This is the one place where `blockedReadPatterns` is mechanically enforced rather than advisory. Everywhere else in akrctx it is an instruction to an agent; here the CLI removes the paths before any agent sees them. Because the guarantee is mechanical, it fails closed: if `policy.json` is unreadable, or `blockedReadPatterns` is missing or not an array of strings, `akrctx judge scope` refuses to compute a boundary rather than continuing with a weaker default set.
+This is the one place where `blockedReadPatterns` is mechanically applied to both the
+boundary and reviewable worktree. It is not encryption: the private Git repository still
+contains the candidate commit's object database, and a tracked secret must be removed from
+Git history separately. Because boundary filtering fails closed, an unusable
+`policy.json` makes capture and scope computation fail instead of silently weakening the
+rule.
 
 This applies to tracked and untracked files alike. Earlier versions aborted the whole scope when an untracked blocked file was present; that was wrong in practice, because patterns like `.env.*` match ordinary non-secret files such as `.env.example`. A judge that cannot review meaningfully without the withheld files should report `BLOCKED`.
 
@@ -111,6 +138,38 @@ It proves the verdict is bound to a specific task capsule and code boundary, tha
 It does not prove which model produced the verdict. The judge is read-only by design, so a trusted caller writes the record to disk, and that caller could in principle write one the judge never produced. Nothing in this repository can close that gap; a signature would need a trust anchor outside it.
 
 The mitigation is human. The judge's prose review appears in the session transcript, and the developer reads it. Treat a verified record as tamper-evident bookkeeping, not as an unforgeable signature.
+
+## Current state and catch-up review
+
+After strong verification, compare the approved snapshot with the live workspace:
+
+```bash
+akrctx judge current .akrctx/local/judge/TASK-001/review.json
+```
+
+The command rejects malformed, non-approved, or boundary-invalid records before reporting
+`CURRENT`, `NEWER_CHANGES`, or `DIVERGED`. When work has advanced on the same lineage,
+capture only the delta:
+
+```bash
+akrctx judge snapshot TASK-001 --from-review .akrctx/local/judge/TASK-001/review.json
+```
+
+Catch-up re-runs the parent's declared passing validation, binds the exact parent record,
+and recursively requires every ancestor snapshot to remain intact. It never extends an old
+approval over new code silently.
+
+## Local retention
+
+Snapshots are local, ignored artifacts. Preview retention before deleting anything:
+
+```bash
+akrctx judge prune --keep 5
+akrctx judge prune --keep 5 --force
+```
+
+Pruning keeps the newest requested snapshots and any ancestors they require. The command
+is a dry-run unless `--force` is supplied.
 
 ## Enabling the judge
 

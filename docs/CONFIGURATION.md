@@ -198,9 +198,17 @@ The judge is an optional subagent that independently reviews implementation agai
 akrctx judge enable   # install judge files and set enabled: true
 akrctx judge disable  # set enabled: false (files are kept)
 akrctx judge status   # show state
-akrctx judge scope TASK-001 --base main --candidate WORKTREE --json
-akrctx judge verify .akrctx/local/judge/TASK-001/review.json
+akrctx judge snapshot TASK-001 --base main --json
+akrctx judge scope TASK-001 --base main --candidate SNAPSHOT:<id> --json
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
+akrctx judge current .akrctx/local/judge/TASK-001/review.json
 ```
+
+The normal concurrent workflow captures `akrctx judge snapshot TASK-001 --base <ref>`,
+reviews its `SNAPSHOT:<id>` candidate, verifies with `--run-tests`, and then uses
+`akrctx judge current <review.json>` to classify live applicability. Catch-up uses
+`judge snapshot --from-review <review.json>`. Local snapshots are ignored and can be
+preview-pruned with `akrctx judge prune --keep <n>`; add `--force` to apply deletion.
 
 The enabled state is stored in config:
 

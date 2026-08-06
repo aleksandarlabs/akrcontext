@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Immutable, content-addressed Judge review snapshots under
+  `.akrctx/local/judge/snapshots/`. `akrctx judge snapshot TASK-XXX --base <ref>` captures
+  tracked modifications, deletions, and allowed untracked files without changing the
+  live branch, refs, index, stash, history, or worktree.
+- `SNAPSHOT:<id>` Judge candidates, stable scope recomputation, tamper detection, concise
+  human output, and full JSON metadata for automation. Commit candidates and strict
+  `WORKTREE` review remain compatible.
+- `akrctx judge current <review.json>` to validate an approved snapshot record and report
+  `CURRENT`, `NEWER_CHANGES`, or `DIVERGED` separately from historical approval validity.
+- Incremental catch-up snapshots through `judge snapshot --from-review <review.json>`.
+  Catch-up exposes only the delta, strongly re-verifies the approved parent, binds its
+  record digest, and recursively requires intact snapshot ancestry.
+- Dry-run-first `akrctx judge prune --keep <n>` retention. `--force` removes obsolete
+  snapshots while preserving any ancestors required by retained catch-up reviews.
 - A clarification step before implementation. A question exists only when two plausible answers would produce different implementation, validation, or scope; there is no cap on how many are asked and no "assume and proceed" option. Answers are recorded in the capsule under `## Clarifications` beneath a dated session heading, and any answer that changes a criterion propagates into `acceptance-criteria.md`.
 - `## Clarifications` and `## Open Questions` sections in generated task capsules and in the shipped capsule template. One entry is one top-level `- ` bullet; section prose is never content.
 - `akrctx judge verify` reports unresolved open questions as a non-blocking notice. The CLI still blocks only on what it can check mechanically, so a notice never changes `valid`, `approved`, or the exit code.
@@ -18,6 +32,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Snapshot capture uses a shallow private Git repository containing only the candidate
+  and base commits instead of duplicating complete project history. Local Node
+  dependencies are copied with copy-on-write support when available, never symlinked back
+  to the live project.
+- `judge verify --run-tests` executes snapshot validation in a disposable workspace
+  outside the live project. Tracked rewrites still fail boundary verification, ignored
+  output is discarded, and neither case mutates the immutable snapshot.
+- Generated Judge, workflow, and comprehension instructions teach snapshot capture,
+  strong verification, live applicability, catch-up review, trust limits, and retention.
+  Comprehension now requires both a valid approval and `judge current` status `CURRENT`;
+  a valid historical approval of older code is no longer enough.
+- Judge, configuration, command, harness, comprehension, README, architecture, and
+  decision documentation now describe the snapshot workflow and its limits.
 - `## Open Questions` in a task capsule stops being an unused placeholder and gains a defined meaning: ambiguity still unresolved, written as a question. Running headless with nobody to answer, recording it is the correct outcome rather than predicting the answer.
 - The `akrctx-task` skill carries the full clarification procedure and is emitted identically to all four targets. Hosts with a native question UI are told to prefer it in their target reference only; the artifact written to the capsule is the same everywhere.
 - Evaluation reports separate mechanism conformance from independently supported outcomes; candidate-only runs cannot claim improvement without a baseline. Report artifacts omit raw process output and arguments, fixture paths resolve symlinks before access, and cached builds are published atomically with full `dist/` integrity checks.
@@ -25,10 +52,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Live edits after capture no longer invalidate a correct approval for immutable reviewed
+  content; applicability to newer work is reported independently.
+- `judge current` no longer labels malformed, non-approved, stale, or tampered review
+  records as current approvals.
+- Catch-up no longer accepts a parent's unverified passing claim and no longer remains
+  valid after an ancestor snapshot is deleted or tampered with.
+- Mutating validation can no longer corrupt the immutable snapshot it is supposed to
+  verify, and ignored validation output no longer accumulates inside snapshot evidence.
 - Fresh task capsule templates include `acceptance-criteria.md`.
 - Task creation fails loudly on invalid `.akrctx/config.json` instead of silently falling back to permissive defaults.
 - Full removal unwires akrctx-owned trace hooks for every host before deleting project configuration, while preserving foreign entries.
 - Claude failed-tool events settle their matching attempts, validation requires a successful correlated outcome, and trace status rejects partial or mismatched wiring.
+
+### Security
+
+- Remove tracked paths matching `blockedReadPatterns` from the reviewable snapshot
+  worktree after checkout, including blocked files deleted live but still present in the
+  candidate commit. Snapshot documentation makes explicit that Git object storage is not
+  encryption or secret-history rewriting.
+- Replace the live `node_modules` symlink with a private dependency copy, closing the
+  `node_modules/..` path back into the live project during ordinary validation. Existing
+  local snapshots that still contain a linked dependency directory are rejected and must
+  be recaptured.
+- Snapshot validation isolation is documented accurately as protection from normal
+  relative writes, not as an operating-system sandbox for malicious commands using
+  absolute paths.
 
 ## [0.4.0] - 2026-08-01
 

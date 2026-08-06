@@ -9,6 +9,12 @@ import { TRACE_MARKER, runTraceDisable, runTraceEnable, runTraceStatus } from ".
 import { runTraceReport } from "./hook/report.js";
 import { runInit } from "./init.js";
 import { createJudgeScope, verifyJudgeRecord } from "./judge-enforcement.js";
+import {
+  captureJudgeCatchUpSnapshot,
+  captureJudgeSnapshot,
+  checkJudgeReviewCurrentState,
+  pruneJudgeSnapshots,
+} from "./judge-snapshot.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "./judge.js";
 import { runRemove } from "./remove.js";
 import { runStatus } from "./status.js";
@@ -584,6 +590,81 @@ export async function main(argv = process.argv): Promise<void> {
       }
     },
   );
+
+  judge
+    .command("snapshot")
+    .description("Capture an immutable local review snapshot without changing Git state.")
+    .argument("<task-id>", "task capsule ID, for example TASK-001")
+    .option("--base <ref>", "base Git ref for a full snapshot", "HEAD")
+    .option("--from-review <file>", "capture only changes since a verified approved snapshot review")
+    .option("--json", "emit snapshot metadata for automation", false)
+    .action(async (taskId: string, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const cwd = options.cwd ?? process.cwd();
+      const snapshot = raw.fromReview
+        ? await captureJudgeCatchUpSnapshot(cwd, taskId, String(raw.fromReview))
+        : await captureJudgeSnapshot(cwd, taskId, String(raw.base));
+      if (options.json) {
+        console.log(JSON.stringify(snapshot, null, 2));
+        return;
+      }
+      log(`${bold("Judge snapshot:")} ${taskId}@${snapshot.id}`);
+      log(`  ${dim("candidate")} ${snapshot.candidate}`);
+      log(`  ${dim("changed")}   ${snapshot.scope.changedFiles.length} file(s)`);
+      if (snapshot.parent) log(`  ${dim("catch-up")}  from ${snapshot.parent.snapshotId}`);
+      ln();
+      log(`  ${green("✓")} ${dim("Captured without changing branch, index, stash, refs, or live files.")}`);
+      log(`  ${dim("You can keep working while the judge reviews this snapshot.")}`);
+    });
+
+  judge
+    .command("prune")
+    .description("Preview or remove old local judge snapshots while preserving retained ancestry.")
+    .option("--keep <count>", "number of newest snapshots to retain", "5")
+    .option("--force", "apply the removal; without this flag only preview it", false)
+    .option("--json", "emit JSON output", false)
+    .action(async (raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const keep = Number(raw.keep);
+      const result = await pruneJudgeSnapshots(options.cwd ?? process.cwd(), {
+        keep,
+        dryRun: !options.force,
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      log(`${bold("Judge snapshots:")} ${result.dryRun ? yellow("prune preview") : green("pruned")}`);
+      log(`  ${dim("retained")} ${result.kept.length}`);
+      log(`  ${dim(result.dryRun ? "would remove" : "removed")} ${result.removed.length}`);
+      if (result.dryRun && result.removed.length > 0) {
+        log(`  ${dim("Run with --force to remove the listed obsolete snapshots.")}`);
+      }
+    });
+
+  judge
+    .command("current")
+    .description("Compare an approved snapshot review with the current workspace.")
+    .argument("<review-file>", "path to a snapshot review JSON")
+    .option("--json", "emit JSON output", false)
+    .action(async (reviewFile: string, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const result = await checkJudgeReviewCurrentState(options.cwd ?? process.cwd(), reviewFile);
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+        return;
+      }
+      const label = result.status === "CURRENT" ? green(result.status) : yellow(result.status);
+      log(`${bold("Judge snapshot:")} ${label}`);
+      if (result.status === "CURRENT") {
+        log(`  ${dim("The workspace still matches the approved snapshot.")}`);
+      } else if (result.status === "NEWER_CHANGES") {
+        log(`  ${dim("The approval remains valid for its snapshot; the workspace has newer changes.")}`);
+        log(`  ${dim("Capture a catch-up snapshot to review only the delta.")}`);
+      } else {
+        log(`  ${dim("The current Git lineage differs from the approved snapshot.")}`);
+      }
+    });
 
   judge
     .command("scope")
