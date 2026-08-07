@@ -45,7 +45,13 @@ export async function writePlannedFile(
   cwd: string,
   relativePath: string,
   content: string,
-  options: { dryRun?: boolean; force?: boolean; protected?: boolean; reason?: string } = {},
+  options: {
+    dryRun?: boolean;
+    force?: boolean;
+    protected?: boolean;
+    reason?: string;
+    ignoreFrontmatterTimestamp?: boolean;
+  } = {},
 ): Promise<WriteResult> {
   const targetPath = path.join(cwd, relativePath);
   const exists = await pathExists(targetPath);
@@ -71,8 +77,16 @@ export async function writePlannedFile(
 
   const nextContent = ensureTrailingNewline(content);
 
-  if (exists && (await readFile(targetPath, "utf8").catch(() => undefined)) === nextContent) {
-    return { kind: "preserve", path: relativePath, reason: "Already current." };
+  if (exists) {
+    const currentContent = await readFile(targetPath, "utf8").catch(() => undefined);
+    if (currentContent !== undefined) {
+      const compareContent = options.ignoreFrontmatterTimestamp
+        ? normalizeTimestamp(currentContent) === normalizeTimestamp(nextContent)
+        : currentContent === nextContent;
+      if (compareContent) {
+        return { kind: "preserve", path: relativePath, reason: "Already current." };
+      }
+    }
   }
 
   if (!options.dryRun) {
@@ -85,6 +99,10 @@ export async function writePlannedFile(
     path: relativePath,
     reason: exists ? "Regenerated from the current configuration." : options.reason,
   };
+}
+
+function normalizeTimestamp(content: string): string {
+  return content.replace(/^timestamp:.*\n/m, "");
 }
 
 export function ensureTrailingNewline(content: string): string {
