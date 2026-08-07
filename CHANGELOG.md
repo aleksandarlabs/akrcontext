@@ -179,6 +179,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reports (`agent-setup.md`, `gaps.md`, `recommendations.md`) are rewritten only when
   their content beyond the frontmatter `timestamp:` changes; a repeated run now leaves
   the files byte-identical instead of advancing the timestamp and producing empty diffs.
+- The source repository now passes its own doctor audit on a fresh clone. `.codex/agents/`
+  is no longer gitignored, so the agent files required by the dogfooded configuration
+  (`judge.enabled: true`) are part of the checkout; a test asserts every config-required
+  agent file is tracked, and an enabled agent whose files are ignored now fails CI instead
+  of surprising the next contributor.
+
+### Internal
+
+- `src/cli.ts` was split from a single ~1700-line module into per-command-family modules
+  under `src/cli/`, each exporting a `register*(program)` function. The observable CLI
+  surface is unchanged and frozen by `--help` snapshot tests.
 
 ## [0.4.0] - 2026-08-01
 
