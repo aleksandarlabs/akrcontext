@@ -1,6 +1,6 @@
 # Review Checklist
 
-- [ ] Goal is clear.
-- [ ] Scope is controlled.
-- [ ] Tests written before implementation and would fail without the fix.
-- [ ] Existing instructions were not overwritten.
+- [x] Goal is clear.
+- [x] Scope is controlled.
+- [x] Tests written before implementation and would fail without the fix.
+- [x] Existing instructions were not overwritten.

@@ -536,6 +536,7 @@ async function writeDoctorWiki(
     dryRun: options.dryRun,
     force: true,
     reason: "Doctor readiness report.",
+    ignoreFrontmatterTimestamp: true,
   };
 
   await Promise.all([

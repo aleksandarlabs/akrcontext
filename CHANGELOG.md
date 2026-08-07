@@ -173,6 +173,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   relative writes, not as an operating-system sandbox for malicious commands using
   absolute paths.
 
+### Fixed
+
+- `akrctx doctor` no longer dirties the working tree on an unchanged audit. The wiki
+  reports (`agent-setup.md`, `gaps.md`, `recommendations.md`) are rewritten only when
+  their content beyond the frontmatter `timestamp:` changes; a repeated run now leaves
+  the files byte-identical instead of advancing the timestamp and producing empty diffs.
+
 ## [0.4.0] - 2026-08-01
 
 ### Added
