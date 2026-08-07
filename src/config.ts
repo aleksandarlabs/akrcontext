@@ -1,12 +1,31 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
+import { DEFAULT_MAX_ATTEMPTS, agentTargets, withAgentSetting } from "./agents.js";
 import { pathExists } from "./fs-utils.js";
 import { defaultConfig } from "./templates.js";
-import type { AppliedTemplatePack, Target, Workflow, WorkflowDefault, akrctxConfig } from "./types.js";
-import { targets, workflows } from "./types.js";
+import type {
+  AgentEntryConfig,
+  AgentModelConfig,
+  AgentName,
+  AgentTarget,
+  AgentsConfig,
+  AppliedTemplatePack,
+  Target,
+  Workflow,
+  WorkflowDefault,
+  akrctxConfig,
+} from "./types.js";
+import { agentNames, targets, workflows } from "./types.js";
 
 const configPath = ".akrctx/config.json";
+
+const agentConfigKeys = agentNames.flatMap((name) => [
+  `agents.${name}.enabled`,
+  `agents.${name}.trigger`,
+  `agents.${name}.targets`,
+  ...agentTargets.map((target) => `agents.${name}.model.${target}`),
+]);
 
 const validConfigKeys = [
   "defaultWorkflow",
@@ -21,6 +40,8 @@ const validConfigKeys = [
   "defaults.requireWorkflowReason",
   "contextBudget",
   "defaults.contextBudget",
+  ...agentConfigKeys,
+  "agents.implementer.maxAttempts",
 ] as const;
 
 /**
@@ -107,7 +128,86 @@ export function normalizeConfig(raw: unknown): akrctxConfig {
       ...(partial.workflowRules ?? {}),
     },
     comprehensionGate: normalizeComprehensionGate(partial.comprehensionGate, base.comprehensionGate),
+    agents: normalizeAgents(partial.agents),
+    impl: normalizeImpl(partial.impl),
   };
+}
+
+/**
+ * Normalize the canonical `agents` block.
+ *
+ * Malformed fields fall back to the built-in default the way `comprehensionGate` already
+ * does. The one exception that throws is `maxAttempts` outside the domain akrctx fully
+ * knows: an unparseable budget that fell back to a default would silently grant a fresh
+ * attempt allowance, which is the failure the budget exists to prevent.
+ *
+ * An entry akrctx has no command behind is carried through untouched and warned about.
+ * Rejecting it would make a configuration written by a newer akrctx disable every command
+ * of an older one, and dropping it would make the older one's next write delete the newer
+ * one's settings — a loud failure traded for a silent loss.
+ */
+function normalizeAgents(value: unknown): AgentsConfig | undefined {
+  if (value === undefined) return undefined;
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error(`.akrctx/config.json — "agents" must be an object with entries: ${agentNames.join(", ")}.`);
+  }
+  const result: AgentsConfig = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!(agentNames as readonly string[]).includes(key)) {
+      result[key] = raw;
+      continue;
+    }
+    const name = key as AgentName;
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      throw new Error(`.akrctx/config.json — agents.${name} must be an object.`);
+    }
+    const entry = raw as Record<string, unknown>;
+    const normalized: AgentEntryConfig = {};
+
+    if (typeof entry.enabled === "boolean") normalized.enabled = entry.enabled;
+    if (typeof entry.trigger === "string" && entry.trigger.trim()) normalized.trigger = entry.trigger.trim();
+    if (Array.isArray(entry.targets)) {
+      normalized.targets = entry.targets.filter((target): target is Target => targets.includes(target as Target));
+    }
+    const model = normalizeAgentModel(entry.model);
+    if (model) normalized.model = model;
+
+    if (entry.maxAttempts !== undefined) {
+      if (name !== "implementer") {
+        throw new Error(".akrctx/config.json — maxAttempts is only valid on agents.implementer.");
+      }
+      normalized.maxAttempts = requireMaxAttempts(entry.maxAttempts);
+    }
+
+    result[name] = normalized;
+  }
+  return result;
+}
+
+function normalizeAgentModel(value: unknown): AgentModelConfig | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const model: AgentModelConfig = {};
+  for (const [target, id] of Object.entries(value as Record<string, unknown>)) {
+    if (!(agentTargets as string[]).includes(target)) continue;
+    if (typeof id === "string" && id.trim()) model[target as AgentTarget] = id.trim();
+  }
+  return Object.keys(model).length ? model : undefined;
+}
+
+function requireMaxAttempts(value: unknown): number {
+  const parsed = typeof value === "string" ? Number(value) : value;
+  if (typeof parsed !== "number" || !Number.isInteger(parsed) || parsed < 1) {
+    throw new Error(
+      `.akrctx/config.json — agents.implementer.maxAttempts must be a positive integer (default ${DEFAULT_MAX_ATTEMPTS}), got: ${JSON.stringify(value)}.`,
+    );
+  }
+  return parsed;
+}
+
+function normalizeImpl(value: unknown): akrctxConfig["impl"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const enabled = (value as { enabled?: unknown }).enabled;
+  return typeof enabled === "boolean" ? { enabled } : undefined;
 }
 
 function normalizeTemplatePacks(value: unknown): AppliedTemplatePack[] {
@@ -160,7 +260,9 @@ function normalizeComprehensionGate(
   const gate = value as Partial<akrctxConfig["comprehensionGate"]>;
   return {
     enabled: typeof gate.enabled === "boolean" ? gate.enabled : fallback.enabled,
-    trigger: gate.trigger === "agent-assessed-significance" ? gate.trigger : fallback.trigger,
+    // A trigger is a free string under the `agents` contract: an unrecognized value is
+    // propagated with a warning, never clamped to the default behind the user's back.
+    trigger: typeof gate.trigger === "string" && gate.trigger.trim() ? gate.trigger.trim() : fallback.trigger,
     evaluationMode: gate.evaluationMode === "prefer-independent" ? gate.evaluationMode : fallback.evaluationMode,
   };
 }
@@ -187,10 +289,46 @@ export async function setConfigValue(cwd: string, key: string, value: string, dr
     next.defaults.requireWorkflowReason = parseBoolean(value);
   } else if (normalizedKey === "contextBudget" || normalizedKey === "defaults.contextBudget") {
     next.defaults.contextBudget = requireContextBudget(value);
+  } else if (normalizedKey.startsWith("agents.")) {
+    return writeAgentKey(cwd, next, normalizedKey, value, dryRun);
   }
 
   await writeConfig(cwd, next, dryRun);
   return next;
+}
+
+async function writeAgentKey(
+  cwd: string,
+  config: akrctxConfig,
+  key: string,
+  value: string,
+  dryRun: boolean,
+): Promise<akrctxConfig> {
+  const [, name, field, target] = key.split(".") as [string, AgentName, string, AgentTarget | undefined];
+  const patch: AgentEntryConfig = {};
+
+  if (field === "enabled") patch.enabled = parseBoolean(value);
+  else if (field === "trigger") patch.trigger = value.trim();
+  else if (field === "targets") patch.targets = parseTargets(value);
+  else if (field === "maxAttempts") patch.maxAttempts = requireMaxAttempts(value);
+  else if (field === "model" && target) {
+    patch.model = { ...(config.agents?.[name]?.model ?? {}), [target]: value.trim() };
+  }
+
+  const next = withAgentSetting(config, name, patch);
+  await writeConfig(cwd, next, dryRun);
+  return next;
+}
+
+function parseTargets(value: string): Target[] {
+  const items = value
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (items.length === 0) {
+    throw new Error(`agents.<name>.targets must list at least one target. Valid targets: ${targets.join(", ")}.`);
+  }
+  return items.map(requireTarget);
 }
 
 function normalizeWorkflowDefault(value: unknown): WorkflowDefault | undefined {

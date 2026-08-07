@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -349,7 +349,7 @@ describe("akrctx init", () => {
     expect(config?.defaults.contextBudget).toBe("thorough");
     expect(config?.comprehensionGate).toEqual({
       enabled: false,
-      trigger: "agent-assessed-significance",
+      trigger: "always",
       evaluationMode: "prefer-independent",
     });
     expect(config?.templatePacks[0]).toMatchObject({
@@ -1132,7 +1132,7 @@ describe("config", () => {
 
     expect(normalized?.comprehensionGate).toEqual({
       enabled: false,
-      trigger: "agent-assessed-significance",
+      trigger: "always",
       evaluationMode: "prefer-independent",
     });
   });
@@ -1167,9 +1167,6 @@ describe("config", () => {
     );
   });
 
-  // This pair previously pinned the opposite behavior: readConfig swallowed a corrupt
-  // config and returned undefined, which callers could not distinguish from "not
-  // installed". See the "silent degradation" block for the contract that replaced it.
   it("readConfig throws on corrupt JSON instead of returning undefined", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await writeFile(path.join(tmp, ".akrctx/config.json"), "{ broken json", "utf8");
@@ -2970,6 +2967,120 @@ describe("judge", () => {
     expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
   });
 
+  /**
+   * pnpm does not install a tree: it installs a store under `node_modules/.pnpm` plus a farm
+   * of symlinks that give each package its own resolution root. `leaf` is reachable only
+   * through `dep`'s private directory, so a copy that flattens the links cannot resolve it.
+   */
+  async function writePnpmLayout(root: string): Promise<void> {
+    const store = path.join(root, "node_modules/.pnpm");
+    for (const [name, body] of [
+      ["dep@1.0.0/node_modules/dep", 'module.exports = require("leaf");\n'],
+      ["leaf@1.0.0/node_modules/leaf", 'module.exports = "leaf reached";\n'],
+    ] as const) {
+      await mkdir(path.join(store, name), { recursive: true });
+      await writeFile(path.join(store, name, "index.js"), body, "utf8");
+      await writeFile(
+        path.join(store, name, "package.json"),
+        `${JSON.stringify({ name: path.basename(name), version: "1.0.0", main: "index.js" })}\n`,
+        "utf8",
+      );
+    }
+    await symlink(".pnpm/dep@1.0.0/node_modules/dep", path.join(root, "node_modules/dep"), "dir");
+    await symlink("../../leaf@1.0.0/node_modules/leaf", path.join(store, "dep@1.0.0/node_modules/leaf"), "dir");
+  }
+
+  it("preserves a pnpm dependency layout so validation can resolve transitive packages", async () => {
+    const command = "node -e \"if(require('dep')!=='leaf reached')process.exit(1)\"";
+    const { task } = await createReviewFixture({ declares: [command], claims: [command] });
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\n", "utf8");
+    await writePnpmLayout(tmp);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect((await lstat(path.join(snapshot.worktreePath, "node_modules/dep"))).isSymbolicLink()).toBe(true);
+    expect(await readlink(path.join(snapshot.worktreePath, "node_modules/dep"))).toBe(
+      ".pnpm/dep@1.0.0/node_modules/dep",
+    );
+
+    const recordPath = path.join(tmp, ".akrctx/local/judge/pnpm-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify({
+        schemaVersion: JUDGE_SCHEMA_VERSION,
+        taskId: task.taskId,
+        scope: snapshot.scope,
+        verdict: "APPROVED",
+        tests: [{ command, status: "passed" }],
+        issues: [],
+        reviewedAt: new Date().toISOString(),
+      })}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    expect(result.reasons.join("\n")).not.toContain("exit");
+    expect(result.approved).toBe(true);
+  });
+
+  it("dereferences a dependency symlink that escapes the dependency tree", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\nsecrets-outside/\n", "utf8");
+    await mkdir(path.join(tmp, "node_modules"), { recursive: true });
+    await mkdir(path.join(tmp, "secrets-outside"), { recursive: true });
+    await writeFile(path.join(tmp, "secrets-outside/data.txt"), "outside content\n", "utf8");
+    // Absolute, and relative that climbs out: both leave the tree and must not survive as links.
+    await symlink(path.join(tmp, "secrets-outside"), path.join(tmp, "node_modules/absolute-escape"), "dir");
+    await symlink("../secrets-outside", path.join(tmp, "node_modules/relative-escape"), "dir");
+    await symlink(path.join(tmp, "node_modules/nowhere"), path.join(tmp, "node_modules/broken"), "dir");
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const dependencies = path.join(snapshot.worktreePath, "node_modules");
+
+    for (const name of ["absolute-escape", "relative-escape"]) {
+      expect((await lstat(path.join(dependencies, name))).isSymbolicLink(), name).toBe(false);
+      expect(await readFile(path.join(dependencies, name, "data.txt"), "utf8")).toBe("outside content\n");
+    }
+    expect(await pathExists(path.join(dependencies, "broken"))).toBe(false);
+  });
+
+  it("keeps every surviving dependency link inside the snapshot", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\n", "utf8");
+    await writePnpmLayout(tmp);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const dependencies = path.join(snapshot.worktreePath, "node_modules");
+
+    const walk = async (directory: string): Promise<string[]> => {
+      const found: string[] = [];
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const absolute = path.join(directory, entry.name);
+        if (entry.isSymbolicLink()) {
+          found.push(path.resolve(path.dirname(absolute), await readlink(absolute)));
+        } else if (entry.isDirectory()) {
+          found.push(...(await walk(absolute)));
+        }
+      }
+      return found;
+    };
+
+    const targets = await walk(dependencies);
+    expect(targets.length).toBeGreaterThan(0);
+    for (const target of targets) {
+      expect(path.relative(dependencies, target).startsWith(".."), target).toBe(false);
+    }
+  });
+
+  it("recreates a symlink among the changed files instead of throwing", async () => {
+    const { task } = await createReviewFixture();
+    await symlink("app.ts", path.join(tmp, "app-link.ts"));
+    await execFileAsync("git", ["add", "app-link.ts"], { cwd: tmp });
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const link = path.join(snapshot.worktreePath, "app-link.ts");
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    expect(await readlink(link)).toBe("app.ts");
+  });
+
   it("copies local dependencies into validation without linking back to the live project", async () => {
     const command = "node -e \"require('fs').writeFileSync('node_modules/../app.ts', 'export const value = 8;\\n')\"";
     const { task } = await createReviewFixture({ declares: [command], claims: [] });
@@ -3500,13 +3611,18 @@ describe("doctor --fix", () => {
     await writeFile(configPath, JSON.stringify(config, null, 2), "utf8");
 
     const diagnosis = await runDoctor({ cwd: tmp, nonInteractive: true });
-    expect(diagnosis.missing.some((gap) => gap.includes("comprehensionGate.trigger"))).toBe(true);
+    expect(diagnosis.missing.some((gap) => gap.includes("comprehensionGate.trigger"))).toBe(false);
+    expect(
+      diagnosis.suggestions.some(
+        (suggestion) => suggestion.severity === "warning" && suggestion.text.includes('trigger is "always"'),
+      ),
+    ).toBe(true);
 
     await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
     const repaired = JSON.parse(await readFile(configPath, "utf8"));
     expect(repaired.comprehensionGate).toEqual({
       enabled: true,
-      trigger: "agent-assessed-significance",
+      trigger: "always",
       evaluationMode: "prefer-independent",
     });
   });

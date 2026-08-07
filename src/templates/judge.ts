@@ -1,3 +1,6 @@
+import type { AgentTarget } from "../types.js";
+import { frontmatterModel, modelSection, tomlModel } from "./agent-model.js";
+
 const judgeInstructions = `You are an independent review agent. Your only job is to verify that the implementation matches the task capsule. You do not modify files and you do not trust the implementing agent's explanation as evidence.
 
 ## How to review
@@ -43,16 +46,22 @@ So if the environment prevented you from running any validation, report **BLOCKE
 
 If the user asks you to implement your own feedback, decline and hand it back to the primary agent.
 
-Finish with exactly one JSON object matching \`.akrctx/judge/schemas/review.schema.json\`: schemaVersion, taskId, the complete scope output, verdict (\`APPROVED\`, \`NEEDS_CHANGES\`, or \`BLOCKED\`), tests, non-personal issues, and reviewedAt. Do not wrap it in Markdown. A trusted caller will save it because you are read-only, then run \`akrctx judge verify <review.json> --run-tests\`, which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.
+Finish with exactly one JSON object matching \`.akrctx/judge/schemas/review.schema.json\`: schemaVersion, taskId, the complete scope output, verdict (\`APPROVED\`, \`NEEDS_CHANGES\`, or \`BLOCKED\`), tests, non-personal issues, and reviewedAt. Do not wrap it in Markdown. A trusted caller will save it because you are read-only, then run \`akrctx judge verify <review.json> --run-tests\`, which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.`;
 
-## Setting a specific model
+const judgeBody = (target: AgentTarget, model: string | undefined): string =>
+  `${judgeInstructions}
 
-This file was generated without a \`model\` field. To use a specific model for this judge,
-add it to the frontmatter of this file. Check your platform's documentation for valid model
-identifiers — they are platform-specific and change over time.`;
+${modelSection("judge", target, model)}`;
 
-export const claudeJudgeFile: Record<string, string> = {
-  ".claude/agents/akrctx-judge.md": `---
+export const judgeFilePaths: Record<AgentTarget, string> = {
+  claude: ".claude/agents/akrctx-judge.md",
+  copilot: ".github/agents/akrctx-judge.agent.md",
+  codex: ".codex/agents/akrctx-judge.toml",
+};
+
+export function claudeJudgeFile(model?: string): Record<string, string> {
+  return {
+    [judgeFilePaths.claude]: `---
 name: akrctx-judge
 description: >
   Independent review agent. Use after implementation to verify that the code matches
@@ -60,16 +69,18 @@ description: >
   reports APPROVED / NEEDS CHANGES / BLOCKED without modifying any code.
 tools: Read, Glob, Grep, Bash
 permissionMode: plan
----
+${frontmatterModel(model)}---
 
 # akrctx Judge
 
-${judgeInstructions}
+${judgeBody("claude", model)}
 `,
-};
+  };
+}
 
-export const copilotJudgeFile: Record<string, string> = {
-  ".github/agents/akrctx-judge.agent.md": `---
+export function copilotJudgeFile(model?: string): Record<string, string> {
+  return {
+    [judgeFilePaths.copilot]: `---
 name: akrctx Judge
 description: >
   Independent review agent. Use after implementation to verify that the code matches
@@ -77,25 +88,28 @@ description: >
   reports APPROVED / NEEDS CHANGES / BLOCKED without modifying any code.
 tools: ["read", "search", "execute"]
 user-invocable: true
----
+${frontmatterModel(model)}---
 
 # akrctx Judge
 
-${judgeInstructions}
+${judgeBody("copilot", model)}
 `,
-};
+  };
+}
 
-export const codexJudgeFile: Record<string, string> = {
-  ".codex/agents/akrctx-judge.toml": `name = "akrctx-judge"
+export function codexJudgeFile(model?: string): Record<string, string> {
+  return {
+    [judgeFilePaths.codex]: `name = "akrctx-judge"
 description = """
 Independent review agent. Use after implementation to verify that the code matches \
 the task capsule. Reads task.md, acceptance-criteria.md, and changed files, then \
 reports APPROVED / NEEDS CHANGES / BLOCKED without modifying any code.
 """
-model_reasoning_effort = "high"
+${tomlModel(model)}model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
-${judgeInstructions.replace(/`/g, "'")}
+${judgeBody("codex", model).replace(/`/g, "'")}
 """
 `,
-};
+  };
+}

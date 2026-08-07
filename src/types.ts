@@ -27,7 +27,49 @@ export type TaskWorkflow = Workflow | "UI review";
 
 export interface JudgeConfig {
   enabled: boolean;
-  trigger: "post-implementation";
+  /**
+   * Free string. akrctx recognizes a known set per agent and warns about anything else;
+   * it never rejects a trigger, because it cannot enumerate every point in a workflow a
+   * project might want an agent invoked at.
+   */
+  trigger: string;
+}
+
+export const agentNames = ["judge", "comprehension", "implementer"] as const;
+export type AgentName = (typeof agentNames)[number];
+
+/** Pi is a supported akrctx target but has no agent format. */
+export type AgentTarget = Exclude<Target, "pi">;
+
+export type AgentModelConfig = Partial<Record<AgentTarget, string>>;
+
+export interface AgentEntryConfig {
+  enabled?: boolean;
+  trigger?: string;
+  targets?: Target[];
+  model?: AgentModelConfig;
+  /** Implementer only. Positive integer; an invalid value is an error, not a warning. */
+  maxAttempts?: number;
+}
+
+export interface AgentsConfig {
+  judge?: AgentEntryConfig;
+  comprehension?: AgentEntryConfig;
+  implementer?: AgentEntryConfig;
+  /** An entry a newer akrctx knows and this one does not. Preserved verbatim, never resolved. */
+  [entry: string]: AgentEntryConfig | unknown;
+}
+
+export interface ResolvedAgent {
+  name: AgentName;
+  enabled: boolean;
+  trigger: string;
+  /** Explicit narrowing from config. Absent means every installed target with a format. */
+  configuredTargets?: Target[];
+  /** Installed targets with a format for this agent, after narrowing. */
+  targets: AgentTarget[];
+  model: AgentModelConfig;
+  maxAttempts: number;
 }
 
 /** Phase-1 session tracing. Absent means off: installing akrctx never starts recording. */
@@ -37,8 +79,13 @@ export interface TraceConfig {
 
 export interface ComprehensionGateConfig {
   enabled: boolean;
-  trigger: "agent-assessed-significance";
+  trigger: string;
   evaluationMode: "prefer-independent";
+}
+
+/** Legacy opt-in gate for the implementer, superseded by `agents.implementer`. */
+export interface ImplConfig {
+  enabled: boolean;
 }
 
 export interface AppliedTemplatePack {
@@ -64,6 +111,8 @@ export interface akrctxConfig {
   installedVersion?: string;
   profile?: Profile;
   judge?: JudgeConfig;
+  impl?: ImplConfig;
+  agents?: AgentsConfig;
   trace?: TraceConfig;
   comprehensionGate: ComprehensionGateConfig;
   targets: Target[];
@@ -141,7 +190,6 @@ export interface CommandOptions {
   templatePack?: string;
   cwd?: string;
   nonInteractive?: boolean;
-  /** Internal doctor repair mode: restore files without creating new protected-file suggestions. */
   repair?: boolean;
 }
 

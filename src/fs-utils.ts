@@ -71,6 +71,10 @@ export async function writePlannedFile(
 
   const nextContent = ensureTrailingNewline(content);
 
+  if (exists && (await readFile(targetPath, "utf8").catch(() => undefined)) === nextContent) {
+    return { kind: "preserve", path: relativePath, reason: "Already current." };
+  }
+
   if (!options.dryRun) {
     await mkdir(path.dirname(targetPath), { recursive: true });
     await writeFile(targetPath, nextContent, "utf8");
@@ -79,7 +83,7 @@ export async function writePlannedFile(
   return {
     kind: exists ? "update" : "create",
     path: relativePath,
-    reason: exists ? "Updated because --force was provided." : options.reason,
+    reason: exists ? "Regenerated from the current configuration." : options.reason,
   };
 }
 

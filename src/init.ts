@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import select from "@inquirer/select";
-import { normalizeConfig } from "./config.js";
+import { normalizeConfig, readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites, templateHash } from "./manifest.js";
@@ -56,10 +56,19 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     });
 
   // Neutral foundation files (sequential — config before wiki for logical order in output).
-  const config = normalizeConfig(mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config));
+  //
+  // A repeat install adds its target to the existing configuration rather than rebuilding
+  // one from defaults. Assigning the selection used to leave a second `init` writing the new
+  // target's files while `config.targets` never learned about it, so `doctor` reported the
+  // target as installed and every agent command reported it as absent.
+  const existing = await readExistingConfig(cwd);
+  const config = existing
+    ? { ...existing, targets: mergeTargets(existing.targets, selectedTargets) }
+    : normalizeConfig(mergeTemplateJson(defaultConfig(selectedTargets, profile), templatePack?.config));
   config.installedVersion = CLI_VERSION;
-  config.targets = selectedTargets;
-  config.defaults.target = selectedTargets[0];
+  // `defaults.target` answers which target a command assumes when none is given. A second
+  // install adds a target; it does not restate that preference.
+  if (!existing) config.defaults.target = selectedTargets[0];
   if (templatePack) {
     config.templatePacks = [
       {
@@ -76,7 +85,16 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       },
     ];
   }
-  writes.push(await writeFile(".akrctx/config.json", JSON.stringify(config, null, 2), false, "akrctx config."));
+  writes.push(
+    await writePlannedFile(cwd, ".akrctx/config.json", JSON.stringify(config, null, 2), {
+      dryRun: options.dryRun,
+      // Forced only when the existing config could be read and merged into. An unreadable
+      // one is left exactly where it is for `akrctx doctor` to report, because overwriting
+      // it with defaults would destroy a file the user can still recover.
+      force: options.force || Boolean(existing),
+      reason: "akrctx config.",
+    }),
+  );
   const policy = mergeTemplateJson(defaultPolicy(profile), templatePack?.policy);
   policy.profile = profile;
   writes.push(
@@ -362,4 +380,21 @@ async function readProjectName(cwd: string): Promise<string> {
     // no package.json or invalid JSON — fall through
   }
   return path.basename(cwd);
+}
+
+/**
+ * The existing configuration, or undefined when there is none to merge into.
+ *
+ * An unreadable config is treated as absent rather than as an error: `init` is one of the
+ * commands a user runs to get out of a broken state, and `akrctx doctor` is what reports the
+ * damage. Returning undefined also keeps the config write unforced, so the broken file
+ * survives for recovery.
+ */
+async function readExistingConfig(cwd: string) {
+  return readConfig(cwd).catch(() => undefined);
+}
+
+/** Union, in first-seen order. `init` adds a target and never removes one. */
+function mergeTargets(existing: Target[], selected: Target[]): Target[] {
+  return [...new Set([...existing, ...selected])];
 }

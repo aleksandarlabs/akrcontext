@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
+import { agentFiles, agentWarningTexts, hasAgentFormat, resolveAgents } from "./agents.js";
 import { readConfig } from "./config.js";
 import { ensureTrailingNewline, pathExists, writePlannedFile } from "./fs-utils.js";
 import {
@@ -13,16 +14,10 @@ import {
 import { mergeTemplateJson } from "./template-pack.js";
 import {
   claudeCommands,
-  claudeComprehensionAgentFile,
-  claudeJudgeFile,
   claudeSkills,
-  codexComprehensionAgentFile,
-  codexJudgeFile,
   codexSkills,
   comprehensionFiles,
-  copilotComprehensionAgentFile,
   copilotFiles,
-  copilotJudgeFile,
   copilotSkills,
   defaultPolicy,
   judgeContractFiles,
@@ -48,19 +43,8 @@ export interface UpgradeResult {
   obsolete: string[];
   completed: boolean;
   installationComplete: boolean;
+  warnings: string[];
 }
-
-const comprehensionAgents = {
-  codex: codexComprehensionAgentFile,
-  claude: claudeComprehensionAgentFile,
-  copilot: copilotComprehensionAgentFile,
-};
-
-const judgeAgents = {
-  codex: codexJudgeFile,
-  claude: claudeJudgeFile,
-  copilot: copilotJudgeFile,
-};
 
 export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult> {
   const cwd = options.cwd ?? process.cwd();
@@ -146,6 +130,7 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
     obsolete,
     completed,
     installationComplete,
+    warnings: agentWarningTexts(config),
   };
 }
 
@@ -168,11 +153,12 @@ function desiredManagedFiles(config: akrctxConfig, targets: Target[]): Record<st
       Object.assign(files, piFiles, piSkills);
       files[".pi/README.md"] = "# Pi akrctx Harness\n\nThis directory contains akrctx prompts and skills for Pi.\n";
     }
-    if (config.comprehensionGate.enabled && target in comprehensionAgents) {
-      Object.assign(files, comprehensionAgents[target as keyof typeof comprehensionAgents]);
-    }
-    if (config.judge?.enabled && target in judgeAgents) {
-      Object.assign(files, judgeAgents[target as keyof typeof judgeAgents]);
+    // Agent files are a function of the resolved `agents` configuration, so a configured
+    // model survives regeneration instead of being overwritten by a constant.
+    if (!hasAgentFormat(target)) continue;
+    for (const agent of Object.values(resolveAgents(config))) {
+      if (!agent.enabled || !agent.targets.includes(target)) continue;
+      Object.assign(files, agentFiles(agent.name, target, agent.model[target]));
     }
   }
   return files;

@@ -1,31 +1,21 @@
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
+import { agentFilePathList, agentFiles, agentWarnings, resolveAgent, withAgentSetting } from "./agents.js";
 import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
-import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "./templates.js";
 import { JUDGE_SCHEMA_ID } from "./templates/judge-contract.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
 import { CLI_VERSION } from "./version.js";
-
-type JudgeTarget = Exclude<Target, "pi">;
-
-const judgeFilesByTarget: Record<JudgeTarget, Record<string, string>> = {
-  claude: claudeJudgeFile,
-  copilot: copilotJudgeFile,
-  codex: codexJudgeFile,
-};
-
-function hasJudgeFiles(target: Target): target is JudgeTarget {
-  return target in judgeFilesByTarget;
-}
 
 export interface JudgeEnableResult {
   dryRun: boolean;
   installedTargets: Target[];
   skippedTargets: Target[];
   writes: WriteResult[];
+  models: Array<{ target: Target; model?: string; configPath: string }>;
+  warnings: string[];
 }
 
 export interface JudgeStatusResult {
@@ -34,6 +24,8 @@ export interface JudgeStatusResult {
   installedTargets: Target[];
   presentFiles: string[];
   missingFiles: string[];
+  models: Array<{ target: Target; model?: string; configPath: string }>;
+  warnings: string[];
 }
 
 export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnableResult> {
@@ -42,30 +34,44 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
   await requireJudgeContract(cwd);
 
-  const installedTargets = config.targets.filter(hasJudgeFiles);
-  const skippedTargets = config.targets.filter((t) => !hasJudgeFiles(t));
+  const resolved = resolveAgent(config, "judge");
+  const installedTargets = resolved.targets;
+  const skippedTargets = config.targets.filter((target) => !(installedTargets as Target[]).includes(target));
+  if (installedTargets.length === 0) {
+    throw new Error("No installed target has a judge agent format.");
+  }
 
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
-    const files = judgeFilesByTarget[target];
-    for (const [relativePath, content] of Object.entries(files)) {
+    for (const [relativePath, content] of Object.entries(agentFiles("judge", target, resolved.model[target]))) {
       writes.push(
         await writePlannedFile(cwd, relativePath, content, {
           dryRun: options.dryRun,
-          force: options.force,
+          force: true,
           reason: `akrctx judge agent file for ${target}.`,
         }),
       );
     }
   }
 
+  const next = withAgentSetting(config, "judge", { enabled: true, trigger: resolved.trigger });
   if (!options.dryRun) {
-    const next = { ...config, judge: { enabled: true, trigger: "post-implementation" as const } };
     await writeConfig(cwd, next);
     writes.push(await createManifestFromWrites(cwd, writes, CLI_VERSION));
   }
 
-  return { dryRun: Boolean(options.dryRun), installedTargets, skippedTargets, writes };
+  return {
+    dryRun: Boolean(options.dryRun),
+    installedTargets,
+    skippedTargets,
+    writes,
+    models: installedTargets.map((target) => ({
+      target,
+      model: resolved.model[target],
+      configPath: `agents.judge.model.${target}`,
+    })),
+    warnings: judgeWarnings(next),
+  };
 }
 
 async function requireJudgeContract(cwd: string): Promise<void> {
@@ -90,8 +96,7 @@ export async function runJudgeDisable(options: CommandOptions): Promise<{ dryRun
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
 
   if (!options.dryRun) {
-    const next = { ...config, judge: { enabled: false, trigger: "post-implementation" as const } };
-    await writeConfig(cwd, next);
+    await writeConfig(cwd, withAgentSetting(config, "judge", { enabled: false }));
   }
 
   return { dryRun: Boolean(options.dryRun) };
@@ -102,33 +107,39 @@ export async function runJudgeStatus(options: CommandOptions): Promise<JudgeStat
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
 
-  const installedTargets = config.targets.filter(hasJudgeFiles);
-  const allFiles = installedTargets.flatMap((t) => Object.keys(judgeFilesByTarget[t]));
+  const resolved = resolveAgent(config, "judge");
+  const allFiles = agentFilePathList("judge", resolved.targets);
 
   const checked = await Promise.all(allFiles.map(async (f) => ({ f, exists: await pathExists(path.join(cwd, f)) })));
-  const presentFiles = checked.filter((r) => r.exists).map((r) => r.f);
-  const missingFiles = checked.filter((r) => !r.exists).map((r) => r.f);
 
   return {
-    enabled: config.judge?.enabled ?? false,
-    trigger: config.judge?.trigger ?? "post-implementation",
-    installedTargets,
-    presentFiles,
-    missingFiles,
+    enabled: resolved.enabled,
+    trigger: resolved.trigger,
+    installedTargets: resolved.targets,
+    presentFiles: checked.filter((r) => r.exists).map((r) => r.f),
+    missingFiles: checked.filter((r) => !r.exists).map((r) => r.f),
+    models: resolved.targets.map((target) => ({
+      target,
+      model: resolved.model[target],
+      configPath: `agents.judge.model.${target}`,
+    })),
+    warnings: judgeWarnings(config),
   };
+}
+
+function judgeWarnings(config: import("./types.js").akrctxConfig): string[] {
+  return agentWarnings(config)
+    .filter((warning) => warning.agent === "judge")
+    .map((warning) => warning.text);
 }
 
 export async function removeJudgeFiles(cwd: string, targets: Target[]): Promise<string[]> {
   const removed: string[] = [];
-  for (const target of targets) {
-    if (!hasJudgeFiles(target)) continue;
-    const files = judgeFilesByTarget[target];
-    for (const relativePath of Object.keys(files)) {
-      const absolute = path.join(cwd, relativePath);
-      if (await pathExists(absolute)) {
-        await rm(absolute);
-        removed.push(relativePath);
-      }
+  for (const relativePath of agentFilePathList("judge", targets)) {
+    const absolute = path.join(cwd, relativePath);
+    if (await pathExists(absolute)) {
+      await rm(absolute);
+      removed.push(relativePath);
     }
   }
   return removed;

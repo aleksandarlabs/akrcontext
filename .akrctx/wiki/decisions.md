@@ -107,3 +107,152 @@ and the next `init`/`upgrade` would rewrite them from `src/templates/` regardles
 templates that generate it still are. Downstream projects using biome still inherit the
 original problem, because `init` does not adjust their formatter config — tracked in
 `.akrctx/wiki/recommendations.md`.
+
+## 2026-08-06 — Pi has no agent format, and that gap is debt rather than a bug
+
+**Decision.** akrctx emits agents for Claude Code, GitHub Copilot, and Codex. Pi is a
+supported target for prompts and skills only. Configuring `pi` under any agent's `targets`
+produces a warning and is skipped; Doctor states the limitation instead of staying silent
+about a target the user explicitly asked for.
+
+**Context.** Pi has no native subagent surface for akrctx to write to — no equivalent of
+`.claude/agents/*.md`, `.github/agents/*.agent.md`, or `.codex/agents/*.toml`. Until this
+task the exclusion was expressed only as `Exclude<Target, "pi">` in two type aliases, so a
+Pi user asking for a judge got silence: no file, no error, no explanation.
+
+**What closing it would need.** A documented Pi agent-definition format with a model field
+and an invocation path, plus a way for the akrctx CLI contracts (`judge verify --run-tests`,
+the comprehension schemas, the `akrctx impl` attempt store) to be reachable from it. Without
+the CLI contracts an emitted Pi agent would be prose akrctx cannot vouch for, which is the
+failure the harness exists to remove.
+
+**Consequences.** The limitation is now visible at three surfaces — `enable`, `doctor`, and
+the agent warnings in `status` — rather than inferable from a missing file. No akrctx
+command fails because of it.
+
+## 2026-08-07 — An unknown `agents` entry is preserved and warned about, never rejected
+
+**Decision.** `normalizeConfig` carries an entry under `agents` that akrctx does not
+recognize through untouched, resolves only the three it has a CLI contract for, and reports
+the rest as a warning. It no longer throws, and Doctor no longer raises the same entry as a
+config gap.
+
+**Context.** The entry list is fixed on purpose: each agent is trustworthy only through the
+command behind it. Enforcing that at read time was one step too far. `normalizeConfig` runs
+inside every `readConfig`, so a config written by a newer akrctx that knew a fourth agent
+disabled *every* command of an older CLI, not the one command that would have used it.
+Dropping the entry instead was rejected as worse: the older CLI's next `config set` would
+then delete the newer one's settings, trading a loud failure for a silent loss.
+
+**Consequences.** Reading a config and writing it back is byte-identical for entries akrctx
+does not own. The fixed entry list still governs what akrctx *generates* — nothing is
+emitted for an unknown entry. The one remaining read-time error in the block is
+`agents.implementer.maxAttempts`, whose domain akrctx fully knows and where a fallback would
+grant the unlimited budget the setting exists to prevent.
+
+## 2026-08-07 — The implementation log verifies its own privacy on every command
+
+**Decision.** `impl enable` refuses, and `impl start`, `impl log`, and `impl status` report
+the task as stopped with no attempt count, when `.akrctx/local/.gitignore` is missing or no
+longer ignores local storage.
+
+**Context.** The log's placement under `.akrctx/local/impl/` was documented as putting it
+outside every review boundary "by construction". The construction was a file the store does
+not own. Nothing checked it, so in a repository where that ignore had been deleted or
+weakened the log became a tracked file and entered the diff the judge reads — the
+implementing agent's own account of its work as review evidence, which the judge contract
+forbids. `comprehension enable` already had this guard for the same directory.
+
+**Consequences.** The refusal is reported through the existing `blocked`/`reason` channel
+rather than by throwing, so an agent-facing command answers with a reason instead of a stack
+trace. A freshly initialised repository satisfies the check with no extra step, and
+`akrctx doctor --fix` restores the ignore.
+
+## 2026-08-07 — Snapshot dependency copying classifies symlinks instead of flattening them
+
+**Decision.** `copyLocalDependencies` walks `node_modules` and decides per symlink. One
+whose target resolves inside the dependency tree is recreated, relative, against the
+snapshot's own copy. One that resolves outside is dereferenced into content. The blanket
+`dereference: true` is gone.
+
+**Context.** Dereferencing everything was a correct answer to the wrong question. It did
+guarantee that a snapshot never holds a link back into the live project — the property the
+whole isolation model rests on — but it bought that with a directory in which pnpm's layout
+no longer works. pnpm gives each package its own resolution root through a symlink farm over
+`node_modules/.pnpm`; flatten the farm and transitive dependencies stop resolving. Vitest
+aborted at config load with `ERR_MODULE_NOT_FOUND` before reading a single test file, which
+meant `akrctx judge verify --run-tests` — the one check that re-executes validation instead
+of trusting the judge's claim — could not run on any pnpm project.
+
+Found by the independent review of TASK-010, which reported `BLOCKED` having found no defect
+in the code it was asked to review. The failure had been latent since snapshots shipped.
+
+**Consequences.** Isolation is now stated as the property it always was — no surviving link
+resolves outside the snapshot — and tested directly, rather than being implied by a copy
+mode. An escaping link is still dereferenced rather than dropped, so a workspace dependency
+keeps working and validation does not fail for a reason unrelated to the code under review.
+A flat `node_modules` has no internal links and is unaffected.
+
+**A note on the declared validation command.** TASK-010 declared `npx tsc --noEmit` in its
+capsule while the repository had pre-existing type errors in test files. A failed entry
+invalidates a review record under any verdict, so that capsule could never have been
+approved regardless of its code. A declared validation command has to be one that can
+actually pass.
+
+## 2026-08-07 — `enable` regenerates its agent file, and writes report what they did
+
+**Decision.** The three `enable` commands write their agent file unconditionally rather than
+passing the user's `--force` through. `writePlannedFile` reports a rewrite that changes
+nothing as `preserve` with "Already current." rather than as an update. The CLI prints a
+marker per write kind: `+` created, `~` updated, `=` preserved, `!` suggested.
+
+**Context.** Found in manual QA, not by the suite. The normal sequence — enable an agent,
+notice no model, set one, enable again — silently did nothing, because an existing agent
+file was preserved. `akrctx upgrade` and `enable --force` both worked, so the feature was
+correct everywhere except the path a person actually takes.
+
+The suite missed it for an instructive reason. It tested that `upgrade` regenerates a
+configured model, because that was the bug the model feature was built to fix: a hand edit
+that the next upgrade overwrote. Nobody tested the second `enable`, so the command that
+introduces the setting was the one command never exercised twice.
+
+The reporting defect is the more serious of the two and made the first one hard to see. The
+CLI printed `+ <path>` for every entry in `writes` without reading its `kind`, so a file it
+had decided not to touch looked exactly like one it had created. A tool that reports a write
+it did not perform cannot be trusted about the writes it did.
+
+**Consequences.** Agent files are now owned by akrctx consistently across `enable` and
+`upgrade`, which is what the generated file already told its reader ("a model added here by
+hand does not survive"). Nothing moved across the protected-file line: protected instruction
+files are still preserved and still produce a suggestion. Idempotence is now visible rather
+than assumed — a repeat `enable` prints `=` on every line.
+
+## 2026-08-07 — A repeat `init` adds a target rather than replacing or ignoring one
+
+**Decision.** `akrctx init --target <new>` in an existing installation merges the target into
+`config.targets`, keeps `defaults.target` and every other setting, and writes the config back.
+`init` never shortens the list; `akrctx remove --target` owns that direction.
+
+**Context.** The command assigned `config.targets = selectedTargets` and wrote the config
+through a preserving write, so on a repeat run neither the assignment nor anything else
+reached disk. The result was two subsystems disagreeing about the same question: `doctor`
+detects targets from the filesystem and answered "Installed: claude, copilot", while the
+agent commands read `config.targets` and answered "claude is not installed" — for a target
+the user had just installed, on a repository `doctor` scored 100/100.
+
+Replacing instead of adding was considered and rejected. `init` does not delete the previous
+target's files, so replacing would leave disk and config disagreeing in the other direction,
+and a multi-agent repository is an ordinary case rather than a mistake to correct.
+
+**Consequences.** `defaults.target` is now set only on a first install: it answers which
+target a command assumes when none is given, and a second install adds a target without
+restating that preference. The config write is forced only when the existing config could be
+read and merged into — an unreadable one is left untouched for `doctor` to report, because
+overwriting it with defaults would destroy a file the user can still recover. `doctor --fix`
+now counts an updated file as fixed, not only a created one, since init can repair a config
+on its way through.
+
+**Found by manual QA, not by the suite.** The bug predates the agents work entirely; the
+agents are simply the first subsystem to consume `config.targets` and say out loud when it
+disagrees with what the user asked for. A contradiction that had been silent for as long as
+`init` had been re-runnable became a visible warning, and the warning is what got it fixed.

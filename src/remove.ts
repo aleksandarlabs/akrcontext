@@ -1,11 +1,11 @@
 import { readdir, rm, rmdir } from "node:fs/promises";
 import path from "node:path";
-import { comprehensionAgentFilesByTarget } from "./comprehension.js";
+import { agentFilePathList } from "./agents.js";
 import { pathExists } from "./fs-utils.js";
 import { protectedFiles, targetRequired } from "./harness-files.js";
 import { unwireTraceTargets } from "./hook/install.js";
 import type { CommandOptions, Target } from "./types.js";
-import { targets } from "./types.js";
+import { agentNames, targets } from "./types.js";
 
 export interface RemoveResult {
   /** Files that were removed (or would be removed in dry-run). */
@@ -181,7 +181,7 @@ function collectCandidates(options: CommandOptions & { all?: boolean }): string[
   if (options.all) {
     for (const target of targets) {
       candidates.push(...targetRequired[target]);
-      candidates.push(...comprehensionAgentCandidates(target));
+      candidates.push(...agentCandidates(target));
     }
     // .akrctx/ is handled separately above via rm -r
     return candidates;
@@ -193,13 +193,13 @@ function collectCandidates(options: CommandOptions & { all?: boolean }): string[
   if (target === "all") {
     for (const t of targets) {
       candidates.push(...targetRequired[t]);
-      candidates.push(...comprehensionAgentCandidates(t));
+      candidates.push(...agentCandidates(t));
     }
     return candidates;
   }
 
   candidates.push(...targetRequired[target as Target]);
-  candidates.push(...comprehensionAgentCandidates(target as Target));
+  candidates.push(...agentCandidates(target as Target));
   return candidates;
 }
 
@@ -208,7 +208,6 @@ function removalTargets(options: CommandOptions & { all?: boolean }): Target[] {
   return options.target && targets.includes(options.target as Target) ? [options.target as Target] : [];
 }
 
-function comprehensionAgentCandidates(target: Target): string[] {
-  if (!(target in comprehensionAgentFilesByTarget)) return [];
-  return Object.keys(comprehensionAgentFilesByTarget[target as keyof typeof comprehensionAgentFilesByTarget]);
+function agentCandidates(target: Target): string[] {
+  return agentNames.flatMap((name) => agentFilePathList(name, [target]));
 }

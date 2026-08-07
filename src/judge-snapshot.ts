@@ -13,6 +13,7 @@ import {
   rename,
   rm,
   stat,
+  symlink,
   writeFile,
 } from "node:fs/promises";
 import os from "node:os";
@@ -470,16 +471,65 @@ async function removeBlockedPaths(snapshotRoot: string, blockedPatterns: string[
   }
 }
 
+/**
+ * Copy the dependency directory, keeping its internal link layout.
+ *
+ * pnpm does not install a tree. It installs a store under `node_modules/.pnpm` plus a farm
+ * of symlinks that give each package its own resolution root, so flattening the links — as
+ * a blanket `dereference` does — produces a directory in which nothing resolves its
+ * transitive dependencies, and validation cannot run at all.
+ *
+ * Dereferencing was doing one real job, which this keeps: the snapshot must never hold a
+ * link back into the live project. So the classification is by where a link resolves. One
+ * that stays inside the dependency tree is recreated against the snapshot's own copy; one
+ * that leaves it is dereferenced into content, which isolates it without dropping a
+ * workspace dependency that validation would then fail for an unrelated reason.
+ */
 async function copyLocalDependencies(sourceRoot: string, snapshotRoot: string): Promise<void> {
   const source = path.join(sourceRoot, "node_modules");
   const destination = path.join(snapshotRoot, "node_modules");
   if (!(await lstat(source).catch(() => undefined)) || (await lstat(destination).catch(() => undefined))) return;
-  await cp(source, destination, {
-    recursive: true,
-    preserveTimestamps: true,
-    dereference: true,
-    mode: constants.COPYFILE_FICLONE,
-  });
+  await copyDependencyTree(source, destination, { source, destination });
+}
+
+interface DependencyRoots {
+  source: string;
+  destination: string;
+}
+
+async function copyDependencyTree(from: string, to: string, roots: DependencyRoots): Promise<void> {
+  await mkdir(to, { recursive: true });
+  for (const entry of await readdir(from, { withFileTypes: true })) {
+    const child = path.join(from, entry.name);
+    const target = path.join(to, entry.name);
+    // A symlinked directory is reported as a symlink, never as a directory, so the walk
+    // cannot descend through one and cannot cycle.
+    if (entry.isSymbolicLink()) {
+      await copyDependencyLink(child, target, roots);
+    } else if (entry.isDirectory()) {
+      await copyDependencyTree(child, target, roots);
+    } else if (entry.isFile()) {
+      await copyFile(child, target, constants.COPYFILE_FICLONE);
+    }
+  }
+}
+
+async function copyDependencyLink(from: string, to: string, roots: DependencyRoots): Promise<void> {
+  const resolved = path.resolve(path.dirname(from), await readlink(from));
+  const inside = path.relative(roots.source, resolved);
+
+  if (inside && !inside.startsWith("..") && !path.isAbsolute(inside)) {
+    await symlink(path.relative(path.dirname(to), path.join(roots.destination, inside)), to);
+    return;
+  }
+
+  const info = await stat(from).catch(() => undefined);
+  if (!info) return;
+  if (info.isDirectory()) {
+    await cp(from, to, { recursive: true, preserveTimestamps: true, dereference: true });
+  } else {
+    await copyFile(from, to, constants.COPYFILE_FICLONE);
+  }
 }
 
 async function workspaceManifest(root: string, blockedPatterns: string[]): Promise<Map<string, string>> {

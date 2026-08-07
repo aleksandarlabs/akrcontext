@@ -1,24 +1,12 @@
 import path from "node:path";
+import { agentFilePathList, agentFiles, agentWarnings, resolveAgent, withAgentSetting } from "./agents.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
-import {
-  claudeComprehensionAgentFile,
-  codexComprehensionAgentFile,
-  copilotComprehensionAgentFile,
-} from "./templates.js";
 import type { CommandOptions, Target, WriteResult, akrctxConfig } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
 export const localIgnorePath = ".akrctx/local/.gitignore";
-
-type ComprehensionAgentTarget = Exclude<Target, "pi">;
-
-export const comprehensionAgentFilesByTarget: Record<ComprehensionAgentTarget, Record<string, string>> = {
-  claude: claudeComprehensionAgentFile,
-  copilot: copilotComprehensionAgentFile,
-  codex: codexComprehensionAgentFile,
-};
 
 const contractFiles = [
   [".akrctx/comprehension/schemas/scope.schema.json", "akrctx-comprehension-scope-v1"],
@@ -26,13 +14,9 @@ const contractFiles = [
   [".akrctx/comprehension/schemas/result.schema.json", "akrctx-comprehension-result-v1"],
 ] as const;
 
-function hasComprehensionAgent(target: Target): target is ComprehensionAgentTarget {
-  return target in comprehensionAgentFilesByTarget;
-}
-
 export interface ComprehensionStatusResult {
   enabled: boolean;
-  trigger: "agent-assessed-significance";
+  trigger: string;
   evaluationMode: "prefer-independent";
   localIgnoreValid: boolean;
   localIgnorePath: string;
@@ -40,6 +24,8 @@ export interface ComprehensionStatusResult {
   skippedTargets: Target[];
   presentFiles: string[];
   missingFiles: string[];
+  models: Array<{ target: Target; model?: string; configPath: string }>;
+  warnings: string[];
 }
 
 export interface ComprehensionEnableResult extends ComprehensionStatusResult {
@@ -73,31 +59,26 @@ export async function runComprehensionEnable(options: CommandOptions): Promise<C
   if (!(await hasValidLocalIgnore(cwd))) {
     throw new Error("Local comprehension storage is not safely ignored. Run `akrctx doctor --fix` first.");
   }
-  const installedTargets = config.targets.filter(hasComprehensionAgent);
-  const skippedTargets = config.targets.filter((target) => !hasComprehensionAgent(target));
+  const resolved = resolveAgent(config, "comprehension");
+  const installedTargets = resolved.targets;
+  const skippedTargets = config.targets.filter((target) => !(installedTargets as Target[]).includes(target));
   if (installedTargets.length === 0) {
     throw new Error("No installed target supports an independent comprehension agent.");
   }
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
-    for (const [relativePath, content] of Object.entries(comprehensionAgentFilesByTarget[target])) {
+    for (const [relativePath, content] of Object.entries(agentFiles("comprehension", target, resolved.model[target]))) {
       writes.push(
         await writePlannedFile(cwd, relativePath, content, {
           dryRun: options.dryRun,
-          force: options.force,
+          // Regenerated from configuration, the same way `akrctx upgrade` rewrites it.
+          force: true,
           reason: `akrctx comprehension agent file for ${target}.`,
         }),
       );
     }
   }
-  const next = {
-    ...config,
-    comprehensionGate: {
-      enabled: true,
-      trigger: "agent-assessed-significance" as const,
-      evaluationMode: "prefer-independent" as const,
-    },
-  };
+  const next = withAgentSetting(config, "comprehension", { enabled: true, trigger: resolved.trigger });
   if (!options.dryRun) {
     await writeConfig(cwd, next);
     writes.push(await createManifestFromWrites(cwd, writes, CLI_VERSION));
@@ -115,7 +96,7 @@ export async function runComprehensionDisable(options: CommandOptions): Promise<
   const cwd = options.cwd ?? process.cwd();
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
-  const next = { ...config, comprehensionGate: { ...config.comprehensionGate, enabled: false } };
+  const next = withAgentSetting(config, "comprehension", { enabled: false });
   if (!options.dryRun) await writeConfig(cwd, next);
   return buildStatus(cwd, next);
 }
@@ -128,15 +109,16 @@ export async function runComprehensionStatus(options: CommandOptions): Promise<C
 }
 
 async function buildStatus(cwd: string, config: akrctxConfig): Promise<ComprehensionStatusResult> {
-  const installedTargets = config.targets.filter(hasComprehensionAgent);
-  const skippedTargets = config.targets.filter((target) => !hasComprehensionAgent(target));
-  const expectedFiles = installedTargets.flatMap((target) => Object.keys(comprehensionAgentFilesByTarget[target]));
+  const resolved = resolveAgent(config, "comprehension");
+  const installedTargets = resolved.targets;
+  const skippedTargets = config.targets.filter((target) => !(installedTargets as Target[]).includes(target));
+  const expectedFiles = agentFilePathList("comprehension", installedTargets);
   const checked = await Promise.all(
     expectedFiles.map(async (file) => ({ file, exists: await pathExists(path.join(cwd, file)) })),
   );
   return {
-    enabled: config.comprehensionGate.enabled,
-    trigger: config.comprehensionGate.trigger,
+    enabled: resolved.enabled,
+    trigger: resolved.trigger,
     evaluationMode: config.comprehensionGate.evaluationMode,
     localIgnoreValid: await hasValidLocalIgnore(cwd),
     localIgnorePath,
@@ -144,6 +126,14 @@ async function buildStatus(cwd: string, config: akrctxConfig): Promise<Comprehen
     skippedTargets,
     presentFiles: checked.filter((entry) => entry.exists).map((entry) => entry.file),
     missingFiles: checked.filter((entry) => !entry.exists).map((entry) => entry.file),
+    models: installedTargets.map((target) => ({
+      target,
+      model: resolved.model[target],
+      configPath: `agents.comprehension.model.${target}`,
+    })),
+    warnings: agentWarnings(config)
+      .filter((warning) => warning.agent === "comprehension")
+      .map((warning) => warning.text),
   };
 }
 

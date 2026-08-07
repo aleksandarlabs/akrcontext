@@ -1,9 +1,10 @@
 import path from "node:path";
+import { agentWarningTexts, resolveAgent, resolveAgents } from "./agents.js";
 import { readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { listDirs, pathExists } from "./fs-utils.js";
 import { taskNumber } from "./task.js";
-import type { CommandOptions, Target } from "./types.js";
+import type { AgentName, CommandOptions, Target } from "./types.js";
 
 export interface StatusResult {
   installed: boolean;
@@ -14,6 +15,8 @@ export interface StatusResult {
   defaultWorkflow: string;
   contextBudget: string;
   comprehensionGate: "enabled" | "disabled";
+  agents: Array<{ name: AgentName; enabled: boolean; trigger: string; targets: Target[] }>;
+  warnings: string[];
 }
 
 export async function runStatus(options: CommandOptions): Promise<StatusResult> {
@@ -52,6 +55,15 @@ export async function runStatus(options: CommandOptions): Promise<StatusResult> 
     recentTaskIds,
     defaultWorkflow: config?.defaults.workflow ?? "not configured",
     contextBudget: config?.defaults.contextBudget ?? "not configured",
-    comprehensionGate: config?.comprehensionGate.enabled ? "enabled" : "disabled",
+    comprehensionGate: config && resolveAgent(config, "comprehension").enabled ? "enabled" : "disabled",
+    agents: config
+      ? Object.values(resolveAgents(config)).map((agent) => ({
+          name: agent.name,
+          enabled: agent.enabled,
+          trigger: agent.trigger,
+          targets: agent.targets,
+        }))
+      : [],
+    warnings: config ? agentWarningTexts(config) : [],
   };
 }

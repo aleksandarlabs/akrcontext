@@ -79,6 +79,9 @@ export function isManifestManagedPath(relativePath: string): boolean {
   if (relativePath === ".pi/README.md") return true;
   return [
     ".agents/skills/",
+    ".claude/agents/",
+    ".github/agents/",
+    ".codex/agents/",
     ".claude/commands/",
     ".claude/skills/",
     ".github/instructions/",

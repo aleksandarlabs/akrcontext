@@ -1,12 +1,15 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Command, Option } from "commander";
 import { runCompile } from "./compile.js";
 import { runComprehensionDisable, runComprehensionEnable, runComprehensionStatus } from "./comprehension.js";
 import { readConfig, setConfigValue } from "./config.js";
 import { runDoctor } from "./doctor.js";
-import { bold, cmd, dim, file, gray, green, minus, plus, rule, warn, yellow } from "./format.js";
+import { bold, cmd, dim, file, gray, green, mark, minus, plus, rule, warn, yellow } from "./format.js";
 import { runHook } from "./hook/index.js";
 import { TRACE_MARKER, runTraceDisable, runTraceEnable, runTraceStatus } from "./hook/install.js";
 import { runTraceReport } from "./hook/report.js";
+import { parseRecordInput, runImplDisable, runImplEnable, runImplLog, runImplStart, runImplStatus } from "./impl.js";
 import { runInit } from "./init.js";
 import { createJudgeScope, verifyJudgeRecord } from "./judge-enforcement.js";
 import {
@@ -58,6 +61,7 @@ export async function main(argv = process.argv): Promise<void> {
         '  akrctx task "Fix auth bug" --workflow TDD      force a specific workflow',
         "  akrctx compile TASK-001 --target codex         generate agent brief from capsule",
         "  akrctx comprehension enable                    enable understanding checkpoints",
+        "  akrctx impl enable                             enable the implementer subagent",
         "",
         "Templates:",
         "  akrctx templates list                         list bundled template packs",
@@ -263,6 +267,11 @@ export async function main(argv = process.argv): Promise<void> {
     log(`${bold("Workflow:    ")} ${result.defaultWorkflow}`);
     log(`${bold("Context:     ")} ${result.contextBudget}`);
     log(`${bold("Comprehension:")} ${result.comprehensionGate}`);
+    for (const agent of result.agents) {
+      const state = agent.enabled ? green("enabled") : gray("disabled");
+      log(`  ${agent.name.padEnd(13)} ${state} ${dim(`trigger: ${agent.trigger}`)}`);
+    }
+    printAgentWarnings(result.warnings);
 
     if (!result.installed) {
       ln();
@@ -457,10 +466,14 @@ export async function main(argv = process.argv): Promise<void> {
     log(`${bold("Comprehension gate:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
     log(`  ${dim(`Trigger: ${result.trigger}`)}`);
     log(`  ${dim(`Local ignore valid: ${result.localIgnoreValid ? "yes" : "no"}`)}`);
-    for (const write of result.writes) log(`  ${plus()} ${file(write.path)}`);
+    for (const write of result.writes) log(`  ${mark(write.kind)} ${file(write.path)}`);
     if (result.skippedTargets.length) {
-      log(`  ${dim(`Skipped (no native independent agent): ${result.skippedTargets.join(", ")}`)}`);
+      log(
+        `  ${dim(`Skipped (no agent format, or not listed in agents.comprehension.targets): ${result.skippedTargets.join(", ")}`)}`,
+      );
     }
+    printAgentModels(result.models);
+    printAgentWarnings(result.warnings);
   });
 
   addCommon(comprehension.command("disable").description("Disable comprehension checkpoints."), false).action(
@@ -496,6 +509,169 @@ export async function main(argv = process.argv): Promise<void> {
     },
   );
 
+  // ── impl ──────────────────────────────────────────────────────────────────
+  const impl = program
+    .command("impl")
+    .description("Manage the optional implementer agent and its append-only implementation log.")
+    .addHelpText(
+      "after",
+      [
+        "",
+        "The implementation log lives at .akrctx/local/impl/<TASK-ID>/log.md — local,",
+        "Git-ignored, and outside every review boundary by construction.",
+        "",
+        "  akrctx impl enable                 install the implementer agent files",
+        "  akrctx impl start TASK-001         open or resume the log, get the round number",
+        "  akrctx impl log TASK-001 ...       append one round record",
+        "  akrctx impl status TASK-001        attempts used, remaining, last blocker",
+        "",
+        "The attempt budget comes from agents.implementer.maxAttempts (default 3) and is",
+        "enforced by the store: `impl log` refuses to append past it whether or not",
+        "`impl start` was called first.",
+      ].join("\n"),
+    );
+
+  addCommon(
+    impl.command("enable").description("Enable the implementer agent for the installed targets."),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runImplEnable(options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    log(`${bold("Implementer:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
+    if (result.writes.length) {
+      ln();
+      for (const write of result.writes) log(`  ${mark(write.kind)} ${file(write.path)}`);
+    }
+    if (result.skippedTargets.length) {
+      ln();
+      log(
+        `  ${dim(`Skipped (no agent format, or not listed in agents.implementer.targets): ${result.skippedTargets.join(", ")}`)}`,
+      );
+    }
+    ln();
+    log(`  ${dim(`Attempt budget: ${result.maxAttempts} ← agents.implementer.maxAttempts`)}`);
+    printAgentModels(result.models);
+    printAgentWarnings(result.warnings);
+  });
+
+  addCommon(
+    impl.command("disable").description("Disable the implementer. Agent files are kept — remove them manually."),
+    false,
+  ).action(async (raw) => {
+    const options = normalizeOptions(raw);
+    await runImplDisable(options);
+    if (options.json) {
+      console.log(JSON.stringify({ enabled: false }));
+      return;
+    }
+    log(`${bold("Implementer:")} ${yellow("disabled")}`);
+  });
+
+  addCommon(
+    impl
+      .command("start")
+      .description("Open or resume the implementation log and report the round the caller may begin.")
+      .argument("<task-id>", "task capsule ID, for example TASK-001"),
+    false,
+  ).action(async (taskId: string, raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runImplStart(taskId, options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (result.refused) process.exitCode = 1;
+      return;
+    }
+    if (result.refused) {
+      log(`${bold("Implementation:")} ${yellow("refused")}`);
+      log(`  ${warn()} ${result.reason}`);
+      process.exitCode = 1;
+      return;
+    }
+    log(`${bold("Implementation:")} ${green(`round ${result.round} of ${result.maxAttempts}`)}`);
+    log(`  ${dim(`Log: ${result.logPath}`)}`);
+    log(`  ${dim(`Attempts used: ${result.attemptsUsed}  remaining: ${result.attemptsRemaining}`)}`);
+    if (result.lastBlocker) log(`  ${dim(`Last blocker: ${result.lastBlocker}`)}`);
+  });
+
+  addCommon(
+    impl
+      .command("log")
+      .description("Append one round record to the implementation log.")
+      .argument("<task-id>", "task capsule ID, for example TASK-001")
+      .option("--criteria <list>", "acceptance criteria targeted (comma-separated)")
+      .option("--files <list>", "files changed (comma-separated)")
+      .option(
+        "--validation <entry>",
+        "validation command as `command::status::verbatim output` (repeatable)",
+        (value: string, previous: string[]) => [...previous, value],
+        [] as string[],
+      )
+      .option("--blocker <text>", "what stopped this round")
+      .option("--decision <text>", "the decision needed from the caller")
+      .option("--record <file>", "read the whole record from a JSON file instead of flags"),
+    false,
+  ).action(async (taskId: string, raw) => {
+    const options = normalizeOptions(raw);
+    const cwd = options.cwd ?? process.cwd();
+    const input = raw.record
+      ? parseRecordInput(JSON.parse(await readFile(path.resolve(cwd, String(raw.record)), "utf8")))
+      : {
+          criteria: splitList(raw.criteria),
+          files: splitList(raw.files),
+          validation: (raw.validation as string[]).map(parseValidation),
+          blocker: raw.blocker ? String(raw.blocker) : undefined,
+          decisionNeeded: raw.decision ? String(raw.decision) : undefined,
+        };
+    const result = await runImplLog(taskId, input, options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      if (result.refused) process.exitCode = 1;
+      return;
+    }
+    if (result.refused) {
+      log(`${bold("Implementation:")} ${yellow("refused")}`);
+      log(`  ${warn()} ${result.reason}`);
+      process.exitCode = 1;
+      return;
+    }
+    log(`${bold("Implementation:")} ${green(`round ${result.record?.round} recorded`)}`);
+    log(`  ${dim(`Log: ${result.logPath}`)}`);
+    log(`  ${dim(`Attempts used: ${result.attemptsUsed}  remaining: ${result.attemptsRemaining}`)}`);
+    if (result.stopped) log(`  ${warn()} ${yellow("Attempt budget spent. Hand the task back.")}`);
+  });
+
+  addCommon(
+    impl
+      .command("status")
+      .description("Report attempts used, attempts remaining, the last blocker, and whether the task is stopped.")
+      .argument("<task-id>", "task capsule ID, for example TASK-001"),
+    false,
+  ).action(async (taskId: string, raw) => {
+    const options = normalizeOptions(raw);
+    const result = await runImplStatus(taskId, options);
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    if (result.attemptsUsed === null) {
+      log(`${bold("Implementation:")} ${yellow(result.readable ? "log exposed" : "log unreadable")}`);
+      log(`  ${warn()} ${result.blocked}`);
+      log(`  ${dim("No attempt count is reported, so no fresh budget is granted.")}`);
+      process.exitCode = 1;
+      return;
+    }
+    log(
+      `${bold("Implementation:")} ${result.stopped ? yellow("stopped") : green("open")} ${dim(`(${result.attemptsUsed}/${result.maxAttempts} rounds)`)}`,
+    );
+    log(`  ${dim(`Log: ${result.logPath}`)}`);
+    log(`  ${dim(`Attempts remaining: ${result.attemptsRemaining}`)}`);
+    if (result.lastBlocker) log(`  ${dim(`Last blocker: ${result.lastBlocker}`)}`);
+  });
+
   // ── judge ─────────────────────────────────────────────────────────────────
   const judge = program.command("judge").description("Manage the optional akrctx judge subagent.");
 
@@ -513,17 +689,14 @@ export async function main(argv = process.argv): Promise<void> {
           "  Codex        →  .codex/agents/akrctx-judge.toml",
           "  Pi           →  not supported (skipped)",
           "",
-          "The generated files do not specify a model.",
-          "To use a specific model, add the model field manually:",
+          "The model comes from the config, per host, and is regenerated by upgrade:",
           "",
-          "  Claude Code / Copilot — add to YAML frontmatter:",
-          "    model: <model-id>",
+          "  akrctx config set agents.judge.model.claude <model-id>",
+          "  akrctx config set agents.judge.model.codex  <model-id>",
+          "  akrctx config set agents.judge.model.copilot <model-id>",
           "",
-          "  Codex — add to the TOML file:",
-          '    model = "<model-id>"',
-          "",
-          "Check your platform's documentation for valid model identifiers.",
-          "They are platform-specific and change over time.",
+          "Identifiers are platform-specific and change over time. akrctx checks the",
+          "shape and warns about an unfamiliar one, but writes whatever you configure.",
         ].join("\n"),
       ),
     false,
@@ -538,16 +711,18 @@ export async function main(argv = process.argv): Promise<void> {
     log(`${bold("Judge:")} ${options.dryRun ? yellow("would enable (dry-run)") : green("enabled")}`);
     if (result.writes.length) {
       ln();
-      for (const w of result.writes) log(`  ${plus()} ${file(w.path)}`);
+      for (const w of result.writes) log(`  ${mark(w.kind)} ${file(w.path)}`);
     }
     if (result.skippedTargets.length) {
       ln();
-      log(`  ${dim(`Skipped (no native subagent support): ${result.skippedTargets.join(", ")}`)}`);
+      log(
+        `  ${dim(`Skipped (no agent format, or not listed in agents.judge.targets): ${result.skippedTargets.join(", ")}`)}`,
+      );
     }
     ln();
     log(`  ${dim(`${verb} for: ${result.installedTargets.join(", ")}`)}`);
-    log(`  ${dim("To set a model, edit the generated file and add the model field.")}`);
-    log(`  ${dim("See docs/JUDGE.md for examples.")}`);
+    printAgentModels(result.models);
+    printAgentWarnings(result.warnings);
   });
 
   addCommon(
@@ -959,7 +1134,7 @@ export async function main(argv = process.argv): Promise<void> {
     const suggestions = result.writes.filter((write) => write.kind === "suggest");
     if (changed.length) {
       ln();
-      for (const write of changed) log(`  ${plus()} ${file(write.path)}`);
+      for (const write of changed) log(`  ${mark(write.kind)} ${file(write.path)}`);
     }
     if (suggestions.length) {
       ln();
@@ -970,6 +1145,7 @@ export async function main(argv = process.argv): Promise<void> {
     if (result.obsolete.length) {
       log(yellow(`  ${result.obsolete.length} obsolete managed file(s) were preserved for manual review.`));
     }
+    printAgentWarnings(result.warnings);
     if (result.installationComplete) {
       log(green(options.dryRun ? "  Upgrade can complete safely." : "  Upgrade completed safely."));
     } else if (result.completed) {
@@ -1130,6 +1306,50 @@ function normalizeOptions(raw: Record<string, unknown>): CommandOptions {
 const ln = () => console.log("");
 const log = (s = "") => console.log(s);
 
+/**
+ * Say where each agent's model is configured, per host.
+ *
+ * The generated files used to end with a paragraph telling the reader to hand-edit the
+ * frontmatter — an edit `akrctx upgrade` then overwrote. The model now comes from the
+ * config, so the command reports the key rather than the file.
+ */
+function printAgentModels(models: Array<{ target: string; model?: string; configPath: string }>): void {
+  if (!models.length) return;
+  ln();
+  log(`  ${dim("Model per target:")}`);
+  for (const entry of models) {
+    const value = entry.model ? bold(entry.model) : gray("host default");
+    log(`    ${entry.target}: ${value} ${dim(`← ${entry.configPath}`)}`);
+  }
+  log(`  ${dim("Change one with `akrctx config set agents.<agent>.model.<target> <model-id>`.")}`);
+}
+
+function splitList(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/**
+ * `command::status::output` — the separator is doubled because a validation command and its
+ * verbatim output both contain colons routinely.
+ */
+function parseValidation(entry: string): { command: string; status: "passed" | "failed" | "not-run"; output: string } {
+  const [command, status, ...rest] = entry.split("::");
+  if (!command || !["passed", "failed", "not-run"].includes(status)) {
+    throw new Error(`--validation expects \`command::passed|failed|not-run::output\`, got: "${entry}".`);
+  }
+  return { command: command.trim(), status: status as "passed" | "failed" | "not-run", output: rest.join("::") };
+}
+
+function printAgentWarnings(warnings: string[]): void {
+  if (!warnings.length) return;
+  ln();
+  for (const text of warnings) log(`  ${warn()} ${yellow(text)}`);
+}
+
 function printTemplateApply(result: TemplateApplyResult, options: CommandOptions): void {
   if (options.json) {
     console.log(JSON.stringify(result, null, 2));
@@ -1143,7 +1363,7 @@ function printTemplateApply(result: TemplateApplyResult, options: CommandOptions
   if (changed.length > 0) {
     ln();
     log(`  ${green(bold(`Written (${changed.length}):`))}`);
-    for (const write of changed) log(`    ${plus()} ${file(write.path)}`);
+    for (const write of changed) log(`    ${mark(write.kind)} ${file(write.path)}`);
   }
   if (suggested.length > 0) {
     ln();
@@ -1256,6 +1476,7 @@ function printInit(result: InitResult, options: CommandOptions): void {
   log(`    ${cmd("akrctx doctor")}         ${dim("— full audit + readiness score")}`);
   log(`    ${cmd("akrctx comprehension enable")} ${dim("— enable understanding checkpoints")}`);
   log(`    ${cmd("akrctx judge enable")}   ${dim("— add optional judge subagent (Claude / Copilot / Codex)")}`);
+  log(`    ${cmd("akrctx impl enable")}    ${dim("— add optional implementer subagent + attempt log")}`);
   log(`    ${cmd("akrctx --help")}         ${dim("— full reference")}`);
   ln();
   log(rule());
@@ -1266,22 +1487,25 @@ function printInit(result: InitResult, options: CommandOptions): void {
  * under the same dir into a single counted line.
  */
 function printGroupedWrites(writes: WriteResult[]): void {
-  const groups = new Map<string, string[]>();
+  const groups = new Map<string, WriteResult[]>();
 
   for (const w of writes) {
     const parts = w.path.split("/");
     const key = parts.length > 2 ? `${parts[0]}/${parts[1]}/` : parts[0];
     const existing = groups.get(key) ?? [];
-    existing.push(w.path);
+    existing.push(w);
     groups.set(key, existing);
   }
 
-  for (const [group, paths] of groups) {
-    if (paths.length === 1) {
-      log(`    ${plus()} ${file(paths[0])}`);
-    } else {
-      log(`    ${plus()} ${file(group)}  ${dim(`(${paths.length} files)`)}`);
+  for (const [group, entries] of groups) {
+    if (entries.length === 1) {
+      log(`    ${mark(entries[0].kind)} ${file(entries[0].path)}`);
+      continue;
     }
+    // A group can mix kinds. The marker states the one they share, or nothing to claim.
+    const kinds = new Set(entries.map((entry) => entry.kind));
+    const marker = kinds.size === 1 ? mark(entries[0].kind) : dim("·");
+    log(`    ${marker} ${file(group)}  ${dim(`(${entries.length} files)`)}`);
   }
 }
 

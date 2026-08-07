@@ -29,11 +29,19 @@ export {
   piSkills,
   piFiles,
 } from "./templates/instructions.js";
-export { claudeJudgeFile, copilotJudgeFile, codexJudgeFile } from "./templates/judge.js";
+export { claudeJudgeFile, copilotJudgeFile, codexJudgeFile, judgeFilePaths } from "./templates/judge.js";
+export {
+  claudeImplementerFile,
+  copilotImplementerFile,
+  codexImplementerFile,
+  implementerFilePaths,
+  implementerInstructions,
+} from "./templates/implementer.js";
 export { judgeContractFiles } from "./templates/judge-contract.js";
 export { comprehensionFiles } from "./templates/comprehension.js";
 export {
   claudeComprehensionAgentFile,
   codexComprehensionAgentFile,
   copilotComprehensionAgentFile,
+  comprehensionFilePaths,
 } from "./templates/comprehension-agent.js";

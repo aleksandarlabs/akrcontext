@@ -1,6 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { comprehensionAgentFilesByTarget, isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
+import { agentFilePathList, agentWarningTexts, resolveAgents } from "./agents.js";
+import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfigForDiagnosis, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -15,6 +16,7 @@ import {
   recommendationsTemplate,
 } from "./templates.js";
 import {
+  type AgentName,
   type CommandOptions,
   type DoctorResult,
   type Profile,
@@ -45,7 +47,9 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
     for (const target of initial.installedTargets) {
       const initResult = await runInit({ ...options, target, profile, force: false, repair: true });
       for (const write of initResult.writes) {
-        if (write.kind === "create") fixed.push(write.path);
+        // `update` counts too: init merges the target list into an existing config, so a
+        // config it repaired on the way is a file this run fixed.
+        if (write.kind === "create" || write.kind === "update") fixed.push(write.path);
       }
     }
   }
@@ -126,7 +130,7 @@ function normalizeConfigForFix(
           ? config.comprehensionGate.enabled
           : base.comprehensionGate.enabled,
       trigger:
-        config.comprehensionGate?.trigger === "agent-assessed-significance"
+        typeof config.comprehensionGate?.trigger === "string" && config.comprehensionGate.trigger.trim()
           ? config.comprehensionGate.trigger
           : base.comprehensionGate.trigger,
       evaluationMode:
@@ -196,24 +200,15 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const localPrivacyGaps = await getLocalPrivacyGaps(cwd);
   const conflicts = await getInstructionConflicts(cwd);
   const installed = await pathExists(path.join(cwd, ".akrctx/config.json"));
-  const judgeGap = await getJudgeGap(cwd);
-  const comprehensionAgentGap = await getComprehensionAgentGap(cwd);
+  const agentGaps = await getAgentGaps(cwd);
+  const agentConfigWarnings = await getAgentWarnings(cwd);
   const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
   const wikiLintIssueCount = wikiLint.brokenLinks.length + wikiLint.missingTimestamps.length;
-  // Wiki-lint issues are surfaced via wikiLint/gaps.md and a dedicated
-  // warning-severity suggestion — they no longer count as "missing" (that
-  // would make them CI-failing errors, which is too strict for wiki content).
   const configPolicyGaps = [...configGaps, ...policyGaps, ...localPrivacyGaps];
   const allMissing = [...missing, ...configPolicyGaps];
   const suggestions: Suggestion[] = [
-    ...buildSuggestions(
-      installed,
-      installedTargets,
-      allMissing,
-      conflicts,
-      installedVersion,
-      [judgeGap, comprehensionAgentGap].filter((gap): gap is string => Boolean(gap)),
-    ),
+    ...buildSuggestions(installed, installedTargets, allMissing, conflicts, installedVersion, agentGaps),
+    ...agentConfigWarnings.map((text) => ({ text, severity: "warning" as const })),
     ...(wikiLintIssueCount > 0
       ? [
           {
@@ -373,8 +368,8 @@ async function getConfigGaps(cwd: string): Promise<{ gaps: string[]; installedVe
       gaps.push(".akrctx/config.json — missing defaults.requireWorkflowReason");
     if (typeof config.comprehensionGate?.enabled !== "boolean")
       gaps.push(".akrctx/config.json — missing comprehensionGate.enabled");
-    if (config.comprehensionGate?.trigger !== "agent-assessed-significance")
-      gaps.push('.akrctx/config.json — comprehensionGate.trigger must be "agent-assessed-significance"');
+    if (typeof config.comprehensionGate?.trigger !== "string" || !config.comprehensionGate.trigger.trim())
+      gaps.push(".akrctx/config.json — missing comprehensionGate.trigger");
     if (config.comprehensionGate?.evaluationMode !== "prefer-independent")
       gaps.push('.akrctx/config.json — comprehensionGate.evaluationMode must be "prefer-independent"');
     if (!config.workflowRules) gaps.push(".akrctx/config.json — missing workflowRules");
@@ -402,48 +397,41 @@ function suggestedFor(relativePath: string): string {
   return `${base}.akrctx.suggested${ext}`;
 }
 
-async function getJudgeGap(cwd: string): Promise<string | undefined> {
-  const configPath = path.join(cwd, ".akrctx/config.json");
-  if (!(await pathExists(configPath))) return undefined;
-  try {
-    const config = JSON.parse(await readFile(configPath, "utf8"));
-    if (config.judge?.enabled !== true) return undefined;
-    const judgeFiles = [
-      ".claude/agents/akrctx-judge.md",
-      ".github/agents/akrctx-judge.agent.md",
-      ".codex/agents/akrctx-judge.toml",
-    ];
-    const anyPresent = await Promise.all(judgeFiles.map((f) => pathExists(path.join(cwd, f)))).then((r) =>
-      r.some(Boolean),
-    );
-    if (!anyPresent) return "`judge.enabled` is true but no judge agent files found. Run `akrctx judge enable`.";
-  } catch {
-    // ignore
+const agentEnableCommand: Record<AgentName, string> = {
+  judge: "akrctx judge enable",
+  comprehension: "akrctx comprehension enable",
+  implementer: "akrctx impl enable",
+};
+
+/**
+ * Agent gaps read the resolved configuration, not the raw legacy keys.
+ *
+ * These checks used to parse config.json themselves, so any rule that lived only in
+ * `normalizeConfig` never reached them — a project configured through `agents` would have
+ * been diagnosed against a key it no longer used.
+ */
+async function getAgentGaps(cwd: string): Promise<string[]> {
+  const config = await readConfigForDiagnosis(cwd);
+  if (!config) return [];
+  const gaps: string[] = [];
+  for (const agent of Object.values(resolveAgents(config))) {
+    if (!agent.enabled || agent.targets.length === 0) continue;
+    const expectedFiles = agentFilePathList(agent.name, agent.targets);
+    const present = await Promise.all(expectedFiles.map((file) => pathExists(path.join(cwd, file))));
+    // The judge historically reported a gap only when every file was absent; requiring all
+    // of them keeps a partially installed multi-target project visible.
+    if (present.some((exists) => !exists)) {
+      gaps.push(
+        `\`agents.${agent.name}.enabled\` is true but an agent file is missing. Run \`${agentEnableCommand[agent.name]}\`.`,
+      );
+    }
   }
-  return undefined;
+  return gaps;
 }
 
-async function getComprehensionAgentGap(cwd: string): Promise<string | undefined> {
-  const configPath = path.join(cwd, ".akrctx/config.json");
-  if (!(await pathExists(configPath))) return undefined;
-  try {
-    const config = JSON.parse(await readFile(configPath, "utf8"));
-    if (config.comprehensionGate?.enabled !== true || !Array.isArray(config.targets)) return undefined;
-    const supportedTargets = config.targets.filter(
-      (target: string): target is keyof typeof comprehensionAgentFilesByTarget =>
-        target in comprehensionAgentFilesByTarget,
-    );
-    const expectedFiles = supportedTargets.flatMap((target) => Object.keys(comprehensionAgentFilesByTarget[target]));
-    const missing = await Promise.all(
-      expectedFiles.map(async (file) => ((await pathExists(path.join(cwd, file))) ? undefined : file)),
-    );
-    if (missing.some(Boolean)) {
-      return "`comprehensionGate.enabled` is true but an independent comprehension agent is missing. Run `akrctx comprehension enable`.";
-    }
-  } catch {
-    // Config diagnosis reports malformed JSON separately.
-  }
-  return undefined;
+async function getAgentWarnings(cwd: string): Promise<string[]> {
+  const config = await readConfigForDiagnosis(cwd);
+  return config ? agentWarningTexts(config) : [];
 }
 
 function buildSuggestions(

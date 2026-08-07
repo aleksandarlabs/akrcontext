@@ -208,55 +208,48 @@ This sets `judge.enabled = false` in config. The agent files are kept — delete
 
 ## Setting a model
 
-The generated agent files do not specify a model. By default the judge inherits whatever model the platform selects. To use a specific model for the judge, edit the generated file and add the model field manually.
+The model is configuration, not a file edit. `akrctx upgrade` regenerates the agent files
+from `.akrctx/config.json`, so a model added to a generated file by hand does not survive.
 
-> Model identifiers are platform-specific and change over time. Always check your platform's current documentation — do not copy identifiers from examples here.
+```bash
+akrctx config set agents.judge.model.claude  <model-id>
+akrctx config set agents.judge.model.copilot "<Model Name>"
+akrctx config set agents.judge.model.codex   <model-id>
+```
+
+The value is written where the host reads it — the `model` frontmatter field for Claude
+Code and Copilot, the `model` key for the Codex TOML — and `judge enable`, `doctor`, and
+`upgrade` each report which model is in effect per target.
+
+There is one identifier space per host, which is why the setting is per target rather than
+a single value.
+
+> Model identifiers are platform-specific and change over time. akrctx validates them by
+> shape, never against a list: a list would go stale on every provider release and make a
+> new model unusable until akrctx shipped a version that knew about it. An identifier that
+> does not match its host's usual shape produces a **warning** and is written to the
+> generated file exactly as configured. akrctx does not have the provider's catalogue, so
+> refusing an unfamiliar value would block a legitimate new model to catch a typo.
 
 ### Claude Code
 
-Edit `.claude/agents/akrctx-judge.md` and add `model` to the frontmatter:
-
-```yaml
----
-name: akrctx-judge
-description: ...
-tools: Read, Glob, Grep, Bash
-permissionMode: plan
-model: <model-id>   ← add this line
----
-```
-
-Valid model values: a full model ID (`claude-opus-4-7-20251101`), a short alias (`opus`, `sonnet`, `haiku`), or `inherit` (explicit inherit from session). See [Claude Code subagent docs](https://code.claude.com/docs/en/sub-agents) for the current list.
+`agents.judge.model.claude` accepts a model alias (`opus`, `sonnet`, `haiku`, `fable`,
+`opusplan`, `default`, `inherit`), a full model name (`claude-opus-5`), or a
+provider-specific id — a Bedrock inference-profile ARN, a Foundry deployment name, a Vertex
+version name. See [Claude Code model configuration](https://code.claude.com/docs/en/model-config).
 
 ### GitHub Copilot
 
-Edit `.github/agents/akrctx-judge.agent.md` and add `model` to the frontmatter:
-
-```yaml
----
-name: akrctx Judge
-description: ...
-tools: ["read", "search", "execute"]
-model: <model-id>   ← add this line
----
-```
-
-Copilot model identifiers use a display-name format that includes the provider label (e.g. `"GPT-5.4 (copilot)"`). The exact format is shown in the Copilot model picker inside VS Code or GitHub. See [Copilot custom agents docs](https://docs.github.com/en/copilot/reference/custom-agents-configuration) for details.
+`agents.judge.model.copilot` takes the display-name format, optionally qualified by vendor:
+`Claude Opus 4.5`, `GPT-5.2`, `GPT-5 (copilot)`. Quote it — it contains spaces. VS Code also
+accepts an array of fallbacks, but the Copilot CLI rejects one
+([github/copilot-cli#2133](https://github.com/github/copilot-cli/issues/2133)), so akrctx
+writes a single value. See [custom agents in VS Code](https://code.visualstudio.com/docs/agent-customization/custom-agents).
 
 ### Codex
 
-Edit `.codex/agents/akrctx-judge.toml` and add a `model` field:
-
-```toml
-name = "akrctx-judge"
-description = "..."
-model = "<model-id>"   ← add this line
-model_reasoning_effort = "high"
-sandbox_mode = "read-only"
-developer_instructions = "..."
-```
-
-See [Codex subagent docs](https://developers.openai.com/codex/subagents) for valid model identifiers.
+`agents.judge.model.codex` takes the model id used in Codex configuration, for example
+`gpt-5-codex` or `o3`. See [Codex subagent docs](https://developers.openai.com/codex/subagents).
 
 ## Pi
 

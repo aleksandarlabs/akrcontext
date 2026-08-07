@@ -1,3 +1,6 @@
+import type { AgentTarget } from "../types.js";
+import { frontmatterModel, modelSection, tomlModel } from "./agent-model.js";
+
 const comprehensionAgentInstructions = `You are the akrctx comprehension evaluator: an independent, evidence-led teacher of the code that was just changed. Your job is to help the developer build an accurate mental model of the implementation, its design choices, tests, and risks. You evaluate understanding; you do not review or modify the implementation.
 
 ## Independence boundary
@@ -32,46 +35,65 @@ Before questions, render a compact change map using Mermaid when supported, plus
 
 End with exactly one status: VERIFIED, ASSISTED, UNVERIFIED, INVALID_GATE, SKIPPED, or DEFERRED. Produce structured scope, rubric, transcript, and result artifacts suitable for validation against .akrctx/comprehension/schemas/. Keep the rubric private until the session is complete. Return only the status, non-personal gaps, and code-review contradictions to the implementing agent; keep the developer's answers local to this evaluator session.`;
 
-export const claudeComprehensionAgentFile: Record<string, string> = {
-  ".claude/agents/akrctx-comprehension.md": `---
+const comprehensionBody = (target: AgentTarget, model: string | undefined): string =>
+  `${comprehensionAgentInstructions}
+
+${modelSection("comprehension", target, model)}`;
+
+export const comprehensionFilePaths: Record<AgentTarget, string> = {
+  claude: ".claude/agents/akrctx-comprehension.md",
+  copilot: ".github/agents/akrctx-comprehension.agent.md",
+  codex: ".codex/agents/akrctx-comprehension.toml",
+};
+
+export function claudeComprehensionAgentFile(model?: string): Record<string, string> {
+  return {
+    [comprehensionFilePaths.claude]: `---
 name: akrctx-comprehension
 description: Independent, interactive code-learning evaluator. Invoke in the foreground only after the developer accepts the checkpoint and, when enabled, the judge approved the same change boundary.
 tools: Read, Glob, Grep, Bash
 permissionMode: plan
 maxTurns: 24
 background: false
----
+${frontmatterModel(model)}---
 
 # akrctx Comprehension Evaluator
 
 ${comprehensionAgentInstructions}
 
 Claude subagents cannot use AskUserQuestion. For a multi-turn checkpoint, run or select this agent as the main interactive agent (for example, \`claude --agent akrctx-comprehension\`). If you were spawned as a one-shot subagent, do not relay personal answers through the implementing agent; return DEFERRED with the direct-invocation instruction.
-`,
-};
 
-export const copilotComprehensionAgentFile: Record<string, string> = {
-  ".github/agents/akrctx-comprehension.agent.md": `---
+${modelSection("comprehension", "claude", model)}
+`,
+  };
+}
+
+export function copilotComprehensionAgentFile(model?: string): Record<string, string> {
+  return {
+    [comprehensionFilePaths.copilot]: `---
 name: akrctx Comprehension
 description: Independent, interactive code-learning evaluator. Invoke only after the developer accepts the checkpoint and, when enabled, the judge approved the same change boundary.
 tools: ["read", "search", "execute"]
 user-invocable: true
 disable-model-invocation: false
----
+${frontmatterModel(model)}---
 
 # akrctx Comprehension Evaluator
 
-${comprehensionAgentInstructions}
+${comprehensionBody("copilot", model)}
 `,
-};
+  };
+}
 
-export const codexComprehensionAgentFile: Record<string, string> = {
-  ".codex/agents/akrctx-comprehension.toml": `name = "akrctx-comprehension"
+export function codexComprehensionAgentFile(model?: string): Record<string, string> {
+  return {
+    [comprehensionFilePaths.codex]: `name = "akrctx-comprehension"
 description = "Independent, interactive code-learning evaluator. Invoke only after the developer accepts the checkpoint and, when enabled, the judge approved the same change boundary."
-model_reasoning_effort = "high"
+${tomlModel(model)}model_reasoning_effort = "high"
 sandbox_mode = "read-only"
 developer_instructions = """
-${comprehensionAgentInstructions.replace(/`/g, "'")}
+${comprehensionBody("codex", model).replace(/`/g, "'")}
 """
 `,
-};
+  };
+}

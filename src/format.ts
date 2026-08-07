@@ -36,3 +36,18 @@ export const warn = (): string => yellow("!");
 
 /** Format a missing/error marker. */
 export const minus = (): string => yellow("-");
+
+/**
+ * The marker for what a write actually did.
+ *
+ * Every write used to print as `+`, so a preserved file was indistinguishable from a created
+ * one and the CLI reported writes it had decided not to perform.
+ */
+export const mark = (kind: "create" | "update" | "preserve" | "suggest" | "skip"): string =>
+  ({
+    create: green("+"),
+    update: cyan("~"),
+    preserve: gray("="),
+    suggest: yellow("!"),
+    skip: gray("·"),
+  })[kind];

@@ -280,6 +280,45 @@ See [JUDGE.md](JUDGE.md) for the full flow including how to set a model.
 
 ---
 
+## `akrctx impl`
+
+Manages the optional implementer agent and its append-only implementation log. Disabled by
+default.
+
+```bash
+akrctx impl enable            # enable + install agent files for installed targets
+akrctx impl disable           # disable (files are kept)
+akrctx impl start TASK-001    # open or resume the log, report the round you may begin
+akrctx impl log TASK-001 \
+  --criteria "AC-1,AC-2" \
+  --files "src/a.ts" \
+  --validation "pnpm test::passed::647 passed" \
+  --blocker "..." --decision "..."
+akrctx impl log TASK-001 --record round.json
+akrctx impl status TASK-001 --json
+```
+
+The log is `.akrctx/local/impl/<TASK-ID>/log.md` — local, Git-ignored, and outside every
+review boundary, so recording a round never moves `taskDigest`. Every command verifies that
+`.akrctx/local/.gitignore` still keeps it there, and refuses rather than writing a log the
+review would pick up.
+
+Records are append-only and the round number is derived from the persisted records at
+append time, so two `start` calls with no `log` between them cannot disagree. The attempt
+budget (`agents.implementer.maxAttempts`, default 3) is enforced by `impl log` as well as
+by `impl start`: the limit belongs to the store, not to the opening command. An unparseable
+log is reported as unreadable and does not present as zero attempts used.
+
+`--record` takes a JSON object with the same fields as the flags. It is validated before it
+reaches the store — an unknown field, a malformed `validation` entry, or a `timestamp` that
+is not an ISO-8601 instant is rejected by name. A `round` in the file is ignored, because
+the round is derived at append time.
+
+`akrctx impl` never invokes an agent. akrctx generates the definition and owns the log; the
+lead agent decides when to delegate.
+
+---
+
 ## `akrctx remove`
 
 Removes akrctx harness files for a target.
