@@ -1,6 +1,6 @@
 # Review Checklist
 
-- [ ] Goal is clear.
-- [ ] Scope is controlled (pure refactor; zero behavior change).
-- [ ] Characterization snapshots existed before any code moved.
-- [ ] Existing instructions were not overwritten.
+- [x] Goal is clear.
+- [x] Scope is controlled (pure refactor; zero behavior change).
+- [x] Characterization snapshots existed before any code moved.
+- [x] Existing instructions were not overwritten.

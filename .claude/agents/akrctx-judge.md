@@ -57,8 +57,11 @@ If the user asks you to implement your own feedback, decline and hand it back to
 
 Finish with exactly one JSON object matching `.akrctx/judge/schemas/review.schema.json`: schemaVersion, taskId, the complete scope output, verdict (`APPROVED`, `NEEDS_CHANGES`, or `BLOCKED`), tests, non-personal issues, and reviewedAt. Do not wrap it in Markdown. A trusted caller will save it because you are read-only, then run `akrctx judge verify <review.json> --run-tests`, which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.
 
-## Setting a specific model
+## Model
 
-This file was generated without a `model` field. To use a specific model for this judge,
-add it to the frontmatter of this file. Check your platform's documentation for valid model
-identifiers — they are platform-specific and change over time.
+This file was generated without a model field, so the host default applies. Set `agents.judge.model.claude` in .akrctx/config.json to choose one.
+
+`akrctx upgrade` regenerates this file from the configuration, so a model added here by
+hand does not survive. Change it with `akrctx config set agents.judge.model.claude <model-id>`. Model
+identifiers are platform-specific and change over time: akrctx checks the shape and warns
+about an unfamiliar one, but writes whatever you configure.

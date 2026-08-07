@@ -25,6 +25,14 @@ node dist/index.js --help >/dev/null && node dist/index.js judge --help >/dev/nu
   …) — they stay where they are; only the Commander wiring moves.
 - Judge subsystem simplification (separate, postponed).
 
+## Workflow
+
+SDD — pure structural refactor with zero behavior change, so the spec is the existing observable CLI surface. Freeze it in characterization snapshots before moving code.
+
+## Workflow Reason
+
+No behavior change is permitted; the only correctness criterion is that help output, option parsing, and action wiring remain byte-identical. SDD lets us write the contract as snapshot tests first, then refactor safely against that contract.
+
 ## Clarifications
 
 - None recorded yet.

@@ -48,7 +48,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".claude/agents/akrctx-judge.md": {
-      "hash": "sha256:f9a15da807c93d26656a10dd44726eaad9cfcbf3377c71de4a1c5808270c91cd"
+      "hash": "sha256:3d64f813a78ec2518bff6886658ca1872d210e597c2a16ab73deec5d60c17796"
     },
     ".akrctx/targets/codex.md": {
       "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
@@ -72,7 +72,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
-      "hash": "sha256:cb0dc871045ca0b43d7d4366999ee231d8becba1447ab1f1267fa4c24ad6ba9e"
+      "hash": "sha256:520395b18b11eb261b324ef85eff3d0096114449357a84f1f4f0b153e0982840"
     }
   }
 }
