@@ -1,0 +1,421 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`CLI help snapshots > compile --help matches snapshot 1`] = `
+"Usage: akrctx compile [options] <taskId>
+
+Compile a task capsule into a ready-to-paste agent brief.
+
+Arguments:
+  taskId             task id (e.g. TASK-001)
+
+Options:
+  --target <target>  target agent (choices: "codex", "claude", "copilot", "pi",
+                     "all")
+  --dry-run          show planned writes without writing files (default: false)
+  --force            update akrctx-owned files when they already exist (default:
+                     false)
+  --json             emit JSON output (for scripting) (default: false)
+  -h, --help         display help for command
+
+Concatenates task.md + context.md + plan.md + acceptance-criteria.md
+into a single .md file at .akrctx/tasks/TASK-XXX/exports/<target>.md.
+Paste the brief directly into your agent's context, or let the agent read it.
+"
+`;
+
+exports[`CLI help snapshots > comprehension --help matches snapshot 1`] = `
+"Usage: akrctx comprehension [options] [command]
+
+Manage the optional developer comprehension checkpoint.
+
+Options:
+  -h, --help         display help for command
+
+Commands:
+  enable [options]   Enable the independent comprehension agent for supported
+                     installed targets.
+  disable [options]  Disable comprehension checkpoints.
+  status [options]   Show checkpoint and local-storage status.
+  help [command]     display help for command
+"
+`;
+
+exports[`CLI help snapshots > config --help matches snapshot 1`] = `
+"Usage: akrctx config [options] [command]
+
+Show or update akrctx project defaults.
+
+Options:
+  -h, --help                   display help for command
+
+Commands:
+  show [options]               Print .akrctx/config.json.
+  set [options] <key> <value>  Set a akrctx config default.
+  help [command]               display help for command
+"
+`;
+
+exports[`CLI help snapshots > doctor --help matches snapshot 1`] = `
+"Usage: akrctx doctor [options]
+
+Mechanically audit akrctx readiness and write generated reports to
+.akrctx/wiki/.
+
+Options:
+  --ci               fail with exit code 1 when the harness is incomplete or has
+                     actionable issues (default: false)
+  --fix              automatically recreate missing files and repair
+                     config/policy gaps (default: false)
+  --target <target>  target agent (choices: "codex", "claude", "copilot", "pi",
+                     "all")
+  --dry-run          show planned writes without writing files (default: false)
+  --force            update akrctx-owned files when they already exist (default:
+                     false)
+  --json             emit JSON output (for scripting) (default: false)
+  -h, --help         display help for command
+
+Doctor checks:
+  - The CLI performs deterministic setup checks; the installed Doctor skill performs semantic instruction review.
+  - Whether akrctx is installed.
+  - Which target adapters are present.
+  - Which required files are missing.
+  - Whether protected files have pending merge suggestions.
+  - Config completeness.
+
+Use --fix to recreate missing files and repair config/policy gaps automatically.
+Protected instructions remain read-only until the agent shows an exact diff and receives explicit human approval in the current conversation.
+
+It writes the report to .akrctx/wiki/agent-setup.md
+and prints a suggested agent prompt to finish the audit intelligently.
+"
+`;
+
+exports[`CLI help snapshots > impl --help matches snapshot 1`] = `
+"Usage: akrctx impl [options] [command]
+
+Manage the optional implementer agent and its append-only implementation log.
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  enable [options]            Enable the implementer agent for the installed
+                              targets.
+  disable [options]           Disable the implementer. Agent files are kept —
+                              remove them manually.
+  start [options] <task-id>   Open or resume the implementation log and report
+                              the round the caller may begin.
+  log [options] <task-id>     Append one round record to the implementation log.
+  status [options] <task-id>  Report attempts used, attempts remaining, the last
+                              blocker, and whether the task is stopped.
+  help [command]              display help for command
+
+The implementation log lives at .akrctx/local/impl/<TASK-ID>/log.md — local,
+Git-ignored, and outside every review boundary by construction.
+
+  akrctx impl enable                 install the implementer agent files
+  akrctx impl start TASK-001         open or resume the log, get the round number
+  akrctx impl log TASK-001 ...       append one round record
+  akrctx impl status TASK-001        attempts used, remaining, last blocker
+
+The attempt budget comes from agents.implementer.maxAttempts (default 3) and is
+enforced by the store: \`impl log\` refuses to append past it whether or not
+\`impl start\` was called first.
+"
+`;
+
+exports[`CLI help snapshots > init --help matches snapshot 1`] = `
+"Usage: akrctx init [options]
+
+Install a akrctx harness into the current repository.
+
+Options:
+  --profile <profile>     installation profile (choices: "default", "strict",
+                          "regulated")
+  --template <name>       apply a bundled enterprise template pack
+  --template-pack <path>  apply a target-relative enterprise template pack
+  --target <target>       target agent (choices: "codex", "claude", "copilot",
+                          "pi", "all")
+  --dry-run               show planned writes without writing files (default:
+                          false)
+  --force                 update akrctx-owned files when they already exist
+                          (default: false)
+  --json                  emit JSON output (for scripting) (default: false)
+  -h, --help              display help for command
+
+What init does:
+  1. Detects existing agent setup (Codex, Claude, Copilot, Pi).
+  2. Asks which agent to target if none is detected.
+  3. Creates .akrctx/ — the neutral source of truth.
+  4. Installs target-specific harness files (skills, prompts, instructions).
+  5. Applies the selected profile (default, strict, or regulated).
+  6. Applies a template pack when --template-pack is provided.
+  7. Preserves any existing AGENTS.md / CLAUDE.md (writes .suggested instead).
+
+Run akrctx doctor after init to finish setup with your agent.
+"
+`;
+
+exports[`CLI help snapshots > judge --help matches snapshot 1`] = `
+"Usage: akrctx judge [options] [command]
+
+Manage the optional akrctx judge subagent.
+
+Options:
+  -h, --help                       display help for command
+
+Commands:
+  enable [options]                 Enable the judge and install agent files for
+                                   the installed targets.
+  disable [options]                Disable the judge. Agent files are kept —
+                                   remove them manually if needed.
+  status [options]                 Show judge configuration and installed agent
+                                   files.
+  snapshot [options] <task-id>     Capture an immutable local review snapshot
+                                   without changing Git state.
+  prune [options]                  Preview or remove old local judge snapshots
+                                   while preserving retained ancestry.
+  current [options] <review-file>  Compare an approved snapshot review with the
+                                   current workspace.
+  scope [options] <task-id>        Compute the deterministic task and code
+                                   boundary a judge must review.
+  verify [options] <review-file>   Verify that a judge review is APPROVED and
+                                   still matches the repository.
+  help [command]                   display help for command
+"
+`;
+
+exports[`CLI help snapshots > remove --help matches snapshot 1`] = `
+"Usage: akrctx remove [options]
+
+Remove akrctx harness files for a target.
+
+Options:
+  --target <target>  target agent (choices: "codex", "claude", "copilot", "pi",
+                     "all")
+  --dry-run          show planned writes without writing files (default: false)
+  --force            update akrctx-owned files when they already exist (default:
+                     false)
+  --json             emit JSON output (for scripting) (default: false)
+  --all              remove .akrctx/ and all target files (default: false)
+  --purge-tasks      with --all, also delete .akrctx/tasks/ (task capsules)
+                     instead of keeping them (default: false)
+  --purge-local      with --all, also delete .akrctx/local/ personal records
+                     instead of keeping them (default: false)
+  -h, --help         display help for command
+
+Without --force, shows a dry-run of what would be removed.
+Protected root instruction files are always skipped — remove them manually.
+
+--target all removes harness FILES for every target (codex, claude, copilot, pi).
+--all additionally removes the neutral .akrctx/ directory itself.
+
+Examples:
+  akrctx remove --target codex            dry-run: list what would be removed
+  akrctx remove --target codex --force    actually remove codex skill files
+  akrctx remove --target all --force      remove skill files for every target
+  akrctx remove --all --force             remove .akrctx/ and all target files
+                                           (task capsules under .akrctx/tasks/ are kept)
+  akrctx remove --all --purge-tasks --force  also delete .akrctx/tasks/ entirely
+  akrctx remove --all --purge-local --force  also delete personal comprehension records
+"
+`;
+
+exports[`CLI help snapshots > root --help matches snapshot 1`] = `
+"Usage: akrctx [options] [command]
+
+akrctx installs an agentic workflow harness into a repository.
+
+It gives your coding agent structured context, task capsules, workflow
+selection, merge safety, and quality gates — without replacing the agent.
+
+Options:
+  -V, --version               output the version number
+  -h, --help                  display help for command
+
+Commands:
+  init [options]              Install a akrctx harness into the current
+                              repository.
+  templates                   List and apply akrctx template packs.
+  doctor [options]            Mechanically audit akrctx readiness and write
+                              generated reports to .akrctx/wiki/.
+  status [options]            Print a quick summary of the installation —
+                              targets, tasks, and config defaults.
+  config                      Show or update akrctx project defaults.
+  task                        Create, list, show, or remove akrctx task
+                              capsules.
+  compile [options] <taskId>  Compile a task capsule into a ready-to-paste agent
+                              brief.
+  comprehension               Manage the optional developer comprehension
+                              checkpoint.
+  impl                        Manage the optional implementer agent and its
+                              append-only implementation log.
+  judge                       Manage the optional akrctx judge subagent.
+  trace                       Record and report whether the harness contract was
+                              honored in a session.
+  upgrade [options]           Update akrctx-owned harness files to the current
+                              CLI version.
+  remove [options]            Remove akrctx harness files for a target.
+  help [command]              display help for command
+
+Quick start:
+  akrctx init                                    install harness (auto-detects agent)
+  akrctx init --target claude                   install for Claude Code
+  akrctx doctor                                  audit readiness + write wiki
+  akrctx status                                  quick install summary
+
+Normal coding flow (agent-first, no CLI needed):
+  Open your agent → ask "create X" or "fix Y"
+  → Agent creates the task capsule with real codebase context, then implements.
+
+CLI task (headless fallback for scripts/CI only):
+  akrctx task "Add invoice API"                  create empty capsule skeleton
+  akrctx task "Fix auth bug" --workflow TDD      force a specific workflow
+  akrctx compile TASK-001 --target codex         generate agent brief from capsule
+  akrctx comprehension enable                    enable understanding checkpoints
+  akrctx impl enable                             enable the implementer subagent
+
+Templates:
+  akrctx templates list                         list bundled template packs
+  akrctx init --target copilot --template NAME  install bundled template
+  akrctx templates apply NAME --target copilot  apply after initialization
+  akrctx templates status                       list applied template packs
+
+Config:
+  akrctx config show                             print current config
+  akrctx config set defaultWorkflow SDD+TDD      set project default
+  akrctx config set contextBudget proportional   adjust context loading
+
+Supported workflows:
+  fast-patch   research-first   SDD   TDD   EDD   SDD+TDD   SDD+EDD   TDD+EDD
+
+Supported profiles: default | strict | regulated
+
+Supported targets: codex | claude | copilot | pi | all
+"
+`;
+
+exports[`CLI help snapshots > status --help matches snapshot 1`] = `
+"Usage: akrctx status [options]
+
+Print a quick summary of the installation — targets, tasks, and config defaults.
+
+Options:
+  --dry-run   show planned writes without writing files (default: false)
+  --force     update akrctx-owned files when they already exist (default: false)
+  --json      emit JSON output (for scripting) (default: false)
+  -h, --help  display help for command
+"
+`;
+
+exports[`CLI help snapshots > task --help matches snapshot 1`] = `
+"Usage: akrctx task [options] [command]
+
+Create, list, show, or remove akrctx task capsules.
+
+Options:
+  -h, --help                      display help for command
+
+Commands:
+  create [options] [description]  Create a akrctx task capsule for the given
+                                  description.
+  list [options]                  List existing akrctx task capsules.
+  show [options] <taskId>         Show the contents of a task capsule.
+  rm [options] <taskId>           Remove a task capsule.
+  help [command]                  display help for command
+
+Subcommands:
+  akrctx task <description>        create a new task capsule
+  akrctx task list                 list existing task capsules
+  akrctx task show TASK-001        show a task capsule's files
+  akrctx task rm TASK-001          remove a task capsule
+
+The create command is a HEADLESS FALLBACK for scripting and CI.
+During normal agent-assisted work you do NOT need this command.
+
+Normal flow: just ask your agent "create X" or "fix Y".
+  → The agent reads AGENTS.md / CLAUDE.md and creates the task capsule
+    itself, intelligently filling context from your actual codebase.
+
+CLI task is useful when:
+  - You want to pre-create a capsule skeleton before opening the agent.
+  - You are running in CI / headless without an interactive agent.
+  - You want a deterministic workflow override (--workflow flag).
+
+A task capsule is a directory under .akrctx/tasks/TASK-XXX-<slug>/
+containing: task.md  context.md  plan.md  acceptance-criteria.md  review-checklist.md
+
+The CLI fills in a basic skeleton with regex-matched workflow selection.
+The agent fills in real context, relevant file lists, and smart criteria.
+"
+`;
+
+exports[`CLI help snapshots > templates --help matches snapshot 1`] = `
+"Usage: akrctx templates [options] [command]
+
+List and apply akrctx template packs.
+
+Options:
+  -h, --help                  display help for command
+
+Commands:
+  list [options]              List bundled template packs.
+  apply [options] <template>  Safely apply a template pack to an initialized
+                              project.
+  status [options]            List template packs applied to this project.
+  help [command]              display help for command
+"
+`;
+
+exports[`CLI help snapshots > trace --help matches snapshot 1`] = `
+"Usage: akrctx trace [options] [command]
+
+Record and report whether the harness contract was honored in a session.
+
+Options:
+  -h, --help         display help for command
+
+Commands:
+  enable [options]   Start recording sessions for installed targets.
+  disable [options]  Stop recording and remove akrctx hook entries.
+  status [options]   Show what is wired and how much has been recorded.
+  report [options]   Derive the contract predicates from the recorded sessions.
+  help [command]     display help for command
+
+Tracing is opt-in and observes only — it never blocks or injects anything.
+Records live in .akrctx/local/traces/, which is already git-ignored.
+
+  akrctx trace enable     wire the hooks for installed targets
+  akrctx trace status     show what is wired and how many sessions were recorded
+  akrctx trace report     derive the contract predicates from the recorded sessions
+  akrctx trace disable    remove only the akrctx hook entries
+"
+`;
+
+exports[`CLI help snapshots > upgrade --help matches snapshot 1`] = `
+"Usage: akrctx upgrade [options]
+
+Update akrctx-owned harness files to the current CLI version.
+
+Options:
+  --target <target>  target agent (choices: "codex", "claude", "copilot", "pi",
+                     "all")
+  --dry-run          show planned writes without writing files (default: false)
+  --force            update akrctx-owned files when they already exist (default:
+                     false)
+  --json             emit JSON output (for scripting) (default: false)
+  -h, --help         display help for command
+
+Safely migrates the installed harness to the current CLI version.
+Wiki, task capsules, local records, and root instructions are never overwritten.
+
+Examples:
+  akrctx upgrade                    upgrade installed targets
+  akrctx upgrade --target codex     upgrade only codex harness files
+  akrctx upgrade --dry-run          preview what would change
+
+Files with verified akrctx provenance are updated automatically. Modified or
+legacy files are preserved and receive a candidate under .akrctx/upgrades/.
+Resolve candidates and rerun upgrade to complete installedVersion migration.
+"
+`;

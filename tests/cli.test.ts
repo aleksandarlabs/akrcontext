@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { main } from "../src/cli.js";
+import { buildProgram, main } from "../src/cli.js";
 import { runHook } from "../src/hook/index.js";
 import { runTraceEnable } from "../src/hook/install.js";
 import { runTraceReport } from "../src/hook/report.js";
@@ -37,6 +37,58 @@ function captureLogs(): { logs: string[]; restore: () => void } {
     },
   };
 }
+
+function captureHelp(args: string[]): string {
+  const program = buildProgram();
+  for (const cmd of program.commands) {
+    cmd.exitOverride();
+    for (const sub of cmd.commands) sub.exitOverride();
+  }
+  program.exitOverride();
+  let out = "";
+  program.configureOutput({
+    writeOut: (str: string) => {
+      out += str;
+    },
+    writeErr: (str: string) => {
+      out += str;
+    },
+  });
+  try {
+    program.parse(["node", "akrctx", ...args]);
+  } catch (err) {
+    // Commander throws its own errors for help/version instead of exiting when
+    // exitOverride() is active. Swallow those; rethrow real failures.
+    const code = (err as { code?: string }).code;
+    if (!code?.startsWith("commander.")) throw err;
+  }
+  return out;
+}
+
+describe("CLI help snapshots", () => {
+  it("root --help matches snapshot", () => {
+    expect(captureHelp(["--help"])).toMatchSnapshot();
+  });
+
+  const subcommands = [
+    "init",
+    "templates",
+    "doctor",
+    "status",
+    "config",
+    "task",
+    "compile",
+    "comprehension",
+    "impl",
+    "judge",
+    "trace",
+    "upgrade",
+    "remove",
+  ];
+  it.each(subcommands)("%s --help matches snapshot", (subcommand) => {
+    expect(captureHelp([subcommand, "--help"])).toMatchSnapshot();
+  });
+});
 
 describe("CLI layer — main(argv)", () => {
   it("init --target codex --json writes a harness and prints JSON", async () => {
