@@ -28,7 +28,12 @@ private/
 Thumbs.db
 .idea/
 .vscode/
-.codex/
+
+# Agent files are generated from src/templates and owned by the provenance manifest,
+# so the dogfooded install is reproducible on a fresh clone. Everything else under
+# .codex stays ignored.
+.codex/*
+!.codex/agents/
 
 # Temporary files
 tmp/
