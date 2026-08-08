@@ -2655,9 +2655,9 @@ describe("judge", () => {
 
   it("--run-tests re-executes declared commands and rejects a false passing claim", async () => {
     const failing = 'node -e "process.exit(1)"';
-    const { recordPath } = await createReviewFixture({ declares: [failing], claims: [failing] });
+    const { recordPath } = await createApprovableSnapshotFixture([failing]);
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(false);
     expect(result.reexecuted).toEqual([{ command: failing, passed: false }]);
@@ -2666,34 +2666,19 @@ describe("judge", () => {
 
   it("--run-tests confirms an approval whose declared command really passes", async () => {
     const passing = 'node -e "process.exit(0)"';
-    const { recordPath } = await createReviewFixture({ declares: [passing], claims: [passing] });
+    const { recordPath } = await createApprovableSnapshotFixture([passing]);
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
     expect(result.reexecuted).toEqual([{ command: passing, passed: true }]);
   });
 
-  it("--run-tests rejects a command that passes but moves the boundary it approved", async () => {
-    // A formatter, a snapshot update or a codegen step exits 0 and leaves the worktree
-    // outside the reviewed boundary. Approving that is approving unreviewed code.
-    const mutating = "node -e \"require('fs').writeFileSync('app.ts', 'export const value = 3;\\n')\"";
-    const { recordPath } = await createReviewFixture({ declares: [mutating], claims: [mutating] });
-
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
-
-    expect(result.reexecuted).toEqual([{ command: mutating, passed: true }]);
-    expect(result.approved).toBe(false);
-    expect(result.reasons).toContain(
-      "Validation changed the repository: scope.changeDigest, scope.scopeDigest no longer match the boundary that was reviewed.",
-    );
-  });
-
   it("--run-tests leaves the boundary intact for a non-mutating command", async () => {
     const passing = 'node -e "process.exit(0)"';
-    const { recordPath } = await createReviewFixture({ declares: [passing], claims: [passing] });
+    const { recordPath } = await createApprovableSnapshotFixture([passing]);
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
     expect(result.reasons).toEqual([]);
@@ -2702,13 +2687,171 @@ describe("judge", () => {
   it("--run-tests never executes a command that only the review record names", async () => {
     const sentinel = path.join(tmp, "must-not-run.txt");
     const injected = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
-    const { recordPath } = await createReviewFixture({ declares: ["pnpm test"], claims: [injected] });
+    const { task } = await createReviewFixture({ declares: ["pnpm test"], claims: [] });
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/injected-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command: injected, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
+
+    expect(result.reexecuted).toEqual([]);
+    expect(await pathExists(sentinel)).toBe(false);
+    expect(result.approved).toBe(false);
+  });
+
+  async function createApprovableSnapshotFixture(commands: string[]) {
+    const { task } = await createReviewFixture({ declares: commands, claims: [] });
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/approval-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: commands.map((command) => ({ command, status: "passed" })),
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    return { task, snapshot, recordPath };
+  }
+
+  it("--run-tests executes the declared commands once the injected approval resolves true", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { recordPath } = await createApprovableSnapshotFixture([command]);
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
+
+    expect(result.reexecuted).toEqual([{ command, passed: true }]);
+    expect(result.approved).toBe(true);
+  });
+
+  it("--run-tests withholds every command when the injected approval resolves false", async () => {
+    const sentinel = path.join(tmp, "denied-must-not-run.txt");
+    const command = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
+    const { recordPath } = await createApprovableSnapshotFixture([command]);
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => false });
+
+    expect(result.reexecuted).toEqual([]);
+    expect(await pathExists(sentinel)).toBe(false);
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(`Operator approval was not given for the declared commands: ${command}.`);
+  });
+
+  it("--run-tests refuses to execute when no approval callback is supplied at all", async () => {
+    const sentinel = path.join(tmp, "unapproved-must-not-run.txt");
+    const command = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
+    const { recordPath } = await createApprovableSnapshotFixture([command]);
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
 
     expect(result.reexecuted).toEqual([]);
     expect(await pathExists(sentinel)).toBe(false);
     expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(`Operator approval was not given for the declared commands: ${command}.`);
+  });
+
+  it("--run-tests asks for approval exactly once, with the declared commands in parse order", async () => {
+    const first = 'node -e "process.exit(0)"';
+    const second = 'node -e "process.exitCode = 0"';
+    const { recordPath } = await createApprovableSnapshotFixture([first, second]);
+    const asked: string[][] = [];
+
+    await verifyJudgeRecord(tmp, recordPath, {
+      runTests: true,
+      approve: async (commands) => {
+        asked.push(commands);
+        return true;
+      },
+    });
+
+    expect(asked).toEqual([[first, second]]);
+  });
+
+  it("--run-tests refuses a WORKTREE candidate before approval is ever requested", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { recordPath } = await createReviewFixture({ declares: [command], claims: [command] });
+    let asked = false;
+
+    const result = await verifyJudgeRecord(tmp, recordPath, {
+      runTests: true,
+      approve: async () => {
+        asked = true;
+        return true;
+      },
+    });
+
+    expect(asked).toBe(false);
+    expect(result.reexecuted).toEqual([]);
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
+      "--run-tests requires a snapshot candidate; capture one with `akrctx judge snapshot <TASK-ID>` and verify that record.",
+    );
+  });
+
+  it("--run-tests refuses a bare commit-ref candidate for the same reason", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tmp })).stdout.trim();
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", head);
+    const recordPath = path.join(tmp, ".akrctx/local/judge/commit-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
+
+    expect(result.reexecuted).toEqual([]);
+    expect(result.reasons).toContain(
+      "--run-tests requires a snapshot candidate; capture one with `akrctx judge snapshot <TASK-ID>` and verify that record.",
+    );
+  });
+
+  it("verification without --run-tests is unchanged on a WORKTREE candidate", async () => {
+    const { recordPath } = await createReviewFixture();
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
   });
 
   it("invalidates a review produced by a different akrctx version", async () => {
@@ -2787,6 +2930,120 @@ describe("judge", () => {
     expect(human).toContain("app.ts");
     expect(() => JSON.parse(human)).toThrow();
     expect(JSON.parse(asJson)).toEqual(scope);
+  });
+
+  describe("CLI judge verify --approve-commands", () => {
+    const runCli = async (args: string[]) => {
+      const previousCwd = process.cwd();
+      const originalLog = console.log;
+      const originalExitCode = process.exitCode;
+      const writes: string[] = [];
+      console.log = (message?: unknown) => {
+        writes.push(String(message));
+      };
+      try {
+        process.chdir(tmp);
+        await main(["node", "akrctx", ...args]);
+      } finally {
+        process.chdir(previousCwd);
+        console.log = originalLog;
+      }
+      const exitCode = process.exitCode;
+      process.exitCode = originalExitCode;
+      return { output: writes.join("\n"), exitCode };
+    };
+
+    // stdin is not a TTY under vitest, so these exercise the headless branch as written.
+    it("refuses headless re-execution and prints the invocation that would approve it", async () => {
+      const sentinel = path.join(tmp, "cli-unapproved.txt");
+      const command = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
+      const { recordPath } = await createApprovableSnapshotFixture([command]);
+
+      const { output, exitCode } = await runCli(["judge", "verify", path.relative(tmp, recordPath), "--run-tests"]);
+
+      expect(await pathExists(sentinel)).toBe(false);
+      expect(exitCode).toBe(1);
+      expect(output).toContain(command);
+      expect(output).toContain(`--approve-commands ${JSON.stringify(command)}`);
+    });
+
+    it("executes when the repeated flags reproduce the declared list, commas included", async () => {
+      // A CSV encoding would make this command unapprovable: it contains a comma and there is no
+      // defined escape.
+      const command = 'node -e "const [a,b] = [0,0]; process.exit(a)"';
+      const { recordPath } = await createApprovableSnapshotFixture([command]);
+
+      const { output, exitCode } = await runCli([
+        "judge",
+        "verify",
+        path.relative(tmp, recordPath),
+        "--run-tests",
+        "--approve-commands",
+        command,
+      ]);
+
+      expect(exitCode).toBeUndefined();
+      expect(output).toContain("APPROVED and current");
+      expect(output).toContain("re-ran");
+    });
+
+    it("refuses a reordered approval and names the first divergence", async () => {
+      const first = 'node -e "process.exit(0)"';
+      const second = 'node -e "process.exitCode = 0"';
+      const { recordPath } = await createApprovableSnapshotFixture([first, second]);
+
+      const { output, exitCode } = await runCli([
+        "judge",
+        "verify",
+        path.relative(tmp, recordPath),
+        "--run-tests",
+        "--approve-commands",
+        second,
+        "--approve-commands",
+        first,
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(output).not.toContain("re-ran");
+      expect(output).not.toContain("APPROVED and current");
+      expect(output).toContain(`expected ${JSON.stringify(first)}`);
+      expect(output).toContain(`got ${JSON.stringify(second)}`);
+    });
+
+    it("refuses an approval that omits one declared command", async () => {
+      const first = 'node -e "process.exit(0)"';
+      const second = 'node -e "process.exitCode = 0"';
+      const { recordPath } = await createApprovableSnapshotFixture([first, second]);
+
+      const { output, exitCode } = await runCli([
+        "judge",
+        "verify",
+        path.relative(tmp, recordPath),
+        "--run-tests",
+        "--approve-commands",
+        first,
+      ]);
+
+      expect(exitCode).toBe(1);
+      expect(output).not.toContain("APPROVED and current");
+    });
+
+    it("ignores --approve-commands when --run-tests is not set", async () => {
+      const command = 'node -e "process.exit(0)"';
+      const { recordPath } = await createApprovableSnapshotFixture([command]);
+
+      const withFlag = await runCli([
+        "judge",
+        "verify",
+        path.relative(tmp, recordPath),
+        "--approve-commands",
+        "something else entirely",
+      ]);
+      const without = await runCli(["judge", "verify", path.relative(tmp, recordPath)]);
+
+      expect(withFlag.output).toBe(without.output);
+      expect(withFlag.exitCode).toBe(without.exitCode);
+    });
   });
 
   it("captures an ignored immutable snapshot without changing Git state", async () => {
@@ -2871,7 +3128,7 @@ describe("judge", () => {
     );
     await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
     expect(result.reexecuted).toEqual([{ command, passed: true }]);
@@ -3000,7 +3257,7 @@ describe("judge", () => {
       "utf8",
     );
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(false);
     expect(result.reasons.join("\n")).toContain("Validation changed the snapshot");
@@ -3058,7 +3315,7 @@ describe("judge", () => {
       "utf8",
     );
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
     expect(result.reasons.join("\n")).not.toContain("exit");
     expect(result.approved).toBe(true);
   });
@@ -3148,7 +3405,7 @@ describe("judge", () => {
       "utf8",
     );
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(false);
     expect(result.reasons.join("\n")).toContain("Validation changed the snapshot boundary");
@@ -3182,7 +3439,7 @@ describe("judge", () => {
       "utf8",
     );
 
-    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true });
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
     expect(await pathExists(path.join(snapshot.worktreePath, "dist/out.js"))).toBe(false);
@@ -3253,7 +3510,7 @@ describe("judge", () => {
     await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
     await writeFile(path.join(tmp, "new.ts"), "export const added = true;\n", "utf8");
 
-    const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath);
+    const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true);
     const loaded = await loadJudgeSnapshot(tmp, catchUp.candidate);
 
     expect(catchUp.scope.base).toBe(parent.candidate);
@@ -3285,7 +3542,9 @@ describe("judge", () => {
       "utf8",
     );
 
-    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath)).rejects.toThrow("Independent re-run");
+    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true)).rejects.toThrow(
+      "Independent re-run",
+    );
   });
 
   it("invalidates a catch-up snapshot when an ancestor snapshot is removed", async () => {
@@ -3311,7 +3570,7 @@ describe("judge", () => {
       "utf8",
     );
     await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
-    const child = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath);
+    const child = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true);
     await rm(parent.worktreePath, { recursive: true, force: true });
 
     await expect(loadJudgeSnapshot(tmp, child.candidate)).rejects.toThrow("parent snapshot");
@@ -3368,7 +3627,9 @@ describe("judge", () => {
       )}\n`,
       "utf8",
     );
-    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath)).rejects.toThrow("verified current");
+    await expect(captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true)).rejects.toThrow(
+      "verified current",
+    );
   });
 
   it("CLI judge snapshot keeps human output short and exposes full JSON on demand", async () => {

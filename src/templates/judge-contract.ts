@@ -96,7 +96,7 @@ When the capsule's \`task.md\` declares commands in a fenced block under \`## Va
 
 ## Independent re-execution
 
-\`akrctx judge verify <review.json> --run-tests\` re-runs the capsule-declared commands the record claims passed, instead of trusting the claim. Snapshot commands run in a disposable copy outside the live project, with private local Node dependencies when present, and cannot corrupt the immutable snapshot through ordinary relative writes. Verification still fails if validation rewrites tracked content. This is process isolation for normal tooling, not an OS sandbox for an intentionally malicious command with absolute paths.
+\`akrctx judge verify <review.json> --run-tests\` re-runs the capsule-declared commands the record claims passed, instead of trusting the claim. It requires a snapshot candidate — a \`WORKTREE\` or commit-ref record is refused — and it never executes without operator approval: the CLI prints the declared commands and asks in a terminal, or requires \`--approve-commands\` once per command in declared order when headless. Commands run in a disposable copy outside the live project, with private local Node dependencies when present, and cannot corrupt the immutable snapshot through ordinary relative writes. Verification still fails if validation rewrites tracked content. This is process isolation for normal tooling, not an OS sandbox for an intentionally malicious command with absolute paths.
 
 Run it from the trusted caller, before any handoff. The judge and the comprehension evaluator are read-only by contract and must not pass this flag.
 
@@ -106,7 +106,7 @@ It proves the verdict is bound to a specific task capsule and code boundary, tha
 
 It does not prove which model produced the verdict. The judge is read-only by design, so a trusted caller writes the record, and that caller could in principle write one the judge never produced. Nothing in this repository can close that gap. The mitigation is human: the judge's prose review appears in the session transcript, and the developer reads it. Treat a verified record as tamper-evident bookkeeping, not as an unforgeable signature.
 
-\`--run-tests\` narrows that gap without closing it. A review record can never inject a command, because only declared commands run. But the capsule itself is normally written by the primary agent, so the flag moves trust from the record to \`task.md\` rather than removing it. It is not a defence against a compromised primary agent, which could write both. Read \`task.md\` before running it on work you did not supervise.
+\`--run-tests\` narrows that gap without closing it. A review record can never inject a command, because only declared commands run. The capsule itself is normally written by the primary agent, so the declared commands are agent-authored project content — which is why the approval prompt exists: the human, not the capsule, decides what executes. That makes the operator the last barrier rather than a compromised primary agent, but it is only as strong as the attention paid to the list. Read it before approving work you did not supervise.
 
 ## Withheld paths
 

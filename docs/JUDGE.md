@@ -109,11 +109,24 @@ validation block before executing work you did not supervise.
 **What `--run-tests` executes, and whose trust that is.** It runs the commands declared in the capsule's `task.md` through a shell. Two things follow:
 
 - A review record **cannot** inject a command. Only declared commands are ever executed, so the agent-written record has no path to a shell.
-- The capsule **can**. In the normal akrctx flow the primary agent writes the capsule, so `task.md` is agent-authored project content, not a human-authored file. `--run-tests` therefore *moves* trust from the review record to the task capsule; it does not eliminate it.
+- The capsule **can**. In the normal akrctx flow the primary agent writes the capsule, so `task.md` is agent-authored project content, not a human-authored file.
 
-Treat it like running `package.json` scripts from a branch: fine for a capsule you or your own agent produced and can read, not a defence against a compromised primary agent or an untrusted branch — that agent could write both the capsule and the record. Read `task.md` before passing the flag on work you did not supervise.
+That is why nothing runs unapproved. The flag requires a snapshot candidate — a `WORKTREE` or commit-ref record is refused, so re-execution never touches the live tree — and before executing anything it asks:
 
-This is why the flag is opt-in and lives with the primary agent rather than the judge: the judge and the comprehension evaluator are read-only by contract and cannot execute anything.
+```bash
+# terminal: the declared commands are printed and confirmed with y/N
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
+
+# headless: reproduce the declared list, one flag per command, in declared order
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests \
+  --approve-commands "pnpm build" --approve-commands "npx vitest run"
+```
+
+The order must match what was printed. Order carries no security weight on its own, but requiring it forces you to paste back the list you were shown rather than assemble a plausible one from memory — and that confirmation is the control. The flag repeats instead of taking one comma-separated value because declared commands legitimately contain commas.
+
+So the human, not the capsule, decides what executes. That makes the operator the last barrier: as strong as the attention paid to the list, and no stronger. Read it before approving work you did not supervise.
+
+The gate lives with the primary agent rather than the judge: the judge and the comprehension evaluator are read-only by contract and cannot execute anything. `akrctx judge snapshot --from-review` takes the same flag, because catch-up strongly verifies its parent and that re-runs the same commands.
 
 ### Where the strong check runs
 

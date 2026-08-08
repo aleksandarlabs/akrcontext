@@ -110,12 +110,21 @@ export function registerJudge(program: Command): void {
     .argument("<task-id>", "task capsule ID, for example TASK-001")
     .option("--base <ref>", "base Git ref for a full snapshot", "HEAD")
     .option("--from-review <file>", "capture only changes since a verified approved snapshot review")
+    .option(
+      "--approve-commands <cmd>",
+      "approve one of the parent review's declared commands; repeat once per command, in declared order",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .option("--json", "emit snapshot metadata for automation", false)
     .action(async (taskId: string, raw: Record<string, unknown>) => {
       const options = normalizeOptions(raw);
       const cwd = options.cwd ?? process.cwd();
+      const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
       const snapshot = raw.fromReview
-        ? await captureJudgeCatchUpSnapshot(cwd, taskId, String(raw.fromReview))
+        ? await captureJudgeCatchUpSnapshot(cwd, taskId, String(raw.fromReview), (commands) =>
+            approveCommands(commands, approved),
+          )
         : await captureJudgeSnapshot(cwd, taskId, String(raw.base));
       if (options.json) {
         console.log(JSON.stringify(snapshot, null, 2));
@@ -224,6 +233,12 @@ export function registerJudge(program: Command): void {
     .argument("<review-file>", "path to the judge review JSON")
     .option("--json", "emit JSON output", false)
     .option("--run-tests", "re-run the capsule-declared commands the record claims passed", false)
+    .option(
+      "--approve-commands <cmd>",
+      "approve one declared command for re-execution; repeat once per command, in declared order",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .addHelpText(
       "after",
       [
@@ -236,13 +251,24 @@ export function registerJudge(program: Command): void {
         "capsule's task.md are ever executed, so a review record cannot get an",
         "arbitrary command run. The capsule itself is usually written by an agent,",
         "so this moves trust from the record to task.md rather than removing it.",
-        "Read task.md before using this on work you did not supervise.",
+        "",
+        "--run-tests needs a snapshot candidate: a WORKTREE or commit-ref record is",
+        "refused, because only a snapshot can be copied to a disposable workspace.",
+        "",
+        "Those commands are shell strings from the artifact under review, so nothing",
+        "runs without your approval. In a terminal you are shown the list and asked.",
+        "Headless, pass --approve-commands once per command, in the declared order;",
+        "anything else refuses and exits non-zero.",
       ].join("\n"),
     )
     .action(async (reviewFile: string, raw: Record<string, unknown>) => {
       const options = normalizeOptions(raw);
       const runTests = Boolean(raw.runTests);
-      const result = await verifyJudgeRecord(options.cwd ?? process.cwd(), reviewFile, { runTests });
+      const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
+      const result = await verifyJudgeRecord(options.cwd ?? process.cwd(), reviewFile, {
+        runTests,
+        approve: (commands) => approveCommands(commands, approved),
+      });
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {
@@ -267,4 +293,56 @@ export function registerJudge(program: Command): void {
       }
       if (!result.approved) process.exitCode = 1;
     });
+}
+
+/**
+ * Operator consent for the exact list `verifyJudgeRecord` is about to run.
+ *
+ * The commands are shell strings taken from the artifact under review, so a human decides. In a
+ * terminal that is a prompt; headless it is `--approve-commands`, repeated once per command. The
+ * repeated flag rather than one comma-separated value is deliberate: declared commands contain
+ * commas (`vitest run --reporter=default,json`) and a CSV encoding has no escape for them.
+ *
+ * The comparison is order-sensitive. Order carries no security weight on its own — the same set
+ * would run either way — but requiring the printed order forces the operator to paste back the
+ * list that was shown instead of assembling a plausible one by hand, and that confirmation is the
+ * whole control.
+ */
+async function approveCommands(declared: string[], approved: string[]): Promise<boolean> {
+  const asFlags = declared.map((command) => `--approve-commands ${JSON.stringify(command)}`).join(" ");
+  if (!process.stdin.isTTY) {
+    if (approved.length === 0) {
+      ln();
+      log(`  ${dim("Nothing was re-executed. These commands need your approval:")}`);
+      for (const [index, command] of declared.entries()) log(`    ${index + 1}. ${cmd(command)}`);
+      ln();
+      log(`  ${dim("Read them, then re-run with:")} ${cmd(asFlags)}`);
+      return false;
+    }
+    const trimmed = approved.map((command) => command.trim());
+    for (let index = 0; index < Math.max(trimmed.length, declared.length); index += 1) {
+      if (trimmed[index] === declared[index]) continue;
+      ln();
+      log(`  ${minus()} ${dim("--approve-commands does not match the declared commands at position")} ${index + 1}:`);
+      log(`    ${dim("expected")} ${cmd(JSON.stringify(declared[index] ?? "(no further command)"))}`);
+      log(`    ${dim("got")} ${cmd(JSON.stringify(trimmed[index] ?? "(nothing)"))}`);
+      ln();
+      log(`  ${dim("Approve exactly:")} ${cmd(asFlags)}`);
+      return false;
+    }
+    return true;
+  }
+
+  ln();
+  log(`  ${bold("These commands come from the capsule's task.md and will run in a disposable copy:")}`);
+  for (const [index, command] of declared.entries()) log(`    ${index + 1}. ${cmd(command)}`);
+  ln();
+  const { createInterface } = await import("node:readline/promises");
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await rl.question("  Run them? [y/N] ");
+    return /^y(es)?$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
 }

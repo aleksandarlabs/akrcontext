@@ -94,6 +94,7 @@ export async function captureJudgeCatchUpSnapshot(
   cwd: string,
   taskId: string,
   parentRecordPath: string,
+  approve?: (commands: string[]) => Promise<boolean>,
 ): Promise<JudgeSnapshot> {
   const absoluteRecord = path.resolve(cwd, parentRecordPath);
   const relativeRecord = path.relative(cwd, absoluteRecord).split(path.sep).join("/");
@@ -113,7 +114,7 @@ export async function captureJudgeCatchUpSnapshot(
     throw new Error("Catch-up requires a review whose candidate is an immutable snapshot.");
   }
   const { verifyJudgeRecord } = await import("./judge-enforcement.js");
-  const verified = await verifyJudgeRecord(cwd, relativeRecord, { runTests: true });
+  const verified = await verifyJudgeRecord(cwd, relativeRecord, { runTests: true, approve });
   if (!verified.approved) {
     throw new Error(`Catch-up requires a verified current snapshot approval: ${verified.reasons.join(" ")}`);
   }

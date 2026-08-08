@@ -37,6 +37,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **Breaking.** `akrctx judge verify --run-tests` no longer executes anything without operator
+  approval. The commands it re-runs are shell strings taken from the capsule under review, so a
+  human decides: in a terminal the exact list is printed and confirmed with y/N; headless, the
+  list must be reproduced with a repeatable `--approve-commands <cmd>` flag — one occurrence per
+  command, in declared order. Absent or mismatched approval refuses to run anything and exits
+  non-zero. Existing CI that passes `--run-tests` must add `--approve-commands`. The flag is
+  repeated rather than comma-separated because declared commands legitimately contain commas.
+  `judge snapshot --from-review` takes the same flag: catch-up strongly verifies its parent,
+  which re-executes those commands too.
+- **Breaking.** `akrctx judge verify --run-tests` requires a snapshot candidate. A record whose
+  candidate is `WORKTREE` or a bare commit ref is refused; capture a snapshot and verify that
+  record instead. Re-execution previously ran in the live working tree for those records, which
+  let a validation command modify the project being reviewed. Verification *without*
+  `--run-tests` is unchanged for them.
 - `judge enable`, `judge disable`, `comprehension enable`, and `comprehension disable` write
   `agents.<name>` and keep an existing legacy key in step. Legacy `judge`,
   `comprehensionGate`, and `impl` keys keep working, are never migrated or deleted on disk,

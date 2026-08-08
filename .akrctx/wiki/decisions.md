@@ -385,3 +385,41 @@ judge is run from another host (Claude Code, Codex, Copilot subagent) or a separ
 Because `judge current` requires a snapshot, a Pi self-review that falls back to `WORKTREE`
 cannot reach `CURRENT` and so cannot satisfy the comprehension gate even if marked independent.
 See `.akrctx/tasks/TASK-018-judge-snapshot-mode-and-pi-independence/`.
+
+---
+
+## 2026-08-08 — `verify --run-tests` requires operator approval; no allowlist/denylist
+
+**Decision.** `akrctx judge verify --run-tests` no longer executes capsule-declared commands
+without operator approval. In a TTY it prints the exact command list and prompts y/N; headless
+mode requires a repeatable `--approve-commands <cmd>` flag — one occurrence per command — matching
+the declared list byte-for-byte in order, else it refuses and exits non-zero. The decision is
+injected into `verifyJudgeRecord` as an `approve` callback; TTY detection and flag parsing stay in
+`src/cli/judge.ts`, keeping terminal I/O out of the enforcement module. `--run-tests` additionally
+requires a `SNAPSHOT:<id>` candidate and refuses `WORKTREE` or bare commit refs, which removes the
+last path that executed in the live tree. No content allowlist or denylist is added, even as
+defense in depth.
+
+**Why.** The 2026-08-08 security audit (item 5) found that `runValidationCommand` runs shell
+strings sourced from the artifact under review with no operator control, and the `declaredAndPassing`
+double gate only requires the command to appear in two files the same branch author controls. An
+allowlist of `npm`/`pnpm`/`npx`/`node` does not close the hole (`pnpm run`, `node -e`, `npx <pkg>`
+all RCE through `execFile`), and a denylist of anticipated spellings (`rm -rf /`, `curl|sh`)
+filters only the exact form an attacker re-spells while breeding false confidence that degrades
+the one gate that works — operator attention. Operator approval is the sole honest barrier
+without a SO-level sandbox, which is out of scope for a Node CLI consistent with the project's
+prompt-level policy stance.
+
+The flag is repeatable rather than comma-separated because declared commands legitimately contain
+commas (`vitest run --reporter=default,json`), and a CSV encoding with no defined escape would
+make those commands unapprovable. Order sensitivity has no security value on its own, but it
+forces the operator to paste the printed list instead of hand-assembling one, and that
+confirmation is the control. Snapshot candidates are required rather than giving non-snapshot
+records a worktree of their own: `git worktree add` cannot materialize a dirty `WORKTREE`
+candidate, and for a commit ref it would arrive without the dependency layout the snapshot
+machinery exists to carry, so the alternative was duplicating snapshot capture.
+
+**Consequences.** Two breaking changes to `--run-tests`: CI must pass `--approve-commands`, and
+records with a non-snapshot candidate are refused (capture a snapshot first). Verification without
+`--run-tests` is unchanged on those records. The review schema is unchanged. See
+`.akrctx/tasks/TASK-019-run-tests-operator-approval/`.
