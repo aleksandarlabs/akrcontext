@@ -32,6 +32,13 @@ The scope contains SHA-256 digests of the five task-capsule documents and exact 
 boundary. The judge copies it unchanged into the final JSON record. Commit and strict
 `WORKTREE` candidates remain supported for compatibility.
 
+If a `SNAPSHOT:<id>` cannot be captured, the judge falls back to the `WORKTREE` candidate and
+records which boundary it reviewed in `scope.candidate`. A missing snapshot is not by itself a
+reason to report `BLOCKED`; `BLOCKED` is for an unclear or unreviewable boundary. The snapshot is
+preferred because it is immutable, but `WORKTREE` is a compatible boundary and `akrctx judge
+verify --run-tests` still re-runs the capsule-declared commands and binds the verdict to the
+boundary digest.
+
 Before accepting the verdict or starting comprehension:
 
 ```bash
@@ -254,3 +261,27 @@ writes a single value. See [custom agents in VS Code](https://code.visualstudio.
 ## Pi
 
 Pi does not have a native subagent API. The judge is not available for Pi targets. `akrctx judge enable` skips Pi automatically.
+
+## Independence and the `independent` field
+
+The judge's value is judgment the implementer cannot self-police. The review record carries an
+optional `independent` boolean (absent means `true`). A reviewer who is the same agent or
+session that implemented the task, or who runs on a host with no subagent isolation, sets
+`independent: false`. This is honesty convention, not cryptographic proof — it makes honest
+self-reviewers flag themselves and lets the comprehension gate refuse a flagged approval, but
+it cannot stop a determined adversary from lying. It is consistent with the project's stance that
+policy is prompt-level.
+
+`akrctx judge verify` reports a non-independent record as a **notice** and does not change
+`valid`, `approved`, or the exit code: the mechanical guarantees (re-executed tests, bound
+digests) still hold, so the record is still a valid mechanical approval. Independence is a
+judgment the comprehension gate enforces — it requires `independent: true` (in addition to
+`approved: true` and `judge current` `CURRENT`) and refuses a non-independent approval.
+
+On Pi specifically, a judge run from the same session that implemented is non-independent by
+construction: Pi has no agent format, so there is no separate reviewer context. Such a review is
+verification-only; for an independent verdict, run the judge from another host (Claude Code,
+Codex, or Copilot subagent) or a separate session. The snapshot-based `judge current` check
+also requires a snapshot, so a Pi self-review that falls back to `WORKTREE` cannot reach
+`CURRENT` and therefore cannot satisfy the comprehension gate even if marked independent.
+See `.akrctx/wiki/decisions.md` (2026-08-06, 2026-08-08).

@@ -3,7 +3,7 @@ type: akrctx-wiki-decisions
 title: "Decisions"
 description: "Important project and agent-workflow decisions."
 tags: ["decisions"]
-timestamp: 2026-08-05T21:08:00.000Z
+timestamp: 2026-08-08T00:00:00.000Z
 ---
 
 # Decisions
@@ -129,6 +129,12 @@ failure the harness exists to remove.
 **Consequences.** The limitation is now visible at three surfaces — `enable`, `doctor`, and
 the agent warnings in `status` — rather than inferable from a missing file. No akrctx
 command fails because of it.
+
+A same-session judge on Pi is verification-only: Pi has no subagent
+context, so the agent that implemented cannot be an independent reviewer of its own work.
+The review record's `independent` field (added 2026-08-08) makes this honest — a Pi
+self-review sets `independent: false`, and the comprehension gate refuses it. The mechanical
+half (`akrctx judge verify --run-tests`) still works; the judgment half does not.
 
 ## 2026-08-07 — An unknown `agents` entry is preserved and warned about, never rejected
 
@@ -256,3 +262,126 @@ on its way through.
 agents are simply the first subsystem to consume `config.targets` and say out loud when it
 disagrees with what the user asked for. A contradiction that had been silent for as long as
 `init` had been re-runnable became a visible warning, and the warning is what got it fixed.
+
+## 2026-08-08 — Legacy agent keys are mirrored, not migrated, and the mirroring has a sunset
+
+**Decision.** The legacy `judge`, `comprehensionGate`, and `impl` keys are kept in step
+with the canonical `agents` block on every write, mapped onto `agents` in memory on every
+read, and never migrated or deleted on disk. `akrctx doctor` reports divergence when the
+two forms are hand-edited apart, with `agents` winning. This mirroring is **debt with an
+exit**, not a permanent design: it exists to keep an older akrctx reading the same file
+behaving the same way while the `agents` block adopts.
+
+**Context.** The `agents` block is the canonical configuration, but the older keys predate
+it and are present in every config that ran an older CLI. Silently dropping them on a write
+would delete settings an older CLI still reads; silently ignoring them on a read would let
+two sources of truth quietly disagree. Mirroring plus divergence reporting was the
+conservative choice that avoids both silent failures.
+
+**Sunset criteria.** The mirroring is removed when **all** of the following hold: (1) the
+minimum supported akrctx version reads the `agents` block natively and no longer reads the
+legacy keys; (2) a released `akrctx upgrade` rewrites existing configs to drop the legacy
+keys with a one-time, in-conversation human approval (a protected-file-style change, since
+it edits user config); (3) `doctor`'s divergence check is retired in the same release. Until
+then the dual-reading complexity in `config.ts` and `agents.ts` and the divergence logic in
+`doctor.ts` are intentional and owned, not accidental. Revisit at each minor release that
+raises the minimum supported version. See `.akrctx/tasks/TASK-017-agent-config-design-debt/`.
+
+## 2026-08-08 — Per-target model patterns are a maintenance surface with known false-positives
+
+**Decision.** Model identifiers in `agents.<name>.model.<target>` are validated by a
+per-target regex shape (`modelPatterns` in `src/agents.ts`), and a mismatch is a warning,
+never an error. The patterns are explicitly a **maintenance surface**: they are revisited
+as providers release new model identifiers, and they have known false-positives that warn
+by design.
+
+**Context.** A catalogue of model names goes stale on every provider release and would make
+a new model unusable until akrctx shipped a version that knew about it. A shape pattern does
+not expire. But akrctx does not have any provider's catalogue, so the patterns themselves
+are hand-curated and will drift: the `claude` pattern already covers aliases, full names,
+Bedrock ARNs, Mantle ids, and Vertex names; the `codex` and `copilot` patterns are simpler
+and will fall behind sooner. Foundry deployment names are arbitrary and will warn — the
+correct signal for an identifier akrctx cannot recognize, since refusing it would block a
+legitimate deployment to catch a typo.
+
+**Maintenance expectation.** Each pattern's doc-comment names the shape it expects and the
+forms it deliberately does not cover. When a provider ships an identifier class the pattern
+misses, the fix is to widen the pattern (a warning is the symptom, not the bug). The
+warning-not-error contract is load-bearing: a mismatch must never block a write, because
+akrctx cannot distinguish a new model from a typo. Revisit the patterns per provider
+release; treat a false-positive report as the trigger. See
+`.akrctx/tasks/TASK-017-agent-config-design-debt/`.
+
+## 2026-08-08 — The `agents` block is closed to three entries, with a reconsideration trigger
+
+**Decision.** `agents` holds exactly three entries — `judge`, `comprehension`, `implementer`
+— and a project cannot declare an agent of its own. An unknown entry is preserved verbatim
+and warned (see the 2026-08-07 record), never resolved or generated. The closed surface is a
+**known limit**, not an oversight, and it has a trigger to revisit.
+
+**Context.** Each of the three agents is trustworthy only through the CLI contract behind
+it — `judge verify --run-tests`, the comprehension schemas, the `akrctx impl` attempt store.
+An entry with no command behind it would be an agent akrctx generates and cannot vouch for,
+which is the failure the harness exists to remove. Templates and packs can carry prose, but
+prose without a contract is exactly what the fixed list refuses. This is distinct from the
+unknown-entry record, which is about *tolerating* a newer akrctx's fourth entry; this record
+is about *never emitting* one ourselves without a contract.
+
+**Reconsideration trigger.** The surface is reopened when a fourth workflow gate has **both**
+a defined agent-definition format for at least one supported host **and** a CLI contract
+akrctx can execute and vouch for (the analogue of `judge verify --run-tests` or the impl
+attempt store). Repeated user requests for a fourth contract-backed gate (design review,
+docs review, security review) are the signal to scope that work; a prose-only fourth agent
+is never sufficient. Until then, a project that needs a bespoke gate writes it as a
+hand-maintained agent file outside the `agents` block, which akrctx neither generates nor
+overwrites. See `.akrctx/tasks/TASK-017-agent-config-design-debt/`.
+
+
+## 2026-08-08 — Judge snapshot stability is content-based, not mode-based
+
+**Decision.** `workspaceManifest`/`addManifestPath` hash file content and entry type
+(file/symlink/dir), not the unix permission bits. The capture-time stability check and the
+load-time integrity check both feed this manifest.
+
+**Context.** The manifest previously hashed `file:<mode & 0o777>`. A fresh `git checkout` in a
+`umask 0002` environment yields mode 664, while tracked files sat at 644 and akrctx-written
+untracked files at 664, so no single umask satisfied the mode-sensitive comparison and
+`akrctx judge snapshot` failed its stability check in every mixed-umask environment. The failure
+message even said "retry after file writes settle", pointing at a transient race that was not
+happening. Mode is not a tamper signal for this check: the scope digests bind the boundary, and
+git tracks mode in the tree. The stability check exists to detect content drift during capture,
+not permission drift.
+
+**Consequences.** Existing local snapshots' `workspaceDigest` and snapshot IDs change, because
+the digest scheme changed; local snapshots are ephemeral and ignored, so they are recaptured.
+The capture error message now distinguishes the deterministic snapshot-vs-live mismatch (names
+the differing paths, says it is not a transient race) from the two-pass `sameLiveBoundary`
+transient retry. See `.akrctx/tasks/TASK-018-judge-snapshot-mode-and-pi-independence/`.
+
+## 2026-08-08 — Judge review records carry an `independent` flag, and self-review is verification-only
+
+**Decision.** The review record has an optional `independent` boolean (absent means `true`). A
+reviewer who is the same agent or session that implemented the task, or who runs on a host with
+no subagent isolation, sets `independent: false`. `akrctx judge verify` reports a non-independent
+record as a notice that never changes `valid`, `approved`, or the exit code. The comprehension
+gate requires `independent: true` (alongside `approved: true` and `judge current` `CURRENT`) and
+refuses a non-independent approval.
+
+**Context.** Pi has no agent format (decision 2026-08-06), so the judge cannot run as an
+independent subagent there. While self-reviewing TASK-017, the same Pi session that implemented
+read the judge skill and produced a review — a structurally non-independent judgment presented
+as if it were independent. The mechanical half of the judge (re-execute the capsule-declared
+commands, bind the verdict to the boundary digest) survives without independence, and that is
+what `verify --run-tests` checks. The judgment half (what is worth reporting, scope discipline)
+does not survive, and that is exactly the part independence protects. Silently accepting a
+self-review as a full independent approval would defeat the harness.
+
+**Consequences.** This is convention + schema + comprehension refusal, not cryptographic
+independence. It makes honest self-reviewers flag themselves and prevents a flagged record from
+quietly satisfying the comprehension gate; it cannot stop a determined adversary from lying,
+which is consistent with the project's stance that policy is prompt-level. On Pi, a same-session
+judge is non-independent by construction and must set the flag; for an independent verdict the
+judge is run from another host (Claude Code, Codex, Copilot subagent) or a separate session.
+Because `judge current` requires a snapshot, a Pi self-review that falls back to `WORKTREE`
+cannot reach `CURRENT` and so cannot satisfy the comprehension gate even if marked independent.
+See `.akrctx/tasks/TASK-018-judge-snapshot-mode-and-pi-independence/`.

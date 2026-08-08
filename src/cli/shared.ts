@@ -140,6 +140,11 @@ export function printInit(result: InitResult, options: CommandOptions): void {
     log(`  ${yellow(bold(`Policy weakened by template pack (${result.policyWarnings.length}):`))}`);
     for (const w of result.policyWarnings) log(`    ${warn()} ${yellow(w)}`);
   }
+  if (result.agentTargetWarnings.length > 0) {
+    ln();
+    log(`  ${yellow(bold(`Agent target narrowing (${result.agentTargetWarnings.length}):`))}`);
+    for (const w of result.agentTargetWarnings) log(`    ${warn()} ${yellow(w)}`);
+  }
 
   const created = result.writes.filter((w) => w.kind === "create");
   const updated = result.writes.filter((w) => w.kind === "update");

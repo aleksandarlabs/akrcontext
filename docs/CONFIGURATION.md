@@ -258,7 +258,7 @@ Every field is optional. An absent field falls back to the built-in default.
 | Field | Meaning |
 | --- | --- |
 | `enabled` | Whether the agent is emitted and offered. Default `false`. |
-| `trigger` | When the lead agent should invoke it. A free string. |
+| `trigger` | A scheduling hint the lead agent / host may honour. A free string akrctx propagates but does not enforce (see below). |
 | `targets` | Narrows emission to a subset of the installed targets. |
 | `model` | Per target: `{ "claude": …, "codex": …, "copilot": … }`. |
 | `maxAttempts` | `implementer` only. Positive integer, default `3`. |
@@ -272,6 +272,18 @@ akrctx config set agents.judge.targets "claude, codex"
 akrctx config set agents.judge.model.claude opus
 akrctx config set agents.implementer.maxAttempts 3
 ```
+
+### `trigger` is a hint, not a switch akrctx enforces
+
+`trigger` is advisory scheduling metadata. akrctx writes the string into the generated
+agent file and reports it in `status`, but it does **not** act on it: nothing in akrctx
+schedules or fires an agent at the trigger point. Whether an agent is actually invoked at
+`post-implementation` or `post-clarification` depends on the lead agent / host honouring
+that hint, not on akrctx enforcing it. The field is named `trigger` for brevity; treat it as
+a scheduling hint the host interprets, not a switch akrctx actuates. A free string is
+accepted precisely because akrctx cannot enumerate every point in a workflow a project
+might want an agent invoked at, and refusing an unfamiliar value would block legitimate
+work to catch a typo.
 
 ### Warnings, not errors
 

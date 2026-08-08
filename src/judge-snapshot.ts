@@ -361,7 +361,7 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
       }
       if (manifestDigest(liveManifest) !== manifestDigest(manifest)) {
         throw new Error(
-          `Snapshot copy did not match the stable live workspace; retry after file writes settle (${changedManifestPaths(liveManifest, manifest).slice(0, 8).join(", ")}).`,
+          `Snapshot does not match the live workspace (deterministic mismatch, not a transient race; recapture after resolving the differing paths): ${changedManifestPaths(liveManifest, manifest).slice(0, 8).join(", ")}.`,
         );
       }
       const workspaceDigest = manifestDigest(manifest);
@@ -557,7 +557,7 @@ async function addManifestPath(
   } else if (info.isSymbolicLink()) {
     manifest.set(relativePath, hash(["symlink\0", await readlink(absolute)]));
   } else if (info.isFile()) {
-    manifest.set(relativePath, hash([`file:${info.mode & 0o777}\0`, await readFile(absolute)]));
+    manifest.set(relativePath, hash(["file\0", await readFile(absolute)]));
   } else if (info.isDirectory()) {
     const nested = await git(absolute, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).catch(
       () => undefined,

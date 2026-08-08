@@ -27,11 +27,6 @@ export type TaskWorkflow = Workflow | "UI review";
 
 export interface JudgeConfig {
   enabled: boolean;
-  /**
-   * Free string. akrctx recognizes a known set per agent and warns about anything else;
-   * it never rejects a trigger, because it cannot enumerate every point in a workflow a
-   * project might want an agent invoked at.
-   */
   trigger: string;
 }
 
@@ -205,6 +200,7 @@ export interface InitResult {
   writes: WriteResult[];
   conflicts: string[];
   policyWarnings: string[];
+  agentTargetWarnings: string[];
 }
 
 export type SuggestionSeverity = "info" | "warning" | "error";

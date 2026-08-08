@@ -67,6 +67,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reported a target as installed from disk detection while every agent command reported the
   same target as absent from configuration. `defaults.target` and every other existing
   setting are preserved; `init` never shortens the target list.
+- `akrctx init --target <new>` in an existing installation now warns when an enabled agent
+  with an explicit `agents.<name>.targets` list does not cover a newly added target, so
+  "I added a target and my agent didn't show up there" is visible at install time. Only
+  genuinely newly added targets warn — re-running `init --target <already-installed>`
+  (which `doctor --fix` does per detected target) never claims an existing target is new.
+  The warning is non-blocking — the explicit list is the user's narrowing and is never
+  overruled; first installs and agents without an explicit list warn nothing. `--target all`
+  warns per newly added, uncovered target consistently with `--target <one>`. Surfaces as
+  `agentTargetWarnings` in `InitResult` and an "Agent target narrowing" section in `init`
+  output.
 - Generated agent files are recorded in the provenance manifest, so `akrctx upgrade` can
   regenerate them from configuration rather than preserving them with a merge suggestion.
 - `akrctx remove` now deletes the judge and implementer agent files alongside the
@@ -97,6 +107,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `judge enable` refuses when no installed target has a judge agent format, matching
   `comprehension enable` and `impl enable`. With `agents.judge.targets` narrowed to a target
   with no format it previously wrote no file, set `enabled` to true, and reported success.
+- An optional `independent` boolean on judge review records (absent means `true`). A reviewer
+  who is the same agent or session that implemented, or who runs on a host with no subagent
+  isolation (Pi has no agent format), sets `independent: false`. `akrctx judge verify` reports
+  a non-independent record as a notice that never changes `valid`, `approved`, or the exit
+  code — the mechanical guarantees still hold — and the comprehension gate refuses a
+  non-independent approval. This is honesty convention, not cryptographic independence; it
+  makes honest self-reviewers flag themselves rather than present a self-review as an
+  independent verdict.
 
 ### Known limitations
 
@@ -136,7 +154,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Generated Judge, workflow, and comprehension instructions teach snapshot capture,
   strong verification, live applicability, catch-up review, trust limits, and retention.
   Comprehension now requires both a valid approval and `judge current` status `CURRENT`;
-  a valid historical approval of older code is no longer enough.
+  a valid historical approval of older code is no longer enough. Comprehension also
+  requires `independent: true` on the review record, so a non-independent (self/Pi) approval
+  does not satisfy the gate.
+- The judge agent instructions and `docs/JUDGE.md` document the `WORKTREE` candidate as a
+  fallback when a `SNAPSHOT:<id>` cannot be captured, and state that a same-session or Pi judge
+  is non-independent and must set `independent: false` (verification-only, not independent
+  judgment; run from another host for an independent verdict).
 - Judge, configuration, command, harness, comprehension, README, architecture, and
   decision documentation now describe the snapshot workflow and its limits.
 - `## Open Questions` in a task capsule stops being an unused placeholder and gains a defined meaning: ambiguity still unresolved, written as a question. Running headless with nobody to answer, recording it is the correct outcome rather than predicting the answer.
@@ -146,6 +170,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `akrctx judge snapshot` no longer fails when the working tree's file modes differ from a
+  fresh `git checkout` (for example `umask 0002` yields 664 on checkout while tracked files sit
+  at 644). The snapshot stability manifest is now content-based (file/symlink/dir type +
+  content), not permission-bit-based; mode is not a tamper signal for this check. The capture
+  error for a deterministic snapshot-vs-live mismatch no longer claims a transient race
+  ("retry after file writes settle") — it names the differing paths and states it is not a
+  race. Existing local snapshots' IDs change with the digest scheme; recapture them.
 - Live edits after capture no longer invalidate a correct approval for immutable reviewed
   content; applicability to newer work is reported independently.
 - `judge current` no longer labels malformed, non-approved, stale, or tampered review

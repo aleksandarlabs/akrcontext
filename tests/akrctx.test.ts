@@ -2397,6 +2397,33 @@ describe("judge", () => {
     });
   });
 
+  it("reports a non-independent review as a notice without changing approval", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.independent = false;
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.valid).toBe(true);
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
+    expect(result.notices.some((n) => n.includes("non-independent") && n.includes("verification-only"))).toBe(true);
+  });
+
+  it("rejects a non-boolean independent field", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.independent = "false";
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.valid).toBe(false);
+    expect(result.approved).toBe(false);
+    expect(result.reasons.some((r) => r.includes("independent must be a boolean"))).toBe(true);
+  });
+
   it("reports unresolved open questions as a notice without blocking approval", async () => {
     const { recordPath, task } = await createReviewFixture();
     const taskFile = path.join(tmp, task.taskDir, "task.md");
@@ -2787,6 +2814,20 @@ describe("judge", () => {
     expect(await pathExists(path.join(snapshot.worktreePath, "obsolete.ts"))).toBe(false);
     expect(await readFile(path.join(snapshot.worktreePath, "untracked.ts"), "utf8")).toContain("untracked = true");
     await execFileAsync("git", ["check-ignore", "-q", path.relative(tmp, snapshot.metadataPath)], { cwd: tmp });
+  });
+
+  it("captures a snapshot when live file modes differ from a fresh checkout (mode-insensitive)", async () => {
+    const restore = process.umask(0o022);
+    const { task } = await createReviewFixture();
+    const restore2 = process.umask(0o0002);
+    try {
+      const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+      expect(snapshot.candidate).toBe(`SNAPSHOT:${snapshot.id}`);
+      expect(await pathExists(path.join(snapshot.worktreePath, "app.ts"))).toBe(true);
+    } finally {
+      process.umask(restore2);
+      process.umask(restore);
+    }
   });
 
   it("removes blocked tracked paths from a shallow review worktree", async () => {

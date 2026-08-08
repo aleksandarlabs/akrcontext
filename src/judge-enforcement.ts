@@ -35,6 +35,7 @@ export interface JudgeReviewRecord {
   tests: Array<{ command: string; status: "passed" | "failed" | "not-run"; evidence?: string }>;
   issues: string[];
   reviewedAt: string;
+  independent?: boolean;
 }
 
 export interface JudgeVerifyResult {
@@ -43,18 +44,8 @@ export interface JudgeVerifyResult {
   verdict?: JudgeReviewRecord["verdict"];
   scopeDigest?: string;
   reasons: string[];
-  /**
-   * Observations that never change `valid` or `approved`.
-   *
-   * Whether an unresolved open question would have changed the implementation is a
-   * judgement, and this CLI only blocks on what it can check mechanically — declared
-   * commands and boundary digests. Wiring a judgement into the exit code would create a
-   * gate whose cheapest workaround is deleting a bullet from task.md.
-   */
   notices: string[];
-  /** Commands the capsule declares under `## Validation` in task.md. */
   declaredCommands: string[];
-  /** Commands this CLI re-executed itself, with the exit status it observed. */
   reexecuted: Array<{ command: string; passed: boolean }>;
 }
 
@@ -110,8 +101,6 @@ export async function createJudgeScope(
     }
   }
 
-  // Paths only, never content: the set of withheld files is part of the boundary, so a secret
-  // appearing or disappearing still invalidates a stale approval without being fingerprinted.
   const uniqueExcludedPaths = [...new Set(excludedPaths)].sort();
   changeParts.push("excluded\0", uniqueExcludedPaths.join("\0"), "\0");
   const uniqueChangedFiles = [...new Set(changedFiles)].sort();
@@ -241,10 +230,6 @@ export async function verifyJudgeRecord(
     if (record.issues.length > 0) reasons.push("APPROVED records must not list unresolved issues.");
   }
 
-  // Only commands the capsule declares are ever executed, so a review record cannot get an
-  // arbitrary string run. This narrows the trust boundary rather than removing it: task.md is
-  // project content that an agent normally writes, so `--run-tests` moves the trust from the
-  // record to the capsule. See the trust section in docs/JUDGE.md.
   const reexecuted: JudgeVerifyResult["reexecuted"] = [];
   if (options.runTests) {
     if (declaredAndPassing.length === 0) {
@@ -263,9 +248,6 @@ export async function verifyJudgeRecord(
         reexecuted.push({ command, passed });
         if (!passed) reasons.push(`Independent re-run of \`${command}\` failed; the record claims it passed.`);
       }
-      // Validation can mutate its workspace — formatters, snapshot updates and codegen can all
-      // exit 0 after changing reviewed source. Snapshot validation uses a disposable workspace so
-      // this check never corrupts the immutable evidence it is verifying.
       if (reexecuted.length > 0) {
         const drifted = snapshot
           ? await snapshotValidationDrift(validationCwd, snapshot.metadata.sourceScope)
@@ -287,6 +269,14 @@ export async function verifyJudgeRecord(
 
   // Reported, never enforced: see the `notices` field on JudgeVerifyResult.
   const notices: string[] = [];
+  if (record.independent === false) {
+    notices.push(
+      "Review was marked non-independent (independent: false). The verdict is verification-only: " +
+        "the boundary and validation were checked, but the judgment was not made by an independent " +
+        "reviewer. The comprehension gate will not accept it; run the judge from another host or a " +
+        "separate session for an independent verdict.",
+    );
+  }
   const clarification = await readClarificationState(reviewCwd, record.taskId);
   const open = clarification.openQuestions.length;
   if (open > 0) {
@@ -457,7 +447,7 @@ function validateRecord(value: unknown): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["Review record must be a JSON object."];
   const record = value as Record<string, unknown>;
   const reasons: string[] = [];
-  const allowed = ["schemaVersion", "taskId", "scope", "verdict", "tests", "issues", "reviewedAt"];
+  const allowed = ["schemaVersion", "taskId", "scope", "verdict", "tests", "issues", "reviewedAt", "independent"];
   for (const key of Object.keys(record)) if (!allowed.includes(key)) reasons.push(`Unexpected review field: ${key}.`);
   if (record.schemaVersion !== JUDGE_SCHEMA_VERSION) reasons.push(`schemaVersion must be ${JUDGE_SCHEMA_VERSION}.`);
   if (typeof record.taskId !== "string" || !/^TASK-[0-9]+$/.test(record.taskId)) reasons.push("taskId is invalid.");
@@ -465,6 +455,8 @@ function validateRecord(value: unknown): string[] {
     reasons.push("verdict is invalid.");
   if (!Array.isArray(record.issues) || !record.issues.every((item) => typeof item === "string"))
     reasons.push("issues must be a string array.");
+  if (record.independent !== undefined && typeof record.independent !== "boolean")
+    reasons.push("independent must be a boolean when present.");
   if (!Array.isArray(record.tests) || !record.tests.every(isTestRecord))
     reasons.push("tests contains an invalid entry.");
   if (typeof record.reviewedAt !== "string" || Number.isNaN(Date.parse(record.reviewedAt)))

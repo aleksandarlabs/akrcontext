@@ -1057,4 +1057,67 @@ describe("init target accumulation", () => {
     await runDoctor({ cwd: tmp, nonInteractive: true, fix: true });
     expect([...((await readConfig(tmp))?.targets ?? [])].sort()).toEqual(["claude", "copilot"]);
   });
+
+  it("warns when a new target is narrowed out by an enabled agent's explicit targets", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    await setConfigValue(tmp, "agents.judge.targets", "copilot", false);
+
+    const result = await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(result.agentTargetWarnings.some((w) => w.includes("agents.judge") && w.includes("claude"))).toBe(true);
+    expect((await readConfig(tmp))?.targets).toEqual(["copilot", "claude"]);
+  });
+
+  it("does not warn when the agent has no explicit targets list", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+
+    const result = await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(result.agentTargetWarnings).toEqual([]);
+  });
+
+  it("does not warn when the explicit targets list already covers the new target", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    await setConfigValue(tmp, "agents.judge.targets", "copilot, claude", false);
+
+    const result = await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(result.agentTargetWarnings).toEqual([]);
+  });
+
+  it("does not warn for a disabled agent even if its targets list omits the new target", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await writeRawConfig((config) => {
+      Object.assign(config, { agents: { judge: { enabled: false, targets: ["copilot"] } } });
+    });
+
+    const result = await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(result.agentTargetWarnings).toEqual([]);
+  });
+
+  it("warns per uncovered target on `--target all` when an agent is pinned", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    await setConfigValue(tmp, "agents.judge.targets", "copilot", false);
+
+    const result = await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    expect(result.agentTargetWarnings.some((w) => w.includes("agents.judge") && w.includes("claude"))).toBe(true);
+    expect(result.agentTargetWarnings.some((w) => w.includes("agents.judge") && w.includes("codex"))).toBe(true);
+    expect(result.agentTargetWarnings.some((w) => w.includes('newly added target "copilot"'))).toBe(false);
+  });
+
+  it("does not warn when re-running init for a target that is already installed", async () => {
+    await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    await setConfigValue(tmp, "agents.judge.targets", "codex", false);
+
+    const result = await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(result.agentTargetWarnings).toEqual([]);
+  });
+
+  it("produces no narrowing warning on a first install", async () => {
+    const result = await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    expect(result.agentTargetWarnings).toEqual([]);
+  });
 });

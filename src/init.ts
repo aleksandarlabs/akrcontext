@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import select from "@inquirer/select";
+import { hasAgentFormat, resolveAgent } from "./agents.js";
 import { normalizeConfig, readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -25,8 +26,8 @@ import {
   taskTemplateFiles,
   wikiTemplates,
 } from "./templates.js";
-import type { CommandOptions, InitResult, Target, TargetOption, WriteResult } from "./types.js";
-import { targets } from "./types.js";
+import type { CommandOptions, InitResult, Target, TargetOption, WriteResult, akrctxConfig } from "./types.js";
+import { agentNames, targets } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
 export async function runInit(options: CommandOptions): Promise<InitResult> {
@@ -109,6 +110,8 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     ),
   );
   const policyWarnings = describePolicyWeakening(defaultPolicy(profile), policy);
+  const previouslyInstalled = existing?.targets ?? [];
+  const agentTargetWarnings = existing ? agentNarrowingWarnings(config, selectedTargets, previouslyInstalled) : [];
 
   const projectName = await readProjectName(cwd);
 
@@ -181,6 +184,7 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
     writes,
     conflicts: writes.filter((write) => write.kind === "suggest").map((write) => write.path),
     policyWarnings,
+    agentTargetWarnings,
   };
 }
 
@@ -397,4 +401,34 @@ async function readExistingConfig(cwd: string) {
 /** Union, in first-seen order. `init` adds a target and never removes one. */
 function mergeTargets(existing: Target[], selected: Target[]): Target[] {
   return [...new Set([...existing, ...selected])];
+}
+
+/**
+ * Non-blocking warnings for a repeat `init --target <new>`: an enabled agent with an explicit
+ * `agents.<name>.targets` list that does not cover a newly added target. The explicit list is
+ * the user's narrowing and is never overruled; this only makes the surprise visible.
+ *
+ * Only targets newly added by this `init` run (in `selectedTargets` but not already in
+ * `previousTargets`) are considered, so re-running `init` for an already-installed target —
+ * which `akrctx doctor --fix` does per detected target — never claims an existing target is
+ * new. Only agents that are enabled and have an explicit `targets` list are considered; the
+ * common case (no explicit list) covers every installed target automatically. Only targets
+ * with an agent format matter; pi has none.
+ */
+function agentNarrowingWarnings(config: akrctxConfig, selectedTargets: Target[], previousTargets: Target[]): string[] {
+  const warnings: string[] = [];
+  const newlyAdded = selectedTargets.filter((target) => !previousTargets.includes(target));
+  if (newlyAdded.length === 0) return warnings;
+  for (const name of agentNames) {
+    const resolved = resolveAgent(config, name);
+    if (!resolved.enabled || !resolved.configuredTargets) continue;
+    for (const target of newlyAdded) {
+      if (!hasAgentFormat(target)) continue;
+      if (resolved.configuredTargets.includes(target)) continue;
+      warnings.push(
+        `agents.${name} has an explicit targets list (${resolved.configuredTargets.join(", ")}) that does not cover the newly added target "${target}". The agent will not be emitted for it; widen agents.${name}.targets if that was intended.`,
+      );
+    }
+  }
+  return warnings;
 }
