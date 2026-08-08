@@ -423,3 +423,33 @@ machinery exists to carry, so the alternative was duplicating snapshot capture.
 records with a non-snapshot candidate are refused (capture a snapshot first). Verification without
 `--run-tests` is unchanged on those records. The review schema is unchanged. See
 `.akrctx/tasks/TASK-019-run-tests-operator-approval/`.
+
+## 2026-08-08 — Judge instructions embed a complete example record, not a field-name list
+
+**Decision.** `judgeInstructions` in `src/templates/judge.ts` ends with a complete, minimal
+example record in a `json` fenced block, exported as `judgeExampleRecord`, rather than a prose
+enumeration of the top-level field names. `schemaVersion` (top-level and inside `scope`) is
+interpolated from `JUDGE_SCHEMA_VERSION` — the same constant `review.schema.json` is generated
+from — so the example cannot go stale at a version bump. The instructions state no other keys
+are accepted, each `tests` entry carries exactly `command`, `status`, `evidence`, and
+`independent: false` is conditional (absence means `true`). `validateRecord` is exported from
+`src/judge-enforcement.ts` so a test validates the embedded example against the real validator,
+not a reimplementation.
+
+**Why.** The TASK-020 judge produced `schemaVersion: 1` and used `notes` where the schema
+requires `evidence`, so `akrctx judge verify` rejected the record; the trusted caller
+hand-edited it to pass. The judge is read-only by contract, so an invalid record lands on the
+caller as a temptation to edit the reviewer's output — exactly the tampering surface the judge
+README warns about. Naming the top-level keys invited the agent to build the shape by reading
+sentences; an example is copied, not inferred. Tolerating `notes`/absent `schemaVersion` in
+`validateRecord` was rejected: it would move the contract out of the schema and force every
+consumer to handle more than one shape to spare one sentence in a prompt. Making the example a
+hand-written literal `2` was rejected: it would silently go stale at the next `JUDGE_SCHEMA_VERSION`
+bump, reintroducing this exact bug.
+
+**Consequences.** The record shape is now defined in three places (`validateRecord`,
+`review.schema.json`, the example) with no mechanical link between the first two; the test links
+the third to the first. Generating the example from the schema instead of writing it by hand is
+left as an open question. The comprehension agent has the same defect in a worse form (it names
+no field across three schemas) and is deliberately untouched while `comprehensionGate.enabled`
+is `false`. See `.akrctx/tasks/TASK-021-judge-record-shape/`.

@@ -1,5 +1,43 @@
+import { JUDGE_SCHEMA_VERSION } from "../judge-enforcement.js";
 import type { AgentTarget } from "../types.js";
 import { frontmatterModel, modelSection, tomlModel } from "./agent-model.js";
+
+const zero = "0";
+const zeroDigest = `sha256:${zero.repeat(64)}`;
+const zeroCommit = zero.repeat(40);
+
+export const judgeExampleRecord = JSON.stringify(
+  {
+    schemaVersion: JUDGE_SCHEMA_VERSION,
+    taskId: "TASK-001",
+    scope: {
+      schemaVersion: JUDGE_SCHEMA_VERSION,
+      cliVersion: "0.0.0",
+      taskId: "TASK-001",
+      base: "main",
+      candidate: "SNAPSHOT:00000000000000000000",
+      baseCommit: zeroCommit,
+      candidateCommit: zeroCommit,
+      changedFiles: ["src/example.ts"],
+      excludedPaths: [],
+      taskDigest: zeroDigest,
+      changeDigest: zeroDigest,
+      scopeDigest: zeroDigest,
+    },
+    verdict: "NEEDS_CHANGES",
+    tests: [
+      {
+        command: "pnpm lint && pnpm build && npx vitest run",
+        status: "passed",
+        evidence: "Biome, tsup, and vitest reported no failures.",
+      },
+    ],
+    issues: ["Example issue: replace this with your real finding."],
+    reviewedAt: "2026-01-01T00:00:00Z",
+  },
+  null,
+  2,
+);
 
 const judgeInstructions = `You are an independent review agent. Your only job is to verify that the implementation matches the task capsule. You do not modify files and you do not trust the implementing agent's explanation as evidence.
 
@@ -66,7 +104,15 @@ You are an *independent* reviewer. The whole point of this role is judgment that
 
 When \`independent: false\`, the mechanical guarantees still hold (\`akrctx judge verify --run-tests\` re-runs the capsule-declared commands and binds the boundary), but the comprehension gate will not accept the verdict. For an independent verdict, run the judge from another host (Claude Code, Codex, or Copilot subagent) or a separate session. Absent means \`true\`.
 
-Finish with exactly one JSON object matching \`.akrctx/judge/schemas/review.schema.json\`: schemaVersion, taskId, the complete scope output, verdict (\`APPROVED\`, \`NEEDS_CHANGES\`, or \`BLOCKED\`), tests, non-personal issues, reviewedAt, and (when non-independent) \`independent: false\`. Do not wrap it in Markdown. A trusted caller will save it because you are read-only, then run \`akrctx judge verify <review.json> --run-tests\`, which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.`;
+Finish with exactly one JSON object. Do not wrap it in Markdown. This is the complete shape — no other keys are accepted, because the schema rejects unknown fields:
+
+\`\`\`json
+${judgeExampleRecord}
+\`\`\`
+
+The values above are placeholders chosen to satisfy the schema's patterns, not the values to emit. Replace every one: \`scope\` carries the complete, unchanged output of \`akrctx judge scope --json\` — copy it verbatim, never type it by hand — and \`tests\`, \`issues\`, and \`reviewedAt\` carry your real findings. Each \`tests\` entry has exactly \`command\`, \`status\`, and \`evidence\`; no other key is accepted there either. Omit \`independent\` for an independent review and add \`"independent": false\` only when you are non-independent — its absence means \`true\` (see Independence above).
+
+A trusted caller will save the record because you are read-only, then run \`akrctx judge verify <review.json> --run-tests\`, which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.`;
 
 const judgeBody = (target: AgentTarget, model: string | undefined): string =>
   `${judgeInstructions}

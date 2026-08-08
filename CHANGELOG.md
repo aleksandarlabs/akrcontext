@@ -138,6 +138,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   makes honest self-reviewers flag themselves rather than present a self-review as an
   independent verdict.
 
+### Fixed
+
+- The judge agent instructions now close with a complete, minimal example record whose
+  `schemaVersion` is interpolated from the same `JUDGE_SCHEMA_VERSION` constant the schema is
+  generated from, rather than a prose list of field names. The previous wording named the
+  top-level keys only, so a judge could emit `schemaVersion: 1` and use `notes` where the schema
+  requires `evidence`, and `akrctx judge verify` rejected the record. The example shows every
+  field `review.schema.json` requires, each `tests` entry carrying exactly `command`, `status`,
+  and `evidence`, and states that no other keys are accepted. A test validates the embedded
+  example against the real `validateRecord` validator so the example cannot drift from the
+  contract it illustrates.
+
 ### Known limitations
 
 - Pi has no agent format. It remains a supported target for prompts and skills; configuring

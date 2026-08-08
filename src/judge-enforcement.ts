@@ -437,7 +437,7 @@ async function runValidationCommand(cwd: string, command: string): Promise<boole
   }
 }
 
-function validateRecord(value: unknown): string[] {
+export function validateRecord(value: unknown): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["Review record must be a JSON object."];
   const record = value as Record<string, unknown>;
   const reasons: string[] = [];

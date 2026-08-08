@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
+import { JUDGE_SCHEMA_VERSION, validateRecord } from "../src/judge-enforcement.js";
 import { claudeImplementerFile, codexImplementerFile, copilotImplementerFile } from "../src/templates/implementer.js";
-import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile } from "../src/templates/judge.js";
+import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile, judgeExampleRecord } from "../src/templates/judge.js";
 
 const judgeRenderers = {
   claude: claudeJudgeFile,
@@ -40,6 +41,26 @@ describe("agent template renderings", () => {
         if (_target === "codex") {
           expect(content).not.toMatch(/developer_instructions = """[\s\S]*`[\s\S]*"""/);
         }
+      },
+    );
+
+    it("embedded example record validates against the same validator judge verify uses", () => {
+      const example = JSON.parse(judgeExampleRecord);
+      expect(validateRecord(example)).toEqual([]);
+      expect(example.schemaVersion).toBe(JUDGE_SCHEMA_VERSION);
+      expect(example.scope.schemaVersion).toBe(JUDGE_SCHEMA_VERSION);
+      const testEntry = example.tests[0];
+      expect(Object.keys(testEntry).sort()).toEqual(["command", "evidence", "status"]);
+    });
+
+    it.each(Object.entries(judgeRenderers))(
+      "%s rendering carries the embedded example record verbatim",
+      (_target, renderer) => {
+        const content = onlyContent(renderer());
+        expect(content).toContain(judgeExampleRecord);
+        expect(content).not.toContain('"notes"');
+        expect(content).toContain('"evidence"');
+        expect(content).toContain('"independent": false');
       },
     );
   });
