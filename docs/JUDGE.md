@@ -26,7 +26,9 @@ Capture writes only below the ignored `.akrctx/local/judge/snapshots/` directory
 a shallow private Git repository containing the candidate and base commits, overlays
 tracked and allowed untracked changes, removes policy-blocked paths from the reviewable
 worktree, and copies local Node dependencies when present instead of linking to the live
-project. It does not change live refs, branch, index, stash, worktree files, or history.
+project (for the judge's in-snapshot review; `verify --run-tests` does not trust that copy —
+see Independent re-execution). It does not change live refs, branch, index, stash, worktree
+files, or history.
 
 The scope contains SHA-256 digests of the five task-capsule documents and exact changed
 boundary. The judge copies it unchanged into the final JSON record. Commit and strict
@@ -97,10 +99,13 @@ akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests
 ```
 
 This re-runs the capsule-declared commands the record claims passed. Snapshot validation
-runs in a disposable copy outside the live project, including the snapshot's private Node
-dependencies when present. Verification fails if a command fails or changes tracked
-reviewed content. Ignored build output is discarded with the disposable workspace and the
-immutable snapshot is never mutated by verification.
+runs in a disposable copy outside the live project. Its dependencies are materialised from
+the committed lockfile, not inherited from the snapshot's private copy, so re-execution
+rests on the lockfile rather than on bytes inside the reviewed artifact. If the boundary
+declares dependencies but has no lockfile, or the install fails, verification fails with a
+named reason and never falls back to the snapshot's copy. Verification also fails if a
+command fails or changes tracked reviewed content. Ignored build output is discarded with
+the disposable workspace and the immutable snapshot is never mutated by verification.
 
 This is isolation for ordinary relative writes, not an operating-system sandbox. A
 malicious command can still use absolute paths or external programs, so read the capsule's
@@ -154,6 +159,8 @@ This applies to tracked and untracked files alike. Earlier versions aborted the 
 ## What this does and does not prove
 
 It proves the verdict is bound to a specific task capsule and code boundary, that the boundary still matches the repository, and — with `--run-tests` — that the declared validation really passes.
+
+The snapshot integrity check fingerprints every tracked and untracked-but-not-ignored path by its content *and* its change-time (ctime), so a file changed and restored to its original bytes — or a file created and deleted inside a tracked directory — is still reported as a modification after capture, not only a final content mismatch. The inode number is deliberately not part of the fingerprint: on FUSE and some network mounts it is synthesized by the daemon and drifts over time even when nothing changed, which would make an honest snapshot permanently unreviewable. The check does not cover ignored paths (build output, dependencies): a write there is permanent and no integrity check sees it, which is why `--run-tests` materialises dependencies from the lockfile instead of trusting the snapshot's copy. This is tamper-evident bookkeeping, not a sandbox — a determined reviewer with shell access can still damage things akrctx cannot see.
 
 It does not prove which model produced the verdict. The judge is read-only by design, so a trusted caller writes the record to disk, and that caller could in principle write one the judge never produced. Nothing in this repository can close that gap; a signature would need a trust anchor outside it.
 

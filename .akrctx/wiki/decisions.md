@@ -453,3 +453,58 @@ the third to the first. Generating the example from the schema instead of writin
 left as an open question. The comprehension agent has the same defect in a worse form (it names
 no field across three schemas) and is deliberately untouched while `comprehensionGate.enabled`
 is `false`. See `.akrctx/tasks/TASK-021-judge-record-shape/`.
+
+## 2026-08-08 — Snapshot `verify` materialises dependencies from the lockfile; integrity detects write-then-restore
+
+**Decision.** `createJudgeSnapshotValidationWorkspace` no longer copies the snapshot's
+`node_modules` into the disposable validation workspace; it materialises dependencies from the
+committed lockfile with a frozen install (`pnpm install --frozen-lockfile`, `npm ci`, or
+`yarn install --frozen-lockfile`). A boundary with no `package.json` (or no dependency fields)
+needs no install and is unchanged; one that declares dependencies but has no lockfile, or whose
+install fails, fails verification with a named reason and never falls back to the snapshot's copy.
+Separately, the snapshot integrity fingerprint is split into `content` and `stat`
+(`inode` + `ctimeMs`): files and symlinks carry content plus stat, and every covered ancestor
+directory (excluding the worktree root) carries a `dir` stat entry. `contentDigest` is the
+content-addressed snapshot id; `workspaceDigest` (content + stat) is the integrity digest. A load
+checks content first ("workspace content no longer matches its capture") then stat ("workspace
+was modified after capture"). `SNAPSHOT_VERSION` is now 2; a version-1 snapshot fails to load
+saying it predates write detection.
+
+**Why.** Two holes found while reviewing TASK-021. (1) `node_modules` is gitignored, so it carries
+no integrity digest, yet `verify --run-tests` — whose purpose is to stop trusting the judge's
+claim — re-executed against the snapshot's private `node_modules` copy, which the judge could have
+altered. (2) The integrity digest was checked on load, not continuously; the TASK-021 judge
+copied a scratch file into the snapshot's `evals/` and removed it, and nothing reported it
+because the content matched again by the time anything looked. Hashing `node_modules` was
+rejected (thousands of files, and the dependence on those bytes is what the fix removes);
+materialising from the lockfile rests re-execution on a tracked, digest-covered file instead. A
+content-only fingerprint cannot see a write-then-restore or create-then-delete; `ctime` is
+kernel-set on Linux and not backdatable without root, and the worktree root is excluded so
+honest ignored build output does not false-positive. The research measurement (0 of 301 covered
+files and 0 of 92 tracked dirs drifted after an honest `pnpm lint && pnpm build && npx vitest
+run`, on Linux arm64) is the evidence the modification fingerprint does not cry wolf.
+
+**Consequences.** `verify --run-tests` is slower and gains a network/store dependency where there
+was none; the failure path is legible when it bites in CI. Every existing local snapshot id
+changes (the fingerprint changed), so old snapshots fail to load with the predates-write-detection
+message rather than being silently accepted. The worktree root stays outside the fingerprint, so
+a create-then-delete at the root is not detected (root receives legitimate ignored output). The
+comprehension agent and judge instructions are untouched. The record shape's three definitions
+(`validateRecord`, `review.schema.json`, the example from TASK-021) are unchanged here. See
+`.akrctx/tasks/TASK-022-snapshot-write-detection/`.
+
+### Correction (same day, after an independent judge round blocked TASK-022)
+
+The fingerprint as first shipped included the **inode number** alongside `ctimeMs`. That was
+wrong: the inode number is synthesized by FUSE daemons (and some network mounts) and drifts over
+time even when nothing changed, so a captured `workspaceDigest` became irreproducible at load and
+an honest snapshot turned permanently unreviewable — a false "workspace was modified after
+capture" with no modification. An independent review round reproduced this on snapshots that had
+never been written to after capture. The inode number is now **removed**; the fingerprint is
+`ctimeMs` only (kernel-set, stable, changes only on a modification, still detects
+write-then-restore / create-then-delete / rm-then-recreate). `SNAPSHOT_VERSION` moved to 3.
+Capture was also made atomic on the failure path: a self-verifying load that fails after the
+rename now removes the renamed snapshot directory instead of leaving a permanently unloadable
+one. The earlier research measurement missed this because it compared two reads taken seconds
+apart, and inode drift on this mount manifests over minutes-to-hours, not seconds. See
+`.akrctx/tasks/TASK-022-snapshot-write-detection/log.md`.

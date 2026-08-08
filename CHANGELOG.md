@@ -150,6 +150,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   example against the real `validateRecord` validator so the example cannot drift from the
   contract it illustrates.
 
+### Security
+
+- `akrctx judge verify --run-tests` no longer inherits the snapshot's `node_modules` into the
+  disposable validation workspace. Dependencies are materialised from the committed lockfile
+  with a frozen install (`pnpm install --frozen-lockfile`, `npm ci`, or
+  `yarn install --frozen-lockfile`), so re-execution rests on the lockfile — a tracked,
+  digest-covered file — rather than on bytes inside the reviewed artifact a judge could have
+  altered. If the boundary declares dependencies but has no lockfile, or the install fails,
+  verification fails with a named reason and never falls back to the snapshot's copy. A
+  boundary with no `package.json` (or no dependency fields) needs no install and is unchanged.
+- Judge snapshot integrity now fingerprints every tracked and untracked-but-not-ignored path
+  by its content *and* its change-time (ctime), and records the same for each covered ancestor
+  directory, so a file changed and restored to its original bytes — or a file created and
+  deleted inside a tracked directory — is reported as a modification after capture, not only
+  a final content mismatch. The inode number is deliberately excluded: it is synthesized by
+  FUSE and some network mounts and drifts over time even when nothing changed, which made an
+  honest snapshot permanently unreviewable (an independent review round caught this — the
+  first fingerprint shipped with the inode number and produced a false "modified after
+  capture" on snapshots that had not been touched). The failure message distinguishes
+  "workspace content no longer matches" from "workspace was modified after capture". The
+  worktree root is excluded so honest ignored build output (`dist/`, `node_modules`) does not
+  false-positive. `SNAPSHOT_VERSION` is now 3; snapshots captured before this change fail to
+  load with a message saying they predate write detection, and none is silently accepted as
+  if it carried the current guarantee. A capture whose self-verifying load fails now removes
+  the renamed snapshot directory instead of leaving a permanently unloadable one on disk.
+
 ### Known limitations
 
 - Pi has no agent format. It remains a supported target for prompts and skills; configuring

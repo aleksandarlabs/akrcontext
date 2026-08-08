@@ -25,7 +25,7 @@ import type { JudgeScope } from "./judge-enforcement.js";
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
 const SNAPSHOT_PREFIX = "SNAPSHOT:";
-const SNAPSHOT_VERSION = 1;
+const SNAPSHOT_VERSION = 3;
 const MAX_CAPTURE_ATTEMPTS = 3;
 
 export interface JudgeSnapshotParent {
@@ -39,6 +39,7 @@ export interface JudgeSnapshotMetadata {
   version: typeof SNAPSHOT_VERSION;
   id: string;
   taskId: string;
+  contentDigest: string;
   workspaceDigest: string;
   sourceScope: JudgeScope;
   scope: JudgeScope;
@@ -54,9 +55,24 @@ export interface JudgeSnapshot {
   parent?: JudgeSnapshotParent;
 }
 
+/**
+ * A path's fingerprint in two parts: `content` (bytes/target) and `stat` (ctime only — see
+ * `statOf` for why the inode number is excluded).
+ *
+ * `content` is what the snapshot is logically about; `stat` carries modification evidence so a
+ * write-then-restore (same bytes, new ctime) or a create-then-delete (parent dir ctime moved) is
+ * detectable at the next load even though the content manifest matches again. Splitting the two
+ * lets a load tell "this no longer matches" (content differs) from "this was modified after
+ * capture" (content matches, stat differs) — the distinction the integrity messages report.
+ */
+export interface PathFingerprint {
+  content: string;
+  stat: string | null;
+}
+
 export interface LoadedJudgeSnapshot extends JudgeSnapshot {
   metadata: JudgeSnapshotMetadata;
-  manifest: Map<string, string>;
+  manifest: Map<string, PathFingerprint>;
 }
 
 export interface JudgeSnapshotCurrentState {
@@ -79,7 +95,7 @@ export interface JudgeSnapshotValidationWorkspace {
 
 interface CaptureParent extends JudgeSnapshotParent {
   worktreePath: string;
-  manifest: Map<string, string>;
+  manifest: Map<string, PathFingerprint>;
 }
 
 export function isSnapshotCandidate(candidate: string): boolean {
@@ -152,15 +168,15 @@ async function loadJudgeSnapshotInternal(
   } catch (error) {
     throw new Error(`Snapshot integrity check failed: ${messageOf(error)}`);
   }
-  if (
-    metadata.version !== SNAPSHOT_VERSION ||
-    metadata.id !== id ||
-    metadata.scope.candidate !== candidate ||
-    metadata.taskId !== metadata.scope.taskId
-  ) {
+  if (metadata.version !== SNAPSHOT_VERSION) {
+    throw new Error(
+      "Snapshot integrity check failed: this snapshot was captured by an older akrctx that predates write detection; capture a new snapshot.",
+    );
+  }
+  if (metadata.id !== id || metadata.scope.candidate !== candidate || metadata.taskId !== metadata.scope.taskId) {
     throw new Error("Snapshot integrity check failed: metadata shape or identity is invalid.");
   }
-  let workspace: Map<string, string>;
+  let workspace: Map<string, PathFingerprint>;
   try {
     const dependencyInfo = await lstat(path.join(worktreePath, "node_modules")).catch(() => undefined);
     if (dependencyInfo?.isSymbolicLink()) {
@@ -175,9 +191,15 @@ async function loadJudgeSnapshotInternal(
   } catch (error) {
     throw new Error(`Snapshot integrity check failed: ${messageOf(error)}`);
   }
-  const workspaceDigest = manifestDigest(workspace);
-  if (workspaceDigest !== metadata.workspaceDigest) {
+  const currentContentDigest = contentDigest(workspace);
+  if (currentContentDigest !== metadata.contentDigest) {
     throw new Error("Snapshot integrity check failed: workspace content no longer matches its capture.");
+  }
+  const currentWorkspaceDigest = workspaceDigest(workspace);
+  if (currentWorkspaceDigest !== metadata.workspaceDigest) {
+    throw new Error(
+      "Snapshot integrity check failed: workspace was modified after capture (a file was changed and restored, or a file was created and deleted). Capture a new snapshot.",
+    );
   }
   if (metadata.parent) {
     const currentParentRecord = await readFile(path.join(cwd, metadata.parent.recordPath)).catch(() => undefined);
@@ -197,7 +219,7 @@ async function loadJudgeSnapshotInternal(
       throw new Error(`Snapshot integrity check failed: parent snapshot is invalid (${messageOf(error)}).`);
     }
   }
-  const expectedId = snapshotId(metadata.taskId, metadata.sourceScope, workspaceDigest, metadata.parent);
+  const expectedId = snapshotId(metadata.taskId, metadata.sourceScope, currentContentDigest, metadata.parent);
   if (expectedId !== id || scopeDigest(metadata.scope) !== metadata.scope.scopeDigest) {
     throw new Error("Snapshot integrity check failed: metadata digest no longer matches its capture.");
   }
@@ -279,7 +301,9 @@ export async function createJudgeSnapshotValidationWorkspace(
       recursive: true,
       preserveTimestamps: true,
       mode: constants.COPYFILE_FICLONE,
+      filter: (source) => path.basename(source) !== "node_modules",
     });
+    await materialiseDependencies(worktreePath);
     return {
       worktreePath,
       cleanup: () => rm(temporaryRoot, { recursive: true, force: true }),
@@ -288,6 +312,62 @@ export async function createJudgeSnapshotValidationWorkspace(
     await rm(temporaryRoot, { recursive: true, force: true });
     throw error;
   }
+}
+
+/**
+ * Install dependencies into the disposable validation workspace from its lockfile, deterministically.
+ *
+ * No `package.json` means the reviewed boundary is not a Node project and there is nothing to
+ * materialise. A `package.json` with no dependency fields likewise has nothing to install, so a
+ * lockfile is not required. A `package.json` that declares dependencies but has no lockfile cannot
+ * be materialised deterministically — re-execution would resolve whatever the registry happens
+ * to serve on the day — so it fails with a named reason rather than silently falling back to the
+ * snapshot's `node_modules`. The install is frozen/locked so it never resolves a newer version.
+ */
+async function materialiseDependencies(worktreePath: string): Promise<void> {
+  const packageJsonPath = path.join(worktreePath, "package.json");
+  if (!(await lstat(packageJsonPath).catch(() => undefined))) return;
+  let packageJson: Record<string, unknown> = {};
+  try {
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8"));
+  } catch {
+    return;
+  }
+  const dependencyFields = ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"];
+  const hasDependencies = dependencyFields.some(
+    (field) =>
+      packageJson[field] &&
+      typeof packageJson[field] === "object" &&
+      Object.keys(packageJson[field] as Record<string, unknown>).length > 0,
+  );
+  if (!hasDependencies) return;
+  const command = await frozenInstallCommand(worktreePath);
+  if (!command) {
+    throw new Error(
+      "Cannot materialise dependencies for independent re-execution: the boundary has a package.json that declares dependencies but no lockfile (pnpm-lock.yaml, package-lock.json, or yarn.lock). Commit a lockfile so re-execution is deterministic.",
+    );
+  }
+  try {
+    await execFileAsync(command[0], command.slice(1), {
+      cwd: worktreePath,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 15 * 60_000,
+    });
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    throw new Error(
+      `Cannot materialise dependencies for independent re-execution (${command.join(" ")} failed): ${messageOf(error)}${stderr ? `\n${stderr}` : ""}`,
+    );
+  }
+}
+
+async function frozenInstallCommand(worktreePath: string): Promise<string[] | undefined> {
+  const present = async (file: string) => !!(await lstat(path.join(worktreePath, file)).catch(() => undefined));
+  if (await present("pnpm-lock.yaml")) return ["pnpm", "install", "--frozen-lockfile"];
+  if (await present("package-lock.json")) return ["npm", "ci"];
+  if (await present("yarn.lock")) return ["yarn", "install", "--frozen-lockfile"];
+  return undefined;
 }
 
 export async function pruneJudgeSnapshots(
@@ -339,6 +419,8 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
     const sourceScope = await createJudgeScope(cwd, taskId, base, "WORKTREE");
     const temporaryRoot = await mkdtemp(path.join(snapshotsRoot, ".capture-"));
     const worktreePath = path.join(temporaryRoot, "worktree");
+    let finalRoot = "";
+    let renamed = false;
     try {
       await createPrivateGitWorkspace(cwd, worktreePath, sourceScope.baseCommit, sourceScope.candidateCommit);
       const blockedPatterns = await readBlockedPatterns(cwd);
@@ -360,12 +442,13 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
         await rm(temporaryRoot, { recursive: true, force: true });
         continue;
       }
-      if (manifestDigest(liveManifest) !== manifestDigest(manifest)) {
+      if (contentDigest(liveManifest) !== contentDigest(manifest)) {
         throw new Error(
           `Snapshot does not match the live workspace (deterministic mismatch, not a transient race; recapture after resolving the differing paths): ${changedManifestPaths(liveManifest, manifest).slice(0, 8).join(", ")}.`,
         );
       }
-      const workspaceDigest = manifestDigest(manifest);
+      const snapshotContentDigest = contentDigest(manifest);
+      const snapshotWorkspaceDigest = workspaceDigest(manifest);
       const parentRecord = parent
         ? {
             snapshotId: parent.snapshotId,
@@ -374,7 +457,7 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
             recordDigest: parent.recordDigest,
           }
         : undefined;
-      const id = snapshotId(taskId, sourceScope, workspaceDigest, parentRecord);
+      const id = snapshotId(taskId, sourceScope, snapshotContentDigest, parentRecord);
       const candidate = `${SNAPSHOT_PREFIX}${id}`;
       const changedFiles = parent ? changedManifestPaths(parent.manifest, manifest) : sourceScope.changedFiles;
       const changeDigest = parent ? deltaDigest(parent.manifest, manifest) : sourceScope.changeDigest;
@@ -390,15 +473,17 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
         version: SNAPSHOT_VERSION,
         id,
         taskId,
-        workspaceDigest,
+        contentDigest: snapshotContentDigest,
+        workspaceDigest: snapshotWorkspaceDigest,
         sourceScope,
         scope,
         parent: parentRecord,
       };
       await writeFile(path.join(temporaryRoot, "snapshot.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
-      const finalRoot = path.join(snapshotsRoot, id);
+      finalRoot = path.join(snapshotsRoot, id);
       try {
         await rename(temporaryRoot, finalRoot);
+        renamed = true;
       } catch (error) {
         if (
           (error as NodeJS.ErrnoException).code !== "EEXIST" &&
@@ -418,7 +503,11 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
         parent: loaded.parent,
       };
     } catch (error) {
-      await rm(temporaryRoot, { recursive: true, force: true });
+      // If the self-verifying load below failed after the rename landed, the snapshot directory
+      // is on disk under finalRoot, not temporaryRoot — remove the one that exists so a failed
+      // capture never leaves a permanently unloadable snapshot behind.
+      if (renamed) await rm(finalRoot, { recursive: true, force: true });
+      else await rm(temporaryRoot, { recursive: true, force: true });
       throw error;
     }
   }
@@ -533,13 +622,28 @@ async function copyDependencyLink(from: string, to: string, roots: DependencyRoo
   }
 }
 
-async function workspaceManifest(root: string, blockedPatterns: string[]): Promise<Map<string, string>> {
+async function workspaceManifest(root: string, blockedPatterns: string[]): Promise<Map<string, PathFingerprint>> {
   const raw = await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]);
   const paths = raw.split("\0").filter(Boolean).sort();
-  const manifest = new Map<string, string>();
+  const manifest = new Map<string, PathFingerprint>();
   for (const relativePath of paths) {
     if (relativePath === "node_modules" && (await lstat(path.join(root, relativePath))).isSymbolicLink()) continue;
     await addManifestPath(root, relativePath, blockedPatterns, manifest);
+  }
+
+  const directories = new Set<string>();
+  for (const relativePath of [...manifest.keys()]) {
+    let dir = path.posix.dirname(relativePath);
+    while (dir && dir !== "." && !directories.has(dir)) {
+      directories.add(dir);
+      dir = path.posix.dirname(dir);
+    }
+  }
+  for (const dir of [...directories].sort()) {
+    if (manifest.has(dir)) continue;
+    const info = await lstat(path.join(root, dir)).catch(() => undefined);
+    if (!info || !info.isDirectory()) continue;
+    manifest.set(dir, { content: "dir", stat: statOf(info) });
   }
   return manifest;
 }
@@ -548,53 +652,76 @@ async function addManifestPath(
   root: string,
   relativePath: string,
   blockedPatterns: string[],
-  manifest: Map<string, string>,
+  manifest: Map<string, PathFingerprint>,
 ): Promise<void> {
   if (blockedPatterns.some((pattern) => matchesBlockedPattern(relativePath, pattern))) return;
   const absolute = path.join(root, relativePath);
   const info = await lstat(absolute).catch(() => undefined);
   if (!info) {
-    manifest.set(relativePath, "missing");
+    manifest.set(relativePath, { content: "missing", stat: null });
   } else if (info.isSymbolicLink()) {
-    manifest.set(relativePath, hash(["symlink\0", await readlink(absolute)]));
+    manifest.set(relativePath, { content: hash(["symlink\0", await readlink(absolute)]), stat: statOf(info) });
   } else if (info.isFile()) {
-    manifest.set(relativePath, hash(["file\0", await readFile(absolute)]));
+    manifest.set(relativePath, { content: hash(["file\0", await readFile(absolute)]), stat: statOf(info) });
   } else if (info.isDirectory()) {
     const nested = await git(absolute, ["ls-files", "--cached", "--others", "--exclude-standard", "-z"]).catch(
       () => undefined,
     );
     if (nested === undefined) {
-      manifest.set(relativePath, "directory");
+      manifest.set(relativePath, { content: "directory", stat: statOf(info) });
       return;
     }
     const nestedPaths = nested.split("\0").filter(Boolean).sort();
-    if (nestedPaths.length === 0) manifest.set(relativePath, "empty-git-directory");
+    if (nestedPaths.length === 0) manifest.set(relativePath, { content: "empty-git-directory", stat: statOf(info) });
     for (const nestedPath of nestedPaths) {
       await addManifestPath(root, path.posix.join(relativePath, nestedPath), blockedPatterns, manifest);
     }
   } else {
-    manifest.set(relativePath, `type:${info.mode}`);
+    manifest.set(relativePath, { content: `type:${info.mode}`, stat: statOf(info) });
   }
 }
 
-function manifestDigest(manifest: Map<string, string>): string {
-  return hash([...manifest].flatMap(([relativePath, fingerprint]) => [relativePath, "\0", fingerprint, "\0"]));
+function statOf(info: { ctimeMs: number }): string {
+  // Only ctime (inode change time), never the inode number. ctime is kernel-set and changes only
+  // on a content or metadata modification, so it detects a write-then-restore and a
+  // create-then-delete (the parent directory's ctime moves) without false-positiving on an
+  // honest load. The inode number is deliberately excluded: on FUSE and some network mounts it is
+  // synthesized by the daemon and drifts over time even when nothing changed, which makes a
+  // captured workspaceDigest irreproducible at load and an honest snapshot permanently
+  // unreviewable. ctime alone is the stable modification evidence.
+  return hash(["stat\0", String(info.ctimeMs)]);
 }
 
-function changedManifestPaths(before: Map<string, string>, after: Map<string, string>): string[] {
+function contentDigest(manifest: Map<string, PathFingerprint>): string {
+  return hash(
+    [...manifest]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .flatMap(([relativePath, fp]) => [relativePath, "\0", fp.content, "\0"]),
+  );
+}
+
+function workspaceDigest(manifest: Map<string, PathFingerprint>): string {
+  return hash(
+    [...manifest]
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+      .flatMap(([relativePath, fp]) => [relativePath, "\0", fp.content, "\0", fp.stat ?? "", "\0"]),
+  );
+}
+
+function changedManifestPaths(before: Map<string, PathFingerprint>, after: Map<string, PathFingerprint>): string[] {
   return [...new Set([...before.keys(), ...after.keys()])]
-    .filter((relativePath) => before.get(relativePath) !== after.get(relativePath))
+    .filter((relativePath) => before.get(relativePath)?.content !== after.get(relativePath)?.content)
     .sort();
 }
 
-function deltaDigest(before: Map<string, string>, after: Map<string, string>): string {
+function deltaDigest(before: Map<string, PathFingerprint>, after: Map<string, PathFingerprint>): string {
   return hash(
     changedManifestPaths(before, after).flatMap((relativePath) => [
       relativePath,
       "\0",
-      before.get(relativePath) ?? "absent",
+      before.get(relativePath)?.content ?? "absent",
       "\0",
-      after.get(relativePath) ?? "absent",
+      after.get(relativePath)?.content ?? "absent",
       "\0",
     ]),
   );
@@ -603,10 +730,10 @@ function deltaDigest(before: Map<string, string>, after: Map<string, string>): s
 function snapshotId(
   taskId: string,
   sourceScope: JudgeScope,
-  workspaceDigest: string,
+  contentDigest: string,
   parent?: JudgeSnapshotParent,
 ): string {
-  return hash([JSON.stringify({ taskId, sourceScope, workspaceDigest, parent })]).slice("sha256:".length, 27);
+  return hash([JSON.stringify({ taskId, sourceScope, contentDigest, parent })]).slice("sha256:".length, 27);
 }
 
 function scopeDigest(scope: Omit<JudgeScope, "scopeDigest"> | JudgeScope): string {

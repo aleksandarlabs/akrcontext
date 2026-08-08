@@ -3288,19 +3288,46 @@ describe("judge", () => {
     await symlink("../../leaf@1.0.0/node_modules/leaf", path.join(store, "dep@1.0.0/node_modules/leaf"), "dir");
   }
 
-  it("preserves a pnpm dependency layout so validation can resolve transitive packages", async () => {
+  it("materialises dependencies from the lockfile so validation resolves transitive packages", async () => {
     const command = "node -e \"if(require('dep')!=='leaf reached')process.exit(1)\"";
-    const { task } = await createReviewFixture({ declares: [command], claims: [command] });
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Resolve deps from lockfile", { cwd: tmp, nonInteractive: true });
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    const filled = original.replace("```\n```", `\`\`\`\n${command}\n\`\`\``);
+    expect(filled).not.toBe(original);
+    await writeFile(taskFile, filled, "utf8");
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 1;\n", "utf8");
     await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\n", "utf8");
-    await writePnpmLayout(tmp);
-    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
-
-    expect((await lstat(path.join(snapshot.worktreePath, "node_modules/dep"))).isSymbolicLink()).toBe(true);
-    expect(await readlink(path.join(snapshot.worktreePath, "node_modules/dep"))).toBe(
-      ".pnpm/dep@1.0.0/node_modules/dep",
+    await mkdir(path.join(tmp, "packages/dep"), { recursive: true });
+    await mkdir(path.join(tmp, "packages/leaf"), { recursive: true });
+    await writeFile(
+      path.join(tmp, "packages/leaf/package.json"),
+      `${JSON.stringify({ name: "leaf", version: "1.0.0", main: "index.js" })}\n`,
+      "utf8",
     );
+    await writeFile(path.join(tmp, "packages/leaf/index.js"), 'module.exports = "leaf reached";\n', "utf8");
+    await writeFile(
+      path.join(tmp, "packages/dep/package.json"),
+      `${JSON.stringify({ name: "dep", version: "1.0.0", main: "index.js", dependencies: { leaf: "file:../leaf" } })}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "packages/dep/index.js"), 'module.exports = require("leaf");\n', "utf8");
+    await writeFile(
+      path.join(tmp, "package.json"),
+      `${JSON.stringify({ name: "app", version: "1.0.0", dependencies: { dep: "file:packages/dep" } })}\n`,
+      "utf8",
+    );
+    await execFileAsync("pnpm", ["install"], { cwd: tmp, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
+    await execFileAsync("git", ["init"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.email", "tests@example.com"], { cwd: tmp });
+    await execFileAsync("git", ["config", "user.name", "akrctx tests"], { cwd: tmp });
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "base"], { cwd: tmp });
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 2;\n", "utf8");
 
-    const recordPath = path.join(tmp, ".akrctx/local/judge/pnpm-review.json");
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/lockfile-review.json");
     await writeFile(
       recordPath,
       `${JSON.stringify({
@@ -3316,7 +3343,7 @@ describe("judge", () => {
     );
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
-    expect(result.reasons.join("\n")).not.toContain("exit");
+    expect(result.reexecuted).toEqual([{ command, passed: true }]);
     expect(result.approved).toBe(true);
   });
 
@@ -3379,13 +3406,16 @@ describe("judge", () => {
     expect(await readlink(link)).toBe("app.ts");
   });
 
-  it("copies local dependencies into validation without linking back to the live project", async () => {
-    const command = "node -e \"require('fs').writeFileSync('node_modules/../app.ts', 'export const value = 8;\\n')\"";
+  it("verify --run-tests does not trust the snapshot's node_modules", async () => {
+    const command =
+      "node -e \"if(require('fs').existsSync('node_modules/MARKER.txt'))process.exit(0);else process.exit(1)\"";
     const { task } = await createReviewFixture({ declares: [command], claims: [] });
     await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\nnode_modules/\n", "utf8");
     await mkdir(path.join(tmp, "node_modules"), { recursive: true });
-    await writeFile(path.join(tmp, "node_modules/fixture.txt"), "dependency fixture\n", "utf8");
+    await writeFile(path.join(tmp, "node_modules/MARKER.txt"), "planted\n", "utf8");
     const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    expect(await readFile(path.join(snapshot.worktreePath, "node_modules/MARKER.txt"), "utf8")).toBe("planted\n");
+    expect((await lstat(path.join(snapshot.worktreePath, "node_modules"))).isSymbolicLink()).toBe(false);
     const recordPath = path.join(tmp, ".akrctx/local/judge/dependency-review.json");
     await writeFile(
       recordPath,
@@ -3407,11 +3437,46 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
+    expect(result.reexecuted).toEqual([{ command, passed: false }]);
     expect(result.approved).toBe(false);
-    expect(result.reasons.join("\n")).toContain("Validation changed the snapshot boundary");
-    expect((await lstat(path.join(snapshot.worktreePath, "node_modules"))).isSymbolicLink()).toBe(false);
+    expect(result.reasons.join("\n")).toContain("Independent re-run");
     expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
     expect(await readFile(path.join(tmp, "app.ts"), "utf8")).toContain("value = 2");
+  });
+
+  it("verify --run-tests fails when the boundary declares dependencies but has no lockfile", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    await writeFile(
+      path.join(tmp, "package.json"),
+      `${JSON.stringify({ name: "app", dependencies: { dep: "^1.0.0" } })}\n`,
+      "utf8",
+    );
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const recordPath = path.join(tmp, ".akrctx/local/judge/no-lockfile-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
+
+    expect(result.approved).toBe(false);
+    expect(result.reexecuted).toEqual([]);
+    expect(result.reasons.join("\n")).toContain("no lockfile");
   });
 
   it("allows ignored validation output inside the snapshot without touching live files", async () => {
@@ -3444,6 +3509,108 @@ describe("judge", () => {
     expect(result.approved).toBe(true);
     expect(await pathExists(path.join(snapshot.worktreePath, "dist/out.js"))).toBe(false);
     expect(await pathExists(path.join(tmp, "dist/out.js"))).toBe(false);
+  });
+
+  it("does not false-positive when an honest review writes ignored output inside the snapshot", async () => {
+    const command =
+      "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/out.js','ok')\"";
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\nnode_modules/\n", "utf8");
+    await mkdir(path.join(tmp, "node_modules"), { recursive: true });
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    // An honest in-snapshot review writes ignored build output and dependency churn — both at the
+    // root, both ignored — and neither moves a covered path's ctime or a tracked ancestor dir's,
+    // so a later load must still succeed. (The inode number is excluded from the fingerprint
+    // precisely because it would make this nondeterministic on FUSE mounts; see `statOf`.)
+    await execFileAsync(
+      "node",
+      [
+        "-e",
+        "require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/out.js','ok');" +
+          "require('fs').writeFileSync('node_modules/ran.txt','ok');",
+      ],
+      {
+        cwd: snapshot.worktreePath,
+        encoding: "utf8",
+      },
+    );
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).resolves.toBeDefined();
+  });
+
+  it("detects a write-then-restore on a manifest-covered file at the next load", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const file = path.join(snapshot.worktreePath, "app.ts");
+    const original = await readFile(file, "utf8");
+    await writeFile(file, "export const value = 999;\n", "utf8");
+    await writeFile(file, original, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("modified after capture");
+  });
+
+  it("detects a file created then deleted inside a tracked directory", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const scratch = path.join(snapshot.worktreePath, task.taskDir, "scratch.tmp");
+    await writeFile(scratch, "transient\n", "utf8");
+    await rm(scratch, { force: true });
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("modified after capture");
+  });
+
+  it("leaves no snapshot directory behind when capture fails its own verification", async () => {
+    const { task } = await createReviewFixture();
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const policy = JSON.parse(await readFile(policyPath, "utf8"));
+    policy.blockedReadPatterns.push("policy.json");
+    await writeFile(policyPath, `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow();
+
+    const remaining = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+    expect(remaining).toEqual([]);
+  });
+
+  it("detects a manifest-covered file deleted then recreated with identical bytes", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const file = path.join(snapshot.worktreePath, "app.ts");
+    const original = await readFile(file, "utf8");
+    await rm(file, { force: true });
+    await writeFile(file, original, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("modified after capture");
+  });
+
+  it("refuses to load a snapshot captured before write detection", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.version = 1;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("predates write detection");
+  });
+
+  it("refuses to load a snapshot captured with the previous inode-based fingerprint", async () => {
+    // The fingerprint once included the inode number, which drifts on FUSE/network mounts and made
+    // an honest snapshot permanently unreviewable. That field is gone and `SNAPSHOT_VERSION` moved;
+    // a snapshot claiming the old version is refused, never silently accepted as if it carried the
+    // current guarantee.
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.version = 2;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("predates write detection");
+  });
+
+  it("loads deterministically: repeated loads of the same snapshot all succeed", async () => {
+    // Guards against any per-call nondeterministic field in the fingerprint (a random, a clock,
+    // or an inode number re-read on every load). The inode number was removed for exactly this
+    // reason — it is synthesized by FUSE daemons and drifts over time — so a snapshot must load
+    // the same way every time it is read.
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    for (let i = 0; i < 5; i += 1) {
+      await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).resolves.toBeDefined();
+    }
   });
 
   it("reports snapshot currency separately from historical approval validity", async () => {
