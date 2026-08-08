@@ -111,7 +111,7 @@ describe("evaluation process execution", () => {
       { fixtureRoot: process.cwd(), cliEntry: path.join(process.cwd(), "dist/index.js") },
     );
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toMatch(/0\.4\.0/);
+    expect(result.stdout.trim()).toMatch(/^\d+\.\d+\.\d+$/);
   });
 
   it("handles repeated early exits while writing large stdin", async () => {
