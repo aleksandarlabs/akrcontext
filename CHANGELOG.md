@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- A project-level `.akrctx/review-policy.md` file that holds review criteria applying to
+  every task. The judge and implementer agent instructions now read it when it exists and
+  apply its entries in addition to each capsule's `acceptance-criteria.md`. Its absence is
+  normal and silent; `akrctx init` does not create it and no CLI command, flag, config key,
+  manifest entry, or doctor check is added. The file may only add criteria and can never
+  relax the verdict rules, APPROVED requirements, independence rules, validation-evidence
+  rules, or safety section; a genuine conflict with a capsule criterion resolves in favour
+  of the capsule for that task.
 - An `agents` block in `.akrctx/config.json` as the canonical configuration for all three
   akrctx agents — `judge`, `comprehension`, `implementer`. Each accepts `enabled`,
   `trigger`, `targets`, and a per-target `model`; `implementer` also accepts `maxAttempts`.

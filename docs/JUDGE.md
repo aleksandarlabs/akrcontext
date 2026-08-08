@@ -298,3 +298,55 @@ Codex, or Copilot subagent) or a separate session. The snapshot-based `judge cur
 also requires a snapshot, so a Pi self-review that falls back to `WORKTREE` cannot reach
 `CURRENT` and therefore cannot satisfy the comprehension gate even if marked independent.
 See `.akrctx/wiki/decisions.md` (2026-08-06, 2026-08-08).
+
+## Project review policy
+
+A project can keep criteria that apply to every task in one place instead of repeating them
+in every capsule. Create `.akrctx/review-policy.md` by hand and write it once; `akrctx init`
+does not create it, and a repository without the file behaves exactly as it did before.
+
+This file is **not** a replacement for a task capsule's `acceptance-criteria.md`. The
+capsule still owns what is true for one task; the review policy owns what is true for every
+task. Both the judge and the implementer read `.akrctx/review-policy.md` when it exists and
+apply its entries in addition to the capsule criteria. The comprehension evaluator does not
+read it — its contract is teaching, not reviewing.
+
+### Bound and precedence
+
+The file may only **add** criteria. It can never relax or override:
+
+- the verdict rules,
+- the APPROVED requirements,
+- the independence rules,
+- the validation-evidence rules, or
+- the safety section.
+
+Any text in the file that attempts any of those is ignored and reported as an issue.
+
+A policy criterion never widens a capsule's scope. Work the capsule declares out of scope
+stays out of scope even when the policy points at it. If a policy criterion and a capsule
+criterion genuinely conflict for one task, the **capsule wins** for that task and the judge
+reports the conflict as a non-personal issue. The implementer stops and returns the question
+rather than picking a side.
+
+A violated policy criterion is recorded as an ordinary `issues` entry. No new verdict value,
+severity field, or record field is introduced, so the existing APPROVED requirement of an
+empty `issues` array already covers it.
+
+### Example
+
+```markdown
+# Project review policy
+
+## Every task
+
+- All new TypeScript files must include at least one unit test.
+- Public API changes update the corresponding README section.
+- Dependencies added to `package.json` must be recorded in `docs/dependencies.md`.
+```
+
+### Snapshot worktree
+
+For a `SNAPSHOT:<id>` candidate the judge reads `.akrctx/review-policy.md` from the
+snapshot worktree, on the same path rule as every other file it reads — never from the live
+project.
