@@ -427,6 +427,13 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
       await removeBlockedPaths(worktreePath, blockedPatterns);
       await overlayChangedFiles(cwd, worktreePath, sourceScope.changedFiles);
       await copyLocalDependencies(cwd, worktreePath);
+      await buildSnapshotArtifacts(worktreePath);
+      // pnpm updates private workspace bookkeeping while it runs a script. Restore the copied
+      // dependency tree and its lockfile so those incidental writes cannot become part of the
+      // immutable boundary.
+      await rm(path.join(worktreePath, "node_modules"), { recursive: true, force: true });
+      await copyLocalDependencies(cwd, worktreePath);
+      await restorePackageManagerState(cwd, worktreePath);
 
       const after = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE");
       if (!sameLiveBoundary(after, sourceScope)) {
@@ -580,6 +587,46 @@ async function copyLocalDependencies(sourceRoot: string, snapshotRoot: string): 
   const destination = path.join(snapshotRoot, "node_modules");
   if (!(await lstat(source).catch(() => undefined)) || (await lstat(destination).catch(() => undefined))) return;
   await copyDependencyTree(source, destination, { source, destination });
+}
+
+/**
+ * Build artifacts belong to the reviewed copy, never to the live worktree. The CLI test suite
+ * invokes `dist/index.js`, but `dist/` is ignored and therefore absent from a clean snapshot.
+ * Only projects that explicitly declare the conventional build script opt into this step; a
+ * package without one remains a source-only snapshot.
+ */
+async function buildSnapshotArtifacts(worktreePath: string): Promise<void> {
+  const packageJsonPath = path.join(worktreePath, "package.json");
+  if (!(await lstat(packageJsonPath).catch(() => undefined))) return;
+  let packageJson: { scripts?: Record<string, unknown> };
+  try {
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { scripts?: Record<string, unknown> };
+  } catch {
+    return;
+  }
+  if (typeof packageJson.scripts?.build !== "string" || !packageJson.scripts.build.trim()) return;
+  try {
+    await execFileAsync("pnpm", ["build"], {
+      cwd: worktreePath,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      timeout: 15 * 60_000,
+    });
+  } catch (error) {
+    const stderr = (error as { stderr?: string }).stderr ?? "";
+    throw new Error(
+      `Cannot build judge snapshot artifacts (pnpm build failed): ${messageOf(error)}${stderr ? `\n${stderr}` : ""}`,
+    );
+  }
+}
+
+async function restorePackageManagerState(sourceRoot: string, snapshotRoot: string): Promise<void> {
+  for (const filename of ["pnpm-lock.yaml", "package-lock.json", "yarn.lock"]) {
+    const source = path.join(sourceRoot, filename);
+    const destination = path.join(snapshotRoot, filename);
+    if (await lstat(source).catch(() => undefined)) await copyFile(source, destination);
+    else await rm(destination, { force: true });
+  }
 }
 
 interface DependencyRoots {

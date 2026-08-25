@@ -3196,6 +3196,44 @@ describe("judge", () => {
     await execFileAsync("git", ["check-ignore", "-q", path.relative(tmp, snapshot.metadataPath)], { cwd: tmp });
   });
 
+  it("builds a snapshot's own CLI artifacts instead of relying on ignored live output", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(
+      path.join(tmp, "package.json"),
+      JSON.stringify({
+        scripts: {
+          build:
+            "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.js','snapshot build')\"",
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect(await readFile(path.join(snapshot.worktreePath, "dist/index.js"), "utf8")).toBe("snapshot build");
+    expect(await pathExists(path.join(tmp, "dist/index.js"))).toBe(false);
+  });
+
+  it("cleans up a snapshot capture when its local artifact build fails", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(
+      path.join(tmp, "package.json"),
+      JSON.stringify({ scripts: { build: 'node -e "process.exit(1)"' } }),
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+      "Cannot build judge snapshot artifacts",
+    );
+
+    const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+    expect(snapshots).toEqual([]);
+  });
+
   it("captures a snapshot when live file modes differ from a fresh checkout (mode-insensitive)", async () => {
     const restore = process.umask(0o022);
     const { task } = await createReviewFixture();
