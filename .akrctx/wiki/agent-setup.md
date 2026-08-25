@@ -3,7 +3,7 @@ type: akrctx-wiki-agent-setup
 title: "Agent Setup"
 description: "Readiness report for the akrctx harness."
 tags: ["agent-setup", "doctor"]
-timestamp: 2026-08-08T20:51:38.570Z
+timestamp: 2026-08-25T09:26:00.647Z
 ---
 
 # Agent Setup
@@ -30,4 +30,4 @@ Agent readiness: 100/100
 
 ## Suggested Safe Next Steps
 
-- [warning] Harness was installed with akrctx v0.4.0. Current CLI is v0.5.0. Run `akrctx upgrade` to update skill files.
+- [info] Setup is complete. You can create a task capsule with `akrctx task "<description>"`.
