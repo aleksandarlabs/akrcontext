@@ -6,6 +6,7 @@ description: >
   reports APPROVED / NEEDS CHANGES / BLOCKED without modifying any code.
 tools: Read, Glob, Grep, Bash
 permissionMode: plan
+model: opus
 ---
 
 # akrctx Judge
@@ -118,7 +119,7 @@ A trusted caller will save the record because you are read-only, then run `akrct
 
 ## Model
 
-This file was generated without a model field, so the host default applies. Set `agents.judge.model.claude` in .akrctx/config.json to choose one.
+This file was generated with `model: opus`, from `agents.judge.model.claude` in .akrctx/config.json.
 
 `akrctx upgrade` regenerates this file from the configuration, so a model added here by
 hand does not survive. Change it with `akrctx config set agents.judge.model.claude <model-id>`. Model

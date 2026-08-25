@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "cliVersion": "0.4.0",
+  "cliVersion": "0.5.0",
   "files": {
     ".akrctx/targets/claude.md": {
       "hash": "sha256:5f9ae336e923e6ddf76b3c7c2318d1a78506fbde5b1f3de86e0bb84fc79ba0a5"
@@ -42,13 +42,13 @@
       "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
     },
     ".claude/skills/akrctx-workflow/SKILL.md": {
-      "hash": "sha256:e14895b8931c8f896c5b32b2365c4c0b8118b381e147570a47bcc2c159b71dc4"
+      "hash": "sha256:3036cf9b00f2f23b072592833b2fe045c6e8167efbe9aaecaa4388105a099a98"
     },
     ".claude/skills/akrctx-write-policy/SKILL.md": {
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".claude/agents/akrctx-judge.md": {
-      "hash": "sha256:9604858f6a1bf45d02dd071b7c03107777753c81193a4f7745bd3ef0d8882e83"
+      "hash": "sha256:d159d017f4182f7785f37a36988c4093ba658cfb28f0edeb87015875d92965c8"
     },
     ".akrctx/targets/codex.md": {
       "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
@@ -66,13 +66,19 @@
       "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
     },
     ".agents/skills/akrctx-workflow/SKILL.md": {
-      "hash": "sha256:e14895b8931c8f896c5b32b2365c4c0b8118b381e147570a47bcc2c159b71dc4"
+      "hash": "sha256:3036cf9b00f2f23b072592833b2fe045c6e8167efbe9aaecaa4388105a099a98"
     },
     ".agents/skills/akrctx-write-policy/SKILL.md": {
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
       "hash": "sha256:fd77dd1989b7b7994005f27037f02d45990be7891bb3e444694d283238515fc6"
+    },
+    ".claude/agents/akrctx-implementer.md": {
+      "hash": "sha256:b1355d945d55a0d73aab7891b0fc3927b1c9810c1932c188ec5fa05ea35799f5"
+    },
+    ".codex/agents/akrctx-implementer.toml": {
+      "hash": "sha256:1a7dce2693dc9247e62de49dd04bd945011b630ce5c9d35edad227eab9866337"
     }
   }
 }

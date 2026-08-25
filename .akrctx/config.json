@@ -43,5 +43,21 @@
     "ui": "UI review",
     "smallSafePatch": "fast-patch",
     "unknownArea": "research-first"
+  },
+  "agents": {
+    "implementer": {
+      "enabled": true,
+      "trigger": "on-request",
+      "model": {
+        "claude": "sonnet"
+      }
+    },
+    "judge": {
+      "enabled": true,
+      "trigger": "post-implementation",
+      "model": {
+        "claude": "opus"
+      }
+    }
   }
 }
