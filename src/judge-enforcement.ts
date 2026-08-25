@@ -374,9 +374,6 @@ export interface ClarificationState {
   openQuestions: string[];
 }
 
-/** The bullet both sections ship with; every consumer reads it as "empty". */
-const CLARIFICATION_PLACEHOLDER = "None recorded yet.";
-
 /**
  * Bullets under `## Clarifications` and `## Open Questions` in the capsule's task.md.
  *
@@ -425,8 +422,18 @@ function sectionBullets(body: string | undefined): string[] {
       entries[entries.length - 1] = `${entries[entries.length - 1]} ${line.trim()}`;
     }
   }
-  return entries.filter((entry) => entry !== CLARIFICATION_PLACEHOLDER);
+  return entries.filter((entry) => !NONE_VARIANT_RE.test(entry));
 }
+
+/**
+ * A bullet whose full text is a short "none" variant, optionally followed by one closing
+ * word from a fixed list ("None recorded yet.", the template's shipped placeholder, is the
+ * `recorded yet` case) and nothing but trailing punctuation or spaces. Deliberately narrower
+ * than an open sentence, so a bullet that starts with "None" but continues with real content
+ * (`None of the callers validate X`) still counts.
+ */
+const NONE_VARIANT_RE =
+  /^(none|ninguna|ninguno|n\/a)(\s+(remaining|left|yet|recorded\s+yet|so\s+far|open|pending))?[\s.!]*$/i;
 
 async function runValidationCommand(cwd: string, command: string): Promise<boolean> {
   try {

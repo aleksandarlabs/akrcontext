@@ -39,6 +39,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `akrctx judge verify` no longer counts a "no questions" bullet as an unresolved open
+  question. The reader dropped one exact string, `None recorded yet.`, the phrase the
+  template ships. A person who closed the section by hand wrote `None remaining.` instead,
+  and the reader took it for a real question. The rule now covers the "none" word itself
+  (`none`, `ninguna`, `ninguno`, `n/a`) with an optional closing word from a fixed list:
+  `remaining`, `left`, `yet`, `recorded yet`, `so far`, `open`, `pending`. It stays narrower
+  than a free sentence on purpose, so a bullet that opens with "None" and then says
+  something (`None of the callers validate X`) still counts. `## Clarifications` and
+  `## Open Questions` share the reader, so both sections follow the same rule. The shipped
+  template is unchanged.
+
 - The installed review schema now accepts the optional `independent` boolean the judge
   instructions have told the agent to emit since 0.5.0. The field reached the runtime, the
   agent instructions, and the changelog, but never the schema template, so every published

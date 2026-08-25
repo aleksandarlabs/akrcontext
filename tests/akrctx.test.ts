@@ -4397,6 +4397,45 @@ describe("clarification gate", () => {
     expect(state.openQuestions).toEqual([]);
   });
 
+  it.each([
+    "None.",
+    "None!",
+    "Ninguna.",
+    "N/A",
+    "none",
+    "NONE",
+    "Ninguno",
+    "None recorded yet.",
+    "None remaining.",
+    "None left.",
+    "None yet.",
+    "None so far.",
+    "None  so   far.",
+    "None open.",
+    "None pending.",
+  ])("treats a %s bullet as empty in both sections", async (variant) => {
+    const taskId = await capsuleWith(
+      ["## Clarifications", "", `- ${variant}`, "", "## Open Questions", "", `- ${variant}`, ""].join("\n"),
+    );
+
+    const state = await readClarificationState(tmp, taskId);
+
+    expect(state.clarifications).toEqual([]);
+    expect(state.openQuestions).toEqual([]);
+  });
+
+  it("keeps a bullet that starts with None but continues with real content", async () => {
+    const variant = "None of the callers validate X";
+    const taskId = await capsuleWith(
+      ["## Clarifications", "", `- ${variant}`, "", "## Open Questions", "", `- ${variant}`, ""].join("\n"),
+    );
+
+    const state = await readClarificationState(tmp, taskId);
+
+    expect(state.clarifications).toEqual([variant]);
+    expect(state.openQuestions).toEqual([variant]);
+  });
+
   it("reports a capsule written before this section existed without erroring", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Fix invoice regression", { cwd: tmp, nonInteractive: true });
