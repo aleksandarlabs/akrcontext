@@ -37,7 +37,7 @@ lo declare explícitamente.
 
 ### Session 2026-08-24
 
-- Encontrado durante el flujo TASK-020 en compi-agent: `Agent({ subagent_type: "akrctx-implementer" })` devolvió `Agent type 'akrctx-implementer' not found`. Los types disponibles eran: claude, claude-code-guide, Explore, general-purpose, Plan, statusline-setup. Ninguno de los akrctx agents aparecía.
+- Encontrado durante el flujo TASK-020 en un repo consumidor: `Agent({ subagent_type: "akrctx-implementer" })` devolvió `Agent type 'akrctx-implementer' not found`. Los types disponibles eran: claude, claude-code-guide, Explore, general-purpose, Plan, statusline-setup. Ninguno de los akrctx agents aparecía.
 
 ### Session 2026-08-25
 
@@ -45,8 +45,8 @@ lo declare explícitamente.
   `.claude/agents/` en vivo, pero no vigila un directorio que no existía al
   arrancar la sesión (https://code.claude.com/docs/en/sub-agents). En una
   instalación nueva `akrctx impl enable` crea ese directorio por primera vez,
-  así que el fichero es invisible hasta reiniciar. compi-agent era una
-  instalación nueva; este repo ya tenía `.claude/agents/` al arrancar la
+  así que el fichero es invisible hasta reiniciar. El repo consumidor era
+  una instalación nueva; este repo ya tenía `.claude/agents/` al arrancar la
   sesión, y ambos agentes son spawnables aquí ahora mismo.
 - El frontmatter que akrctx genera es válido. `name` y `description` son los
   únicos campos obligatorios; `tools`, `model` y `permissionMode` son

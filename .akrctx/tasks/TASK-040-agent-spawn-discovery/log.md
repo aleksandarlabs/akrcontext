@@ -11,7 +11,7 @@ creates that directory, so its agent stays unspawnable until a restart.
 
 Evidence:
 
-1. compi-agent was a fresh install. TASK-020 got `Agent type
+1. The consumer repository was a fresh install. TASK-020 got `Agent type
    'akrctx-implementer' not found`.
 2. This repository already had `.claude/agents/` at session start. Both
    `akrctx-implementer` and `akrctx-judge` are spawnable in this session.
