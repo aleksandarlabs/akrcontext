@@ -107,7 +107,9 @@ Finish with exactly one JSON object. Do not wrap it in Markdown. This is the com
 }
 '''
 
-The values above are placeholders chosen to satisfy the schema's patterns, not the values to emit. Replace every one: 'scope' carries the complete, unchanged output of 'akrctx judge scope --json' — copy it verbatim, never type it by hand — and 'tests', 'issues', and 'reviewedAt' carry your real findings. Each 'tests' entry has exactly 'command', 'status', and 'evidence'; no other key is accepted there either. Omit 'independent' for an independent review and add '"independent": false' only when you are non-independent — its absence means 'true' (see Independence above).
+The top level accepts exactly these keys and no others: 'schemaVersion', 'taskId', 'scope', 'verdict', 'tests', 'issues', 'reviewedAt', and the optional 'independent'. Every one except 'independent' is required. Adding any other key — a summary, a note, a confidence score, an 'evidence' string — makes the whole record INVALID and the caller must discard it. Your prose report is where that content belongs; the record carries only the keys above.
+
+The values above are placeholders chosen to satisfy the schema's patterns, not the values to emit. Replace every one: 'scope' carries the complete, unchanged output of 'akrctx judge scope --json' — copy it verbatim, never type it by hand — and 'tests', 'issues', and 'reviewedAt' carry your real findings. Each 'tests' entry has exactly 'command', 'status', and 'evidence'; no other key is accepted there either. 'evidence' exists only inside a 'tests' entry and never at the top level. Omit 'independent' for an independent review and add '"independent": false' only when you are non-independent — its absence means 'true' (see Independence above).
 
 A trusted caller will save the record because you are read-only, then run 'akrctx judge verify <review.json> --run-tests', which re-runs the capsule-declared commands you claim passed. This record is the only judge evidence the comprehension evaluator may receive; never include the implementing agent's narrative.
 

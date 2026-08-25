@@ -61,6 +61,11 @@ const reviewSchema = {
     },
     issues: { type: "array", items: { type: "string" } },
     reviewedAt: { type: "string", format: "date-time" },
+    independent: {
+      type: "boolean",
+      description:
+        "Whether the reviewer was independent of the implementation. Absent means true. Set false when the reviewer is the same session/agent that implemented or runs on a host with no subagent isolation (Pi).",
+    },
   },
   allOf: [
     {

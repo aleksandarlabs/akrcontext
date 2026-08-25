@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The installed review schema now accepts the optional `independent` boolean the judge
+  instructions have told the agent to emit since 0.5.0. The field reached the runtime, the
+  agent instructions, and the changelog, but never the schema template, so every published
+  install shipped a schema whose `additionalProperties: false` rejected a field its own
+  instructions required. A non-independent judge produced a record `akrctx judge verify`
+  refused as INVALID, with no way to fix it short of hand-editing the schema. The change only
+  widens the schema: every record valid before stays valid, and no migration is needed.
+- The judge instructions now enumerate the accepted top-level keys and state that a record
+  carrying any other one is invalid. `evidence` is named as the concrete case: it belongs to a
+  `tests` entry and never to the top level. Judges were inventing a top-level `evidence`
+  summary, which the schema rejected. Prose findings belong in the report, not the record.
+
 ## [0.5.0] - 2026-08-08
 
 ### Added
