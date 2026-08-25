@@ -592,19 +592,28 @@ async function copyLocalDependencies(sourceRoot: string, snapshotRoot: string): 
 /**
  * Build artifacts belong to the reviewed copy, never to the live worktree. The CLI test suite
  * invokes `dist/index.js`, but `dist/` is ignored and therefore absent from a clean snapshot.
- * Only projects that explicitly declare the conventional build script opt into this step; a
- * package without one remains a source-only snapshot.
+ * This is an akrctx repository concern, not permission to execute a consumer's package script:
+ * every other project remains a source-only snapshot.
  */
 async function buildSnapshotArtifacts(worktreePath: string): Promise<void> {
   const packageJsonPath = path.join(worktreePath, "package.json");
   if (!(await lstat(packageJsonPath).catch(() => undefined))) return;
-  let packageJson: { scripts?: Record<string, unknown> };
+  let packageJson: { name?: unknown; scripts?: Record<string, unknown> };
   try {
-    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { scripts?: Record<string, unknown> };
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
+      name?: unknown;
+      scripts?: Record<string, unknown>;
+    };
   } catch {
     return;
   }
-  if (typeof packageJson.scripts?.build !== "string" || !packageJson.scripts.build.trim()) return;
+  if (
+    packageJson.name !== "akr-context" ||
+    typeof packageJson.scripts?.build !== "string" ||
+    !packageJson.scripts.build.trim()
+  ) {
+    return;
+  }
   try {
     await execFileAsync("pnpm", ["build"], {
       cwd: worktreePath,

@@ -3,7 +3,7 @@
 ## Relevant Files
 
 - `src/impl.ts` — lógica de start, log, status, budget.
-- `src/__tests__/` — tests existentes del implementador.
+- `tests/agents.test.ts` — tests existentes del implementador.
 
 ## Blocked Reads
 

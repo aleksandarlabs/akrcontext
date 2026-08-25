@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { JUDGE_SCHEMA_VERSION, validateRecord } from "../src/judge-enforcement.js";
 import { claudeImplementerFile, codexImplementerFile, copilotImplementerFile } from "../src/templates/implementer.js";
+import { mainInstructionTemplate } from "../src/templates/instructions.js";
 import { judgeContractFiles } from "../src/templates/judge-contract.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile, judgeExampleRecord } from "../src/templates/judge.js";
 
@@ -26,6 +27,18 @@ function onlyContent(record: Record<string, string>): string {
 }
 
 describe("agent template renderings", () => {
+  describe("root instructions", () => {
+    it.each(["codex", "claude", "copilot"] as const)("%s rendering describes implementer delegation", (target) => {
+      const content = mainInstructionTemplate(target);
+      expect(content).toContain("akrctx-implementer");
+      expect(content).toContain("agents.implementer.enabled");
+      expect(content).toContain("ask the user before delegating");
+      expect(content).toContain("akrctx impl start TASK-XXX");
+      expect(content).toContain("akrctx impl status TASK-XXX");
+      expect(content).toContain("owner of the capsule, validation, and handoff to `akrctx-judge`");
+    });
+  });
+
   describe("judge", () => {
     it.each(Object.entries(judgeRenderers))(
       "%s rendering carries the review-policy instruction",

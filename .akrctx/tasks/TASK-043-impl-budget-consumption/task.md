@@ -30,6 +30,13 @@ npm test
 
 - En TASK-020 de un repo consumidor: `impl start` reportó "round 1 of 3, attempts used: 0, remaining: 3". Después, `impl log` reportó "round 2 recorded, attempts used: 2, remaining: 1". Un solo intento real consumió 2 de 3 rounds del budget.
 
+### Session 2026-08-25
+
+- Decisión confirmada: `impl start` es informativo y no reserva ni consume un
+  round. `impl log` es el único comando que persiste el registro y consume el
+  intento. Así los starts repetidos o abandonados no gastan presupuesto y el
+  límite sigue aplicándose aunque se omita start.
+
 ## Open Questions
 
-- ¿`impl start` debería ser solo informativo (no incrementar el contador) o debería `impl log` no incrementar si ya hay un start abierto?
+None.

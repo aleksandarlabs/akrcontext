@@ -34,7 +34,7 @@ When the user asks to implement a feature, fix, refactor, or meaningful code cha
 4. Resolve ambiguity before implementing. See the clarification step below.
 5. Follow the workflow from config unless the user explicitly overrides it.
 6. Load only relevant context. Do not read all of .akrctx/ by default.
-7. After implementation, update the task review checklist and run relevant validation.
+7. After implementation by you or akrctx-implementer, update the task review checklist and run relevant validation.
 8. After implementation, follow the independent review and comprehension handoff below.
 
 Create the task capsule yourself — do not ask the user to run \`akrctx task\`. The CLI task command is a headless fallback for scripts and CI. During normal agent use, YOU are responsible for creating and filling the task capsule with real context from the codebase.
@@ -46,6 +46,12 @@ Ask the user before implementing when two plausible answers would produce differ
 Record each answer under \`## Clarifications\` in the capsule's task.md, beneath a \`### Session YYYY-MM-DD\` heading, and propagate any answer that changes a criterion into acceptance-criteria.md. Ambiguity you did not resolve goes under \`## Open Questions\` as a question. Running headless with nobody to answer, recording it is the correct outcome; never close the gap by prediction.
 
 In both sections one entry is one top-level \`- \` bullet, wrapped with indented continuation lines. \`akrctx judge verify\` reads only top-level bullets, so an entry written as a bare paragraph is invisible to it. The \`akrctx-task\` skill holds the full procedure.
+
+## Implementation Delegation
+
+After the capsule is ready and clarifications are resolved, if \`agents.implementer.enabled\` is true, ask the user before delegating implementation to \`akrctx-implementer\`. This depends on \`enabled\`, not the implementer's \`trigger\` value. Before its first round, direct it to run \`akrctx impl start TASK-XXX\`; use \`akrctx impl status TASK-XXX\` to check the remaining attempt budget.
+
+You remain the owner of the capsule, validation, and handoff to \`akrctx-judge\`. The implementer writes code and records its round; it does not take over those responsibilities.
 
 ## Workflow Selection
 

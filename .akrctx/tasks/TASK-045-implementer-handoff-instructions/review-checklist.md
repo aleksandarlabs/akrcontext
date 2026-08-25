@@ -1,13 +1,14 @@
 # Review Checklist
 
-- [ ] La plantilla raíz nombra al implementer y dice cuándo delegar.
-- [ ] La instrucción exige preguntar antes de delegar.
-- [ ] La condición es `enabled`, no el trigger.
-- [ ] El reparto de responsabilidades queda escrito.
-- [ ] Se nombran `akrctx impl start` y `akrctx impl status`.
-- [ ] El paso 7 ya no presupone quién implementó.
-- [ ] `defaultTrigger.implementer` vale `post-clarification`.
-- [ ] Ninguna configuración existente se migra.
-- [ ] Tests de presencia y de default añadidos.
-- [ ] `npm test`, `npm run lint` y `npm run build` pasan.
-- [ ] Los archivos raíz protegidos no se editaron sin aprobación explícita.
+- [x] La cápsula está lista: contrato SDD y clarificaciones registrados.
+- [x] La plantilla raíz nombra al implementer y dice cuándo delegar.
+- [x] La instrucción exige preguntar antes de delegar.
+- [x] La condición es `enabled`, no el trigger.
+- [x] El reparto de responsabilidades queda escrito.
+- [x] Se nombran `akrctx impl start` y `akrctx impl status`.
+- [x] El paso 7 ya no presupone quién implementó.
+- [x] `defaultTrigger.implementer` vale `post-clarification`.
+- [x] Ninguna configuración existente se migra.
+- [x] Tests de presencia y de default añadidos.
+- [x] `pnpm test`, `pnpm lint` y `pnpm build` pasan.
+- [x] Los archivos raíz protegidos no se editaron sin aprobación explícita.

@@ -3201,6 +3201,7 @@ describe("judge", () => {
     await writeFile(
       path.join(tmp, "package.json"),
       JSON.stringify({
+        name: "akr-context",
         scripts: {
           build:
             "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.js','snapshot build')\"",
@@ -3221,7 +3222,7 @@ describe("judge", () => {
     const { task } = await createReviewFixture();
     await writeFile(
       path.join(tmp, "package.json"),
-      JSON.stringify({ scripts: { build: 'node -e "process.exit(1)"' } }),
+      JSON.stringify({ name: "akr-context", scripts: { build: 'node -e "process.exit(1)"' } }),
       "utf8",
     );
     await writeFile(path.join(tmp, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
@@ -3232,6 +3233,22 @@ describe("judge", () => {
 
     const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
     expect(snapshots).toEqual([]);
+  });
+
+  it("does not execute a consumer project's build script while capturing a snapshot", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(
+      path.join(tmp, "package.json"),
+      JSON.stringify({
+        name: "consumer-project",
+        scripts: { build: "node -e \"require('fs').writeFileSync('consumer-build-ran.txt','unexpected')\"" },
+      }),
+      "utf8",
+    );
+
+    await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect(await pathExists(path.join(tmp, "consumer-build-ran.txt"))).toBe(false);
   });
 
   it("captures a snapshot when live file modes differ from a fresh checkout (mode-insensitive)", async () => {

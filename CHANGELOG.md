@@ -39,6 +39,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Judge snapshots now build their own CLI artifacts when the reviewed project declares a
+  `build` script. This lets validation suites that invoke `dist/index.js` run against the
+  snapshot's sources instead of failing because ignored build output was absent. Snapshot
+  capture restores package-manager state afterward, and a failed build leaves no partial
+  snapshot behind.
+
 - `akrctx judge verify` no longer counts a "no questions" bullet as an unresolved open
   question. The reader dropped one exact string, `None recorded yet.`, the phrase the
   template ships. A person who closed the section by hand wrote `None remaining.` instead,

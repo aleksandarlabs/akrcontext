@@ -141,6 +141,15 @@ describe("agents configuration", () => {
     expect(after).toEqual(before);
   });
 
+  it("uses post-clarification as the implementer trigger default", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeRawConfig((config) => {
+      Object.assign(config, { agents: { implementer: { enabled: true } } });
+    });
+
+    expect(resolveAgent((await readConfig(tmp)) as never, "implementer").trigger).toBe("post-clarification");
+  });
+
   it("loads a configuration written before the agents block and behaves identically", async () => {
     await runInit({ cwd: tmp, target: "all", nonInteractive: true });
     await writeRawConfig((config) => {

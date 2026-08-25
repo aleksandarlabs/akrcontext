@@ -65,7 +65,7 @@ export const knownTriggers: Record<AgentName, string[]> = {
 const defaultTrigger: Record<AgentName, string> = {
   judge: "post-implementation",
   comprehension: "agent-assessed-significance",
-  implementer: "on-request",
+  implementer: "post-clarification",
 };
 
 /**
