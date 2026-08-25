@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `akrctx impl enable`, `akrctx judge enable`, and `akrctx comprehension enable` warn when
+  they create `.claude/agents/` for the first time, and the README documents the constraint.
+  Claude Code watches `.claude/agents/` for live changes, but it does not watch a directory
+  that did not exist when the session started, so the very first agent akrctx writes in a
+  repository is not spawnable until the session restarts — it reports the agent type as not
+  found. The notice fires only on the run that creates the directory. Every later run leaves
+  it out, because the watcher already covers the file and an always-on warning would train
+  the reader to ignore it. A `--dry-run` leaves it out too: it writes no file, so nothing is
+  undiscovered and no restart would help. The generated frontmatter was never at fault.
+
 - `.akrctx/upgrades/.gitignore`, written by `akrctx init` and restored by `akrctx upgrade`
   and `akrctx doctor --fix`. It ignores everything in the directory and keeps only itself
   trackable, the same rule `.akrctx/local/.gitignore` already used. Upgrade candidates are

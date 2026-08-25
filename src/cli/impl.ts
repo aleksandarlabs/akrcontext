@@ -10,6 +10,7 @@ import {
   mark,
   normalizeOptions,
   parseValidation,
+  printAgentDiscoveryNotice,
   printAgentModels,
   printAgentWarnings,
   splitList,
@@ -61,6 +62,7 @@ export function registerImpl(program: Command): void {
     ln();
     log(`  ${dim(`Attempt budget: ${result.maxAttempts} ← agents.implementer.maxAttempts`)}`);
     printAgentModels(result.models);
+    printAgentDiscoveryNotice(result.discoveryNotice);
     printAgentWarnings(result.warnings);
   });
 

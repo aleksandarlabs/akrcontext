@@ -65,6 +65,12 @@ export function parseValidation(entry: string): {
   return { command: command.trim(), status: status as "passed" | "failed" | "not-run", output: rest.join("::") };
 }
 
+export function printAgentDiscoveryNotice(notice: string | undefined): void {
+  if (!notice) return;
+  ln();
+  log(`  ${warn()} ${yellow(notice)}`);
+}
+
 export function printAgentWarnings(warnings: string[]): void {
   if (!warnings.length) return;
   ln();

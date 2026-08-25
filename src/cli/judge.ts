@@ -8,7 +8,16 @@ import {
   pruneJudgeSnapshots,
 } from "../judge-snapshot.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../judge.js";
-import { addCommon, ln, log, mark, normalizeOptions, printAgentModels, printAgentWarnings } from "./shared.js";
+import {
+  addCommon,
+  ln,
+  log,
+  mark,
+  normalizeOptions,
+  printAgentDiscoveryNotice,
+  printAgentModels,
+  printAgentWarnings,
+} from "./shared.js";
 
 export function registerJudge(program: Command): void {
   const judge = program.command("judge").description("Manage the optional akrctx judge subagent.");
@@ -60,6 +69,7 @@ export function registerJudge(program: Command): void {
     ln();
     log(`  ${dim(`${verb} for: ${result.installedTargets.join(", ")}`)}`);
     printAgentModels(result.models);
+    printAgentDiscoveryNotice(result.discoveryNotice);
     printAgentWarnings(result.warnings);
   });
 

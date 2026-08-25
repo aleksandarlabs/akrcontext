@@ -1,5 +1,12 @@
 import path from "node:path";
-import { agentFilePathList, agentFiles, agentWarnings, resolveAgent, withAgentSetting } from "./agents.js";
+import {
+  agentDiscoveryNotice,
+  agentFilePathList,
+  agentFiles,
+  agentWarnings,
+  resolveAgent,
+  withAgentSetting,
+} from "./agents.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
@@ -31,6 +38,7 @@ export interface ComprehensionStatusResult {
 export interface ComprehensionEnableResult extends ComprehensionStatusResult {
   dryRun: boolean;
   writes: WriteResult[];
+  discoveryNotice?: string;
 }
 
 export function isLocalIgnoreContentSafe(content: string | undefined): boolean {
@@ -65,6 +73,11 @@ export async function runComprehensionEnable(options: CommandOptions): Promise<C
   if (installedTargets.length === 0) {
     throw new Error("No installed target supports an independent comprehension agent.");
   }
+  // Read before the writes below create the directory.
+  const discoveryNotice = await agentDiscoveryNotice(cwd, "comprehension", installedTargets, {
+    dryRun: options.dryRun,
+  });
+
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
     for (const [relativePath, content] of Object.entries(agentFiles("comprehension", target, resolved.model[target]))) {
@@ -89,6 +102,7 @@ export async function runComprehensionEnable(options: CommandOptions): Promise<C
     writes,
     installedTargets,
     skippedTargets,
+    discoveryNotice,
   };
 }
 

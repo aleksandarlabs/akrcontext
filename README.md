@@ -177,6 +177,21 @@ AGENTS.md or AGENTS.akrctx.suggested.md
 
 Claude, Copilot, and Pi Code receive their own target adapters under `CLAUDE.md`, `.claude/`, `.github/`, or `.pi/`. Claude and Pi Code get `SKILL.md` workflow packages; Copilot gets repository instructions, skills, and reusable prompt files.
 
+### Agent Discovery in Claude Code
+
+`akrctx judge enable`, `akrctx impl enable`, and `akrctx comprehension enable` write a
+subagent file to `.claude/agents/`. Claude Code watches that directory and picks up a new
+or edited file within a few seconds, with no restart.
+
+One case is different. Claude Code does not watch a directory that did not exist when the
+session started. On a first install, `enable` creates `.claude/agents/` for the first time.
+The agent is then not spawnable in that session, and `Agent({ subagent_type:
+"akrctx-judge" })` reports that the agent type is not found.
+
+Restart Claude Code to fix it. Every session you start after the first `enable` finds the
+agent. `enable` prints this notice only when it creates the directory, so a notice you do
+not see means the watcher already has the file.
+
 ## Context Budget
 
 akrctx keeps root instruction files small. Detailed workflows live in target skills or prompts and should be loaded only when the current task calls for them.

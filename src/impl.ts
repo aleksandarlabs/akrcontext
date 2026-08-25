@@ -1,6 +1,13 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { agentFilePathList, agentFiles, agentWarnings, resolveAgent, withAgentSetting } from "./agents.js";
+import {
+  agentDiscoveryNotice,
+  agentFilePathList,
+  agentFiles,
+  agentWarnings,
+  resolveAgent,
+  withAgentSetting,
+} from "./agents.js";
 import { hasValidLocalIgnore, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -345,6 +352,7 @@ export interface ImplEnableResult {
   maxAttempts: number;
   models: Array<{ target: Target; model?: string; configPath: string }>;
   warnings: string[];
+  discoveryNotice?: string;
 }
 
 export async function runImplEnable(options: CommandOptions): Promise<ImplEnableResult> {
@@ -359,6 +367,9 @@ export async function runImplEnable(options: CommandOptions): Promise<ImplEnable
   if (installedTargets.length === 0) {
     throw new Error("No installed target has an implementer agent format.");
   }
+
+  // Read before the writes below create the directory.
+  const discoveryNotice = await agentDiscoveryNotice(cwd, "implementer", installedTargets, { dryRun: options.dryRun });
 
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
@@ -396,6 +407,7 @@ export async function runImplEnable(options: CommandOptions): Promise<ImplEnable
     warnings: agentWarnings(next)
       .filter((warning) => warning.agent === "implementer")
       .map((warning) => warning.text),
+    discoveryNotice,
   };
 }
 

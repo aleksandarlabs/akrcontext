@@ -1,6 +1,13 @@
 import { readFile, rm } from "node:fs/promises";
 import path from "node:path";
-import { agentFilePathList, agentFiles, agentWarnings, resolveAgent, withAgentSetting } from "./agents.js";
+import {
+  agentDiscoveryNotice,
+  agentFilePathList,
+  agentFiles,
+  agentWarnings,
+  resolveAgent,
+  withAgentSetting,
+} from "./agents.js";
 import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
@@ -16,6 +23,7 @@ export interface JudgeEnableResult {
   writes: WriteResult[];
   models: Array<{ target: Target; model?: string; configPath: string }>;
   warnings: string[];
+  discoveryNotice?: string;
 }
 
 export interface JudgeStatusResult {
@@ -40,6 +48,9 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
   if (installedTargets.length === 0) {
     throw new Error("No installed target has a judge agent format.");
   }
+
+  // Read before the writes below create the directory.
+  const discoveryNotice = await agentDiscoveryNotice(cwd, "judge", installedTargets, { dryRun: options.dryRun });
 
   const writes: WriteResult[] = [];
   for (const target of installedTargets) {
@@ -71,6 +82,7 @@ export async function runJudgeEnable(options: CommandOptions): Promise<JudgeEnab
       configPath: `agents.judge.model.${target}`,
     })),
     warnings: judgeWarnings(next),
+    discoveryNotice,
   };
 }
 

@@ -1,3 +1,5 @@
+import path from "node:path";
+import { isDirectory } from "./fs-utils.js";
 import {
   claudeComprehensionAgentFile,
   codexComprehensionAgentFile,
@@ -108,6 +110,34 @@ export function hasAgentFormat(target: Target): target is AgentTarget {
 
 export function agentFiles(name: AgentName, target: AgentTarget, model?: string): Record<string, string> {
   return agentFileFactories[name][target](model);
+}
+
+/**
+ * Warn when the agent file akrctx is about to write will not be discovered by the host.
+ *
+ * Claude Code watches `.claude/agents/` for live changes, but it does not watch a
+ * directory that did not exist when the session started
+ * (https://code.claude.com/docs/en/sub-agents). On a fresh install `enable` creates that
+ * directory for the first time, so its agent stays unspawnable until the session
+ * restarts — the failure this reports.
+ *
+ * Call this before writing the agent files. Afterwards the directory always exists and
+ * the check reports nothing.
+ *
+ * A dry run reports nothing either. It writes no file, so the directory it would have
+ * created still does not exist and no restart would make anything spawnable.
+ */
+export async function agentDiscoveryNotice(
+  cwd: string,
+  name: AgentName,
+  targets: Target[],
+  options: { dryRun?: boolean } = {},
+): Promise<string | undefined> {
+  if (options.dryRun) return undefined;
+  if (!targets.includes("claude")) return undefined;
+  const dir = path.posix.dirname(agentFilePaths[name].claude);
+  if (await isDirectory(path.join(cwd, dir))) return undefined;
+  return `Claude Code does not watch ${dir}/ in this session, because the directory did not exist when the session started. akrctx-${name} is not spawnable until you restart Claude Code. Sessions you start after this one pick it up automatically.`;
 }
 
 /** Every file path an agent can occupy, for path-only callers (doctor, remove, status). */

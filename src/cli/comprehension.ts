@@ -1,7 +1,15 @@
 import type { Command } from "commander";
 import { runComprehensionDisable, runComprehensionEnable, runComprehensionStatus } from "../comprehension.js";
 import { bold, dim, file, green, yellow } from "../format.js";
-import { addCommon, log, mark, normalizeOptions, printAgentModels, printAgentWarnings } from "./shared.js";
+import {
+  addCommon,
+  log,
+  mark,
+  normalizeOptions,
+  printAgentDiscoveryNotice,
+  printAgentModels,
+  printAgentWarnings,
+} from "./shared.js";
 
 export function registerComprehension(program: Command): void {
   const comprehension = program
@@ -30,6 +38,7 @@ export function registerComprehension(program: Command): void {
       );
     }
     printAgentModels(result.models);
+    printAgentDiscoveryNotice(result.discoveryNotice);
     printAgentWarnings(result.warnings);
   });
 

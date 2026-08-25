@@ -744,6 +744,49 @@ describe("implementer agent files", () => {
   });
 });
 
+describe("claude agent discovery notice", () => {
+  it("warns on the enable that creates .claude/agents/, and stays silent afterwards", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+    expect(await pathExists(path.join(tmp, ".claude/agents"))).toBe(false);
+
+    const first = await runImplEnable({ cwd: tmp, nonInteractive: true });
+    expect(first.discoveryNotice).toMatch(/did not exist when the session started/);
+    expect(first.discoveryNotice).toContain("akrctx-implementer");
+
+    // The directory exists now, so Claude Code's watcher already covers it.
+    expect((await runImplEnable({ cwd: tmp, nonInteractive: true })).discoveryNotice).toBeUndefined();
+    expect((await runJudgeEnable({ cwd: tmp, nonInteractive: true })).discoveryNotice).toBeUndefined();
+  });
+
+  it("stays silent on a dry run, which creates no directory to be undiscovered", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const dry = await runImplEnable({ cwd: tmp, dryRun: true, nonInteractive: true });
+    expect(dry.discoveryNotice).toBeUndefined();
+    expect(await pathExists(path.join(tmp, ".claude/agents"))).toBe(false);
+
+    // The real run still reports it, so the dry run loses no information.
+    expect((await runImplEnable({ cwd: tmp, nonInteractive: true })).discoveryNotice).toBeDefined();
+  });
+
+  it("stays silent for a target that is not Claude Code", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect((await runImplEnable({ cwd: tmp, nonInteractive: true })).discoveryNotice).toBeUndefined();
+  });
+
+  it("warns on judge enable and on comprehension enable too", async () => {
+    await runInit({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    const judge = await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    expect(judge.discoveryNotice).toContain("akrctx-judge");
+
+    await rm(path.join(tmp, ".claude/agents"), { recursive: true });
+    const comprehension = await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
+    expect(comprehension.discoveryNotice).toContain("akrctx-comprehension");
+  });
+});
+
 // ── implementation log privacy ───────────────────────────────────────────────
 
 describe("implementation log privacy", () => {
