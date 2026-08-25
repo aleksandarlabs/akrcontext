@@ -417,5 +417,9 @@ Examples:
 Files with verified akrctx provenance are updated automatically. Modified or
 legacy files are preserved and receive a candidate under .akrctx/upgrades/.
 Resolve candidates and rerun upgrade to complete installedVersion migration.
+
+A rerun that covers every installed target removes the candidates it no longer
+writes, because those are the resolved ones. Candidate directories of earlier
+versions are kept: they cannot be regenerated.
 "
 `;

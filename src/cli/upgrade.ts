@@ -23,6 +23,10 @@ export function registerUpgrade(program: Command): void {
           "Files with verified akrctx provenance are updated automatically. Modified or",
           "legacy files are preserved and receive a candidate under .akrctx/upgrades/.",
           "Resolve candidates and rerun upgrade to complete installedVersion migration.",
+          "",
+          "A rerun that covers every installed target removes the candidates it no longer",
+          "writes, because those are the resolved ones. Candidate directories of earlier",
+          "versions are kept: they cannot be regenerated.",
         ].join("\n"),
       ),
   ).action(async (raw) => {
@@ -47,6 +51,11 @@ export function registerUpgrade(program: Command): void {
       ln();
       log(`  ${yellow("Preserved files with upgrade candidates:")}`);
       for (const write of suggestions) log(`    ${warn()} ${file(write.path)}`);
+    }
+    if (result.removed.length) {
+      ln();
+      log(`  ${options.dryRun ? "Resolved candidates to remove:" : "Removed resolved candidates:"}`);
+      for (const removed of result.removed) log(`    - ${file(removed)}`);
     }
     ln();
     if (result.obsolete.length) {

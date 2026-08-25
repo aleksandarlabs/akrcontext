@@ -28,11 +28,16 @@ export type CapsuleFile = (typeof capsuleFiles)[number];
  */
 export type CapsuleContent = Record<CapsuleFile, string>;
 
+export const upgradesDir = ".akrctx/upgrades";
+
+export const upgradesIgnorePath = `${upgradesDir}/.gitignore`;
+
 export const neutralRequired = [
   ".akrctx/config.json",
   ".akrctx/manifest.json",
   ".akrctx/policy.json",
   ".akrctx/local/.gitignore",
+  upgradesIgnorePath,
   ".akrctx/judge/README.md",
   ".akrctx/judge/schemas/review.schema.json",
   ".akrctx/comprehension/README.md",

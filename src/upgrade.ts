@@ -1,8 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { agentFiles, agentWarningTexts, hasAgentFormat, resolveAgents } from "./agents.js";
 import { readConfig } from "./config.js";
-import { ensureTrailingNewline, pathExists, writePlannedFile } from "./fs-utils.js";
+import { ensureTrailingNewline, pathExists, toPosix, writePlannedFile } from "./fs-utils.js";
+import { upgradesDir, upgradesIgnorePath } from "./harness-files.js";
 import {
   type akrctxManifest,
   contentHash,
@@ -28,6 +29,7 @@ import {
   piSkills,
   targetReferenceTemplates,
   taskTemplateFiles,
+  upgradesIgnoreTemplate,
   wikiTemplates,
 } from "./templates.js";
 import type { CommandOptions, Target, WriteResult, akrctxConfig, akrctxPolicy } from "./types.js";
@@ -41,6 +43,7 @@ export interface UpgradeResult {
   writes: WriteResult[];
   conflicts: string[];
   obsolete: string[];
+  removed: string[];
   completed: boolean;
   installationComplete: boolean;
   warnings: string[];
@@ -120,6 +123,8 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
   const nextConfig = { ...config, installedVersion: installationComplete ? CLI_VERSION : config.installedVersion };
   writes.push(await writeJsonIfChanged(cwd, ".akrctx/config.json", nextConfig, options, "akrctx config migration."));
 
+  const removed = coversAllTargets ? await removeResolvedCandidates(cwd, writes, options) : [];
+
   return {
     dryRun: Boolean(options.dryRun),
     fromVersion: config.installedVersion,
@@ -128,6 +133,7 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
     writes,
     conflicts,
     obsolete,
+    removed,
     completed,
     installationComplete,
     warnings: agentWarningTexts(config),
@@ -254,6 +260,54 @@ async function preserveRootInstruction(
   ];
 }
 
+/**
+ * Deletes the candidates this run did not write.
+ *
+ * A candidate that is still unresolved is rewritten by the same run, so only resolved ones
+ * are absent from `writes`. The caller skips this entirely when the run does not cover every
+ * installed target, because the untouched targets' candidates would look resolved without
+ * being so. Older version directories are never scanned: their candidates cannot be
+ * regenerated, so removing them would destroy a suggestion nobody accepted.
+ */
+async function removeResolvedCandidates(
+  cwd: string,
+  writes: WriteResult[],
+  options: CommandOptions,
+): Promise<string[]> {
+  const versionDir = path.posix.join(upgradesDir, CLI_VERSION);
+  const absoluteDir = path.join(cwd, versionDir);
+  if (!(await pathExists(absoluteDir))) return [];
+
+  const written = new Set(writes.filter((write) => write.kind === "suggest").map((write) => write.path));
+  const entries = await readdir(absoluteDir, { recursive: true, withFileTypes: true });
+  const stale = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => toPosix(path.relative(cwd, path.join(entry.parentPath, entry.name))))
+    .filter((relativePath) => !written.has(relativePath))
+    .sort();
+
+  if (!options.dryRun) {
+    for (const relativePath of stale) await rm(path.join(cwd, relativePath), { force: true });
+    await removeEmptyDirectories(absoluteDir);
+  }
+  return stale;
+}
+
+/** Removes a directory tree bottom-up, stopping at the first level that still holds content. */
+async function removeEmptyDirectories(absoluteDir: string): Promise<boolean> {
+  const entries = await readdir(absoluteDir, { withFileTypes: true });
+  let empty = true;
+  for (const entry of entries) {
+    if (!entry.isDirectory()) {
+      empty = false;
+      continue;
+    }
+    if (!(await removeEmptyDirectories(path.join(absoluteDir, entry.name)))) empty = false;
+  }
+  if (empty) await rm(absoluteDir, { recursive: true, force: true });
+  return empty;
+}
+
 async function preserveProjectKnowledge(
   cwd: string,
   config: akrctxConfig,
@@ -262,6 +316,7 @@ async function preserveProjectKnowledge(
   const projectName = await readProjectName(cwd);
   const files: Record<string, string> = {
     ".akrctx/local/.gitignore": localComprehensionIgnoreTemplate,
+    [upgradesIgnorePath]: upgradesIgnoreTemplate,
     ".akrctx/wiki/overview.md": overviewTemplate(projectName, config.targets, CLI_VERSION),
     ...Object.fromEntries(
       Object.entries(wikiTemplates).map(([relativePath, content]) => [

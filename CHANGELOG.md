@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `.akrctx/upgrades/.gitignore`, written by `akrctx init` and restored by `akrctx upgrade`
+  and `akrctx doctor --fix`. It ignores everything in the directory and keeps only itself
+  trackable, the same rule `.akrctx/local/.gitignore` already used. Upgrade candidates are
+  suggestions nobody accepted yet, so a candidate for `AGENTS.md` or `CLAUDE.md` that reaches
+  a commit puts a rejected copy of an instruction file in the tree, where an agent reading
+  the repository can find it. The project's own root `.gitignore` is never touched.
+
+### Changed
+
+- `akrctx upgrade` removes the candidates it no longer writes. A candidate that is still
+  unresolved is rewritten by the same run, so only resolved ones are absent and no live
+  suggestion can be lost. Candidates used to stay on disk forever once resolved. Two limits
+  keep the removal safe: a run that does not cover every installed target removes nothing,
+  because the untouched targets' candidates would look resolved without being so, and
+  candidate directories of earlier versions are never scanned, because their contents cannot
+  be regenerated. `--dry-run` reports what it would remove and removes nothing. The removals
+  appear in the CLI output and as `removed` in `UpgradeResult`.
+
 ### Fixed
 
 - The installed review schema now accepts the optional `independent` boolean the judge

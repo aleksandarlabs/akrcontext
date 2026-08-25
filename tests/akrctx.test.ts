@@ -17,7 +17,7 @@ import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js"
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
-import { capsuleFiles } from "../src/harness-files.js";
+import { capsuleFiles, upgradesIgnorePath } from "../src/harness-files.js";
 import { runInit } from "../src/init.js";
 import {
   JUDGE_SCHEMA_VERSION,
@@ -2250,6 +2250,129 @@ describe("upgrade", () => {
 
     expect(result.suggestions.some((s) => s.text.includes("akrctx upgrade"))).toBe(true);
     expect(result.suggestions.some((s) => s.text.includes("0.0.1"))).toBe(true);
+  });
+});
+
+// ── upgrade candidate hygiene ─────────────────────────────────────────────────
+
+describe("upgrade candidate hygiene", () => {
+  const candidateDir = `.akrctx/upgrades/${CLI_VERSION}`;
+  const editedSkill = ".agents/skills/akrctx-doctor/SKILL.md";
+
+  async function initWithConflict(): Promise<string> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const skillPath = path.join(tmp, editedSkill);
+    await writeFile(skillPath, `${await readFile(skillPath, "utf8")}\n<!-- local edit -->\n`, "utf8");
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    return path.join(tmp, candidateDir, editedSkill);
+  }
+
+  it("init writes a self-ignoring .gitignore for the upgrades directory", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const content = await readFile(path.join(tmp, upgradesIgnorePath), "utf8");
+    expect(isLocalIgnoreContentSafe(content)).toBe(true);
+  });
+
+  it("init leaves the project's own root .gitignore alone", async () => {
+    await writeFile(path.join(tmp, ".gitignore"), "node_modules/\n", "utf8");
+
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await readFile(path.join(tmp, ".gitignore"), "utf8")).toBe("node_modules/\n");
+  });
+
+  it("upgrade restores the upgrades ignore when an existing install lacks it", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, upgradesIgnorePath));
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, upgradesIgnorePath))).toBe(true);
+  });
+
+  it("removes a candidate the run no longer writes", async () => {
+    const candidatePath = await initWithConflict();
+    expect(await pathExists(candidatePath)).toBe(true);
+
+    await writeFile(path.join(tmp, editedSkill), await readFile(candidatePath));
+    const resolved = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(resolved.completed).toBe(true);
+    expect(await pathExists(candidatePath)).toBe(false);
+    expect(resolved.removed).toContain(path.posix.join(candidateDir, editedSkill));
+  });
+
+  it("keeps a candidate that is still unresolved", async () => {
+    const candidatePath = await initWithConflict();
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("never removes the upgrades ignore itself", async () => {
+    await initWithConflict();
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, upgradesIgnorePath))).toBe(true);
+  });
+
+  it("leaves candidate directories of other versions untouched", async () => {
+    const candidatePath = await initWithConflict();
+    const oldCandidate = path.join(tmp, ".akrctx/upgrades/0.0.1/AGENTS.md");
+    await mkdir(path.dirname(oldCandidate), { recursive: true });
+    await writeFile(oldCandidate, "# old suggestion\n", "utf8");
+
+    await writeFile(path.join(tmp, editedSkill), await readFile(candidatePath));
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await readFile(oldCandidate, "utf8")).toBe("# old suggestion\n");
+  });
+
+  it("removes nothing on a dry run but reports what it would remove", async () => {
+    const candidatePath = await initWithConflict();
+    await writeFile(path.join(tmp, editedSkill), await readFile(candidatePath));
+
+    const preview = await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+    expect(preview.removed).toContain(path.posix.join(candidateDir, editedSkill));
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("removes nothing when the run does not cover every installed target", async () => {
+    await runInit({ cwd: tmp, target: "all", nonInteractive: true });
+    const skillPath = path.join(tmp, editedSkill);
+    await writeFile(skillPath, `${await readFile(skillPath, "utf8")}\n<!-- local edit -->\n`, "utf8");
+    await runUpgrade({ cwd: tmp, nonInteractive: true });
+    const candidatePath = path.join(tmp, candidateDir, editedSkill);
+    await writeFile(skillPath, await readFile(candidatePath));
+
+    const partial = await runUpgrade({ cwd: tmp, target: "claude", nonInteractive: true });
+
+    expect(partial.removed).toEqual([]);
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("doctor reports a missing upgrades ignore and --fix restores it", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await rm(path.join(tmp, upgradesIgnorePath));
+
+    const diagnosis = await runDoctor({ cwd: tmp, nonInteractive: true });
+    expect(diagnosis.missing).toContain(upgradesIgnorePath);
+
+    await runDoctor({ cwd: tmp, fix: true, nonInteractive: true });
+    expect(isLocalIgnoreContentSafe(await readFile(path.join(tmp, upgradesIgnorePath), "utf8"))).toBe(true);
+  });
+
+  it("doctor reports a weakened upgrades ignore", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, upgradesIgnorePath), "*.tmp\n", "utf8");
+
+    const diagnosis = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+    expect(diagnosis.missing.some((gap) => gap.includes("must ignore upgrade candidates"))).toBe(true);
   });
 });
 

@@ -7,6 +7,7 @@ export {
   defaultPolicy,
   localComprehensionIgnoreTemplate,
   policyTemplate,
+  upgradesIgnoreTemplate,
 } from "./templates/defaults.js";
 export {
   agentSetupTemplate,

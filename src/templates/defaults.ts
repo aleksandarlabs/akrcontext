@@ -52,8 +52,14 @@ export function defaultConfig(targets: Target[], profile: Profile = "default"): 
   return config;
 }
 
+/** Ignores everything a directory holds while keeping the rule itself trackable. */
+export const selfIgnoringDirectoryTemplate = "*\n!.gitignore\n";
+
 /** Keeps personal comprehension responses out of version control by default. */
-export const localComprehensionIgnoreTemplate = "*\n!.gitignore\n";
+export const localComprehensionIgnoreTemplate = selfIgnoringDirectoryTemplate;
+
+/** Keeps upgrade candidates, which are suggestions nobody accepted yet, out of the diff. */
+export const upgradesIgnoreTemplate = selfIgnoringDirectoryTemplate;
 
 export function policyTemplate(profile: Profile = "default"): string {
   return JSON.stringify(defaultPolicy(profile), null, 2);

@@ -5,6 +5,7 @@ import { hasAgentFormat, resolveAgent } from "./agents.js";
 import { normalizeConfig, readConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { upgradesIgnorePath } from "./harness-files.js";
 import { createManifestFromWrites, templateHash } from "./manifest.js";
 import { type TemplatePack, loadBundledTemplatePack, loadTemplatePack, mergeTemplateJson } from "./template-pack.js";
 import {
@@ -24,6 +25,7 @@ import {
   piSkills,
   targetReferenceTemplates,
   taskTemplateFiles,
+  upgradesIgnoreTemplate,
   wikiTemplates,
 } from "./templates.js";
 import type { CommandOptions, InitResult, Target, TargetOption, WriteResult, akrctxConfig } from "./types.js";
@@ -107,6 +109,14 @@ export async function runInit(options: CommandOptions): Promise<InitResult> {
       localComprehensionIgnoreTemplate,
       false,
       "Keep personal akrctx comprehension records local.",
+    ),
+  );
+  writes.push(
+    await writeFile(
+      upgradesIgnorePath,
+      upgradesIgnoreTemplate,
+      false,
+      "Keep unaccepted upgrade candidates out of version control.",
     ),
   );
   const policyWarnings = describePolicyWeakening(defaultPolicy(profile), policy);

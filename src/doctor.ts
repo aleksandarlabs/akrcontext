@@ -5,7 +5,13 @@ import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfigForDiagnosis, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
-import { neutralRequired, protectedFiles, targetReferenceFile, targetRequired } from "./harness-files.js";
+import {
+  neutralRequired,
+  protectedFiles,
+  targetReferenceFile,
+  targetRequired,
+  upgradesIgnorePath,
+} from "./harness-files.js";
 import { runInit } from "./init.js";
 import {
   agentSetupTemplate,
@@ -14,6 +20,7 @@ import {
   gapsTemplate,
   localComprehensionIgnoreTemplate,
   recommendationsTemplate,
+  upgradesIgnoreTemplate,
 } from "./templates.js";
 import {
   type AgentName,
@@ -76,8 +83,23 @@ export async function runDoctor(options: CommandOptions): Promise<DoctorResult> 
   const policyFixed = await fixPolicy(cwd, options.dryRun);
   if (policyFixed) fixed.push(".akrctx/policy.json");
 
-  const localIgnoreFixed = await fixLocalIgnore(cwd, options.dryRun);
+  const localIgnoreFixed = await fixSelfIgnoringDirectory(
+    cwd,
+    localIgnorePath,
+    localComprehensionIgnoreTemplate,
+    "Protect personal comprehension records from version control.",
+    options.dryRun,
+  );
   if (localIgnoreFixed && !options.dryRun) fixed.push(localIgnorePath);
+
+  const upgradesIgnoreFixed = await fixSelfIgnoringDirectory(
+    cwd,
+    upgradesIgnorePath,
+    upgradesIgnoreTemplate,
+    "Keep unaccepted upgrade candidates out of version control.",
+    options.dryRun,
+  );
+  if (upgradesIgnoreFixed && !options.dryRun) fixed.push(upgradesIgnorePath);
 
   // Re-run diagnosis after fixes and report what changed.
   const final = await diagnose(cwd, options);
@@ -141,15 +163,17 @@ function normalizeConfigForFix(
   };
 }
 
-async function fixLocalIgnore(cwd: string, dryRun?: boolean): Promise<boolean> {
-  const ignorePath = path.join(cwd, localIgnorePath);
+async function fixSelfIgnoringDirectory(
+  cwd: string,
+  relativePath: string,
+  content: string,
+  reason: string,
+  dryRun?: boolean,
+): Promise<boolean> {
+  const ignorePath = path.join(cwd, relativePath);
   const current = await readFile(ignorePath, "utf8").catch(() => undefined);
   if (isLocalIgnoreContentSafe(current)) return false;
-  await writePlannedFile(cwd, localIgnorePath, localComprehensionIgnoreTemplate, {
-    dryRun,
-    force: true,
-    reason: "Protect personal comprehension records from version control.",
-  });
+  await writePlannedFile(cwd, relativePath, content, { dryRun, force: true, reason });
   return true;
 }
 
@@ -314,10 +338,19 @@ async function getPolicyGaps(cwd: string): Promise<string[]> {
 }
 
 async function getLocalPrivacyGaps(cwd: string): Promise<string[]> {
-  const ignorePath = path.join(cwd, localIgnorePath);
-  const current = await readFile(ignorePath, "utf8").catch(() => undefined);
-  if (current === undefined || isLocalIgnoreContentSafe(current)) return [];
-  return [`${localIgnorePath} — must ignore local records and keep only .gitignore trackable`];
+  // A missing file is already reported by the required-file check, so only a weakened
+  // rule set is a gap here.
+  const checks = [
+    [localIgnorePath, "must ignore local records and keep only .gitignore trackable"],
+    [upgradesIgnorePath, "must ignore upgrade candidates and keep only .gitignore trackable"],
+  ] as const;
+  const gaps: string[] = [];
+  for (const [relativePath, requirement] of checks) {
+    const current = await readFile(path.join(cwd, relativePath), "utf8").catch(() => undefined);
+    if (current === undefined || isLocalIgnoreContentSafe(current)) continue;
+    gaps.push(`${relativePath} — ${requirement}`);
+  }
+  return gaps;
 }
 
 function arrayIncludes(value: unknown, expected: string): boolean {
