@@ -30,6 +30,28 @@ project (for the judge's in-snapshot review; `verify --run-tests` does not trust
 see Independent re-execution). It does not change live refs, branch, index, stash, worktree
 files, or history.
 
+When the captured repository is akrctx itself (`package.json.name` is `akr-context`), capture
+also builds the CLI artifact required by its validation suite. This is a fixed akrctx build:
+the current akrctx `esbuild` API is given the literal `src/index.ts` entry, `dist/index.js`
+output, and fixed Node/ESM/bundling options. It does not read or execute `scripts.build`, any
+other package script, or a build configuration from the captured repository. A consumer
+project, including one with a `build` script, remains source-only and its scripts are not run.
+The entry must be a regular file whose resolved path stays inside the private snapshot. A
+snapshot-boundary plugin checks every local resolution and every file loaded by esbuild with
+`realpath`; escaping absolute imports, relative imports, and symlinked local paths are rejected.
+`package.json` is contained before it is read, and an akrctx candidate without the fixed entry
+fails capture explicitly. Package imports remain external and are not traversed by this check.
+The generated `dist/index.js` and external sourcemap are recorded in snapshot metadata and
+included in the candidate identity; modifying either after capture invalidates the snapshot even
+though `dist/` is ignored by Git.
+The build happens only in the private snapshot; a failure discards the temporary capture and
+never publishes a partial snapshot.
+
+The independent judge reads the canonical snapshot as immutable evidence. Its own declared
+validation runs in a disposable temporary copy, never in that canonical worktree, because normal
+commands such as `pnpm build` may rewrite generated artifacts. The trusted caller later performs
+the stronger `judge verify --run-tests` re-execution in a separate disposable copy.
+
 The scope contains SHA-256 digests of the five task-capsule documents and exact changed
 boundary. The judge copies it unchanged into the final JSON record. Commit and strict
 `WORKTREE` candidates remain supported for compatibility.

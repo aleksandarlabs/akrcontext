@@ -72,7 +72,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
-      "hash": "sha256:ed8808e953ee3e7d288f852665d3e2ffe628a74aafcde42fca615dc2bcebb783"
+      "hash": "sha256:742bbaf046e7dc855abdd7721013321ea9b88a50b97faa65d1e5b67db9cf436e"
     },
     ".claude/agents/akrctx-implementer.md": {
       "hash": "sha256:b1355d945d55a0d73aab7891b0fc3927b1c9810c1932c188ec5fa05ea35799f5"

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, symlink, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -3202,20 +3202,243 @@ describe("judge", () => {
       path.join(tmp, "package.json"),
       JSON.stringify({
         name: "akr-context",
-        scripts: {
-          build:
-            "node -e \"require('fs').mkdirSync('dist',{recursive:true});require('fs').writeFileSync('dist/index.js','snapshot build')\"",
-        },
       }),
       "utf8",
     );
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), 'export const snapshotBuild = "snapshot build";\n', "utf8");
     await writeFile(path.join(tmp, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
     await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
 
     const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
 
-    expect(await readFile(path.join(snapshot.worktreePath, "dist/index.js"), "utf8")).toBe("snapshot build");
+    expect(await readFile(path.join(snapshot.worktreePath, "dist/index.js"), "utf8")).toContain("snapshot build");
     expect(await pathExists(path.join(tmp, "dist/index.js"))).toBe(false);
+  });
+
+  it.each(["dist/index.js", "dist/index.js.map"])(
+    "invalidates a snapshot when ignored artifact %s is tampered with",
+    async (artifact) => {
+      const { task } = await createReviewFixture();
+      await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+      await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+      await mkdir(path.join(tmp, "src"), { recursive: true });
+      await writeFile(path.join(tmp, "src/index.ts"), 'export const snapshotBuild = "snapshot build";\n', "utf8");
+
+      const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+      await writeFile(
+        path.join(snapshot.worktreePath, artifact),
+        `${await readFile(path.join(snapshot.worktreePath, artifact), "utf8")}tampered\n`,
+        "utf8",
+      );
+
+      await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow(/artifact integrity/);
+    },
+  );
+
+  it("gives equivalent recaptures the same snapshot ID", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), 'export const snapshotBuild = "snapshot build";\n', "utf8");
+
+    const first = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const second = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect(second.id).toBe(first.id);
+    expect(second.candidate).toBe(first.candidate);
+  });
+
+  it("keeps artifact identity independent from mutable ctime integrity", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), 'export const snapshotBuild = "snapshot build";\n', "utf8");
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+
+    expect(metadata.artifactContentDigest).toBeDefined();
+    expect(metadata.artifactIntegrityDigest).toBeDefined();
+    expect(metadata.artifactContentDigest).not.toBe(metadata.artifactIntegrityDigest);
+
+    const recapture = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    expect(recapture.id).toBe(snapshot.id);
+  });
+
+  it("rejects an artifact whose content and mutable fingerprint are both replaced", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), 'export const snapshotBuild = "snapshot build";\n', "utf8");
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const artifactPath = path.join(snapshot.worktreePath, "dist/index.js");
+    await writeFile(artifactPath, `${await readFile(artifactPath, "utf8")}tampered\n`, "utf8");
+    const artifactInfo = await stat(artifactPath);
+    const artifactBytes = await readFile(artifactPath);
+    const artifactContent = `sha256:${createHash("sha256").update("file\\0").update(artifactBytes).digest("hex")}`;
+    const artifactStat = `sha256:${createHash("sha256").update("stat\\0").update(String(artifactInfo.ctimeMs)).digest("hex")}`;
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    const originalMapBytes = await readFile(path.join(snapshot.worktreePath, "dist/index.js.map"));
+    const mapInfo = await stat(path.join(snapshot.worktreePath, "dist/index.js.map"));
+    const mapContent = `sha256:${createHash("sha256").update("file\\0").update(originalMapBytes).digest("hex")}`;
+    const mapStat = `sha256:${createHash("sha256").update("stat\\0").update(String(mapInfo.ctimeMs)).digest("hex")}`;
+    const integrity = createHash("sha256")
+      .update(`dist/index.js\\0${artifactContent}\\0${artifactStat}\\0`)
+      .update(`dist/index.js.map\\0${mapContent}\\0${mapStat}\\0`)
+      .digest("hex");
+    metadata.artifactIntegrityDigest = `sha256:${integrity}`;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow(
+      "generated artifact content no longer matches its capture",
+    );
+  });
+
+  it("rejects a non-regular package.json before reading it", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+    await execFileAsync("git", ["add", "package.json"], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "add package metadata"], { cwd: tmp });
+    await rm(path.join(tmp, "package.json"), { recursive: true, force: true });
+    await mkdir(path.join(tmp, "package.json"));
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+      /package\.json must be a regular file/,
+    );
+  });
+
+  it("rejects a package.json symlink before reading outside the snapshot", async () => {
+    const { task } = await createReviewFixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "akrctx-external-package-"));
+    try {
+      await writeFile(path.join(outside, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+      await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+      await symlink(path.join(outside, "package.json"), path.join(tmp, "package.json"));
+
+      await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+        /package.json.*outside the snapshot/,
+      );
+
+      const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+      expect(snapshots).toEqual([]);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an akrctx package when its fixed entry is missing", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+      /fixed entry src\/index\.ts is missing/,
+    );
+
+    const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+    expect(snapshots).toEqual([]);
+  });
+
+  it("rejects an akrctx entry symlink that points outside the snapshot", async () => {
+    const { task } = await createReviewFixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "akrctx-external-entry-"));
+    try {
+      const externalEntry = path.join(outside, "index.ts");
+      await writeFile(externalEntry, 'export const leaked = "external entry";\n', "utf8");
+      await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+      await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+      await mkdir(path.join(tmp, "src"), { recursive: true });
+      await symlink(externalEntry, path.join(tmp, "src/index.ts"));
+
+      await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+        /must not be a symlink|outside the snapshot/,
+      );
+
+      const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+      expect(snapshots).toEqual([]);
+      expect(await pathExists(path.join(tmp, "dist/index.js"))).toBe(false);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an akrctx absolute import that points outside the snapshot", async () => {
+    const { task } = await createReviewFixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "akrctx-external-absolute-"));
+    try {
+      const externalImport = path.join(outside, "external.ts");
+      await writeFile(externalImport, 'export const leaked = "external absolute import";\n', "utf8");
+      await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+      await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+      await mkdir(path.join(tmp, "src"), { recursive: true });
+      await writeFile(
+        path.join(tmp, "src/index.ts"),
+        `import { leaked } from ${JSON.stringify(externalImport)};\nexport { leaked };\n`,
+        "utf8",
+      );
+
+      await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(/outside the snapshot/);
+
+      const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+      expect(snapshots).toEqual([]);
+      expect(await pathExists(path.join(tmp, "dist/index.js"))).toBe(false);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a relative import symlink that points outside the snapshot", async () => {
+    const { task } = await createReviewFixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "akrctx-external-relative-"));
+    try {
+      const externalImport = path.join(outside, "external.ts");
+      await writeFile(externalImport, 'export const leaked = "external relative import";\n', "utf8");
+      await writeFile(path.join(tmp, "package.json"), JSON.stringify({ name: "akr-context" }), "utf8");
+      await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+      await mkdir(path.join(tmp, "src"), { recursive: true });
+      await writeFile(
+        path.join(tmp, "src/index.ts"),
+        'import { leaked } from "./escape.ts";\nexport { leaked };\n',
+        "utf8",
+      );
+      await symlink(externalImport, path.join(tmp, "src/escape.ts"));
+
+      await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(/outside the snapshot/);
+
+      const snapshots = await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => []);
+      expect(snapshots).toEqual([]);
+      expect(await pathExists(path.join(tmp, "dist/index.js"))).toBe(false);
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  it("does not execute an akrctx candidate's build script while capturing a snapshot", async () => {
+    const { task } = await createReviewFixture();
+    const marker = path.join(tmp, "candidate-build-ran.txt");
+    const encodedMarker = Buffer.from(marker).toString("base64");
+    await writeFile(
+      path.join(tmp, "package.json"),
+      JSON.stringify({
+        name: "akr-context",
+        scripts: {
+          build: `node -e "require('fs').writeFileSync(Buffer.from('${encodedMarker}','base64').toString(),'unexpected')"`,
+        },
+      }),
+      "utf8",
+    );
+    await writeFile(path.join(tmp, ".gitignore"), ".akrctx/local/\ndist/\n", "utf8");
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), 'export const safeEntry = "safe";\n', "utf8");
+
+    await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    expect(await pathExists(marker)).toBe(false);
   });
 
   it("cleans up a snapshot capture when its local artifact build fails", async () => {
@@ -3225,6 +3448,8 @@ describe("judge", () => {
       JSON.stringify({ name: "akr-context", scripts: { build: 'node -e "process.exit(1)"' } }),
       "utf8",
     );
+    await mkdir(path.join(tmp, "src"), { recursive: true });
+    await writeFile(path.join(tmp, "src/index.ts"), "export const =\n", "utf8");
     await writeFile(path.join(tmp, "pnpm-lock.yaml"), "lockfileVersion: '9.0'\n", "utf8");
 
     await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(

@@ -1,0 +1,22 @@
+# Review Checklist
+
+- [x] Goal is clear.
+- [x] Security boundary and scope are explicit.
+- [x] Workflow and reason are recorded.
+- [x] Tests and validation commands are defined.
+- [x] No unresolved questions remain.
+- [x] A failing regression proves candidate-controlled build scripts currently execute.
+- [x] The implementation removes candidate-controlled command execution.
+- [x] Entry symlink, absolute import, and transitive symlink escapes are rejected.
+- [x] No external content can be copied into ignored build output.
+- [x] Snapshot artifact, isolation, cleanup, and integrity tests pass after containment.
+- [x] Documentation matches the implemented esbuild containment scope.
+- [x] Full build, test, lint, init dry-run, and doctor validation pass after containment.
+- [x] `package.json` is contained before it is read.
+- [x] Missing fixed entry fails instead of silently skipping the required artifact.
+- [x] Generated ignored artifacts verify both content identity and mutable integrity metadata.
+- [x] Equivalent recaptures keep a deterministic snapshot ID independent of artifact `ctime`.
+- [x] The out-of-scope `maxAttempts: 4` policy change is reverted or explicitly approved.
+- [x] Existing protected instructions were not overwritten.
+- [x] Judge validation preserves the canonical snapshot by using a disposable copy.
+- [x] The final boundary is ready for independent review.

@@ -41,6 +41,16 @@ describe("agent template renderings", () => {
 
   describe("judge", () => {
     it.each(Object.entries(judgeRenderers))(
+      "%s rendering keeps validation away from the canonical snapshot",
+      (_target, renderer) => {
+        const content = onlyContent(renderer());
+        expect(content).toContain("canonical snapshot");
+        expect(content).toContain("disposable temporary copy");
+        expect(content).toContain("Never run validation commands in the canonical snapshot worktree");
+      },
+    );
+
+    it.each(Object.entries(judgeRenderers))(
       "%s rendering carries the review-policy instruction",
       (_target, renderer) => {
         const content = onlyContent(renderer());
@@ -67,6 +77,12 @@ describe("agent template renderings", () => {
       expect(example.scope.schemaVersion).toBe(JUDGE_SCHEMA_VERSION);
       const testEntry = example.tests[0];
       expect(Object.keys(testEntry).sort()).toEqual(["command", "evidence", "status"]);
+    });
+
+    it("judge contract documents the integrity exception for registered generated artifacts", () => {
+      expect(judgeContractFiles[".akrctx/judge/README.md"]).toContain(
+        "fixed generated artifacts explicitly registered by snapshot capture",
+      );
     });
 
     it("shipped schema accepts the optional independent field the judge is told to emit", () => {

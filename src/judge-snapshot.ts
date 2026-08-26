@@ -10,6 +10,7 @@ import {
   readFile,
   readdir,
   readlink,
+  realpath,
   rename,
   rm,
   stat,
@@ -20,13 +21,18 @@ import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
+import { type Plugin, build as buildWithEsbuild } from "esbuild";
 import type { JudgeScope } from "./judge-enforcement.js";
 
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
 const SNAPSHOT_PREFIX = "SNAPSHOT:";
-const SNAPSHOT_VERSION = 3;
+const SNAPSHOT_VERSION = 4;
 const MAX_CAPTURE_ATTEMPTS = 3;
+const AKRCTX_PACKAGE_NAME = "akr-context";
+const AKRCTX_BUILD_ENTRY = "src/index.ts";
+const AKRCTX_BUILD_OUTPUT = "dist/index.js";
+const AKRCTX_BUILD_ARTIFACTS = [AKRCTX_BUILD_OUTPUT, `${AKRCTX_BUILD_OUTPUT}.map`] as const;
 
 export interface JudgeSnapshotParent {
   snapshotId: string;
@@ -41,6 +47,8 @@ export interface JudgeSnapshotMetadata {
   taskId: string;
   contentDigest: string;
   workspaceDigest: string;
+  artifactContentDigest?: string;
+  artifactIntegrityDigest?: string;
   sourceScope: JudgeScope;
   scope: JudgeScope;
   parent?: JudgeSnapshotParent;
@@ -170,7 +178,7 @@ async function loadJudgeSnapshotInternal(
   }
   if (metadata.version !== SNAPSHOT_VERSION) {
     throw new Error(
-      "Snapshot integrity check failed: this snapshot was captured by an older akrctx that predates write detection; capture a new snapshot.",
+      "Snapshot integrity check failed: this snapshot was captured by an older akrctx that predates write detection and generated artifact integrity; capture a new snapshot.",
     );
   }
   if (metadata.id !== id || metadata.scope.candidate !== candidate || metadata.taskId !== metadata.scope.taskId) {
@@ -201,6 +209,25 @@ async function loadJudgeSnapshotInternal(
       "Snapshot integrity check failed: workspace was modified after capture (a file was changed and restored, or a file was created and deleted). Capture a new snapshot.",
     );
   }
+  if (metadata.artifactContentDigest !== undefined || metadata.artifactIntegrityDigest !== undefined) {
+    if (metadata.artifactContentDigest === undefined || metadata.artifactIntegrityDigest === undefined) {
+      throw new Error("Snapshot artifact integrity check failed: artifact identity metadata is incomplete.");
+    }
+    let artifacts: Map<string, PathFingerprint>;
+    try {
+      artifacts = await artifactManifest(worktreePath);
+    } catch (error) {
+      throw new Error(`Snapshot artifact integrity check failed: ${messageOf(error)}`);
+    }
+    if (contentDigest(artifacts) !== metadata.artifactContentDigest) {
+      throw new Error(
+        "Snapshot artifact integrity check failed: generated artifact content no longer matches its capture.",
+      );
+    }
+    if (workspaceDigest(artifacts) !== metadata.artifactIntegrityDigest) {
+      throw new Error("Snapshot artifact integrity check failed: generated artifact was modified after capture.");
+    }
+  }
   if (metadata.parent) {
     const currentParentRecord = await readFile(path.join(cwd, metadata.parent.recordPath)).catch(() => undefined);
     if (!currentParentRecord || hash([currentParentRecord]) !== metadata.parent.recordDigest) {
@@ -219,7 +246,13 @@ async function loadJudgeSnapshotInternal(
       throw new Error(`Snapshot integrity check failed: parent snapshot is invalid (${messageOf(error)}).`);
     }
   }
-  const expectedId = snapshotId(metadata.taskId, metadata.sourceScope, currentContentDigest, metadata.parent);
+  const expectedId = snapshotId(
+    metadata.taskId,
+    metadata.sourceScope,
+    currentContentDigest,
+    metadata.artifactContentDigest,
+    metadata.parent,
+  );
   if (expectedId !== id || scopeDigest(metadata.scope) !== metadata.scope.scopeDigest) {
     throw new Error("Snapshot integrity check failed: metadata digest no longer matches its capture.");
   }
@@ -427,13 +460,16 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
       await removeBlockedPaths(worktreePath, blockedPatterns);
       await overlayChangedFiles(cwd, worktreePath, sourceScope.changedFiles);
       await copyLocalDependencies(cwd, worktreePath);
-      await buildSnapshotArtifacts(worktreePath);
+      const builtArtifacts = await buildSnapshotArtifacts(worktreePath);
       // pnpm updates private workspace bookkeeping while it runs a script. Restore the copied
       // dependency tree and its lockfile so those incidental writes cannot become part of the
       // immutable boundary.
       await rm(path.join(worktreePath, "node_modules"), { recursive: true, force: true });
       await copyLocalDependencies(cwd, worktreePath);
       await restorePackageManagerState(cwd, worktreePath);
+      const artifactManifestResult = builtArtifacts ? await artifactManifest(worktreePath) : undefined;
+      const artifactContentDigest = artifactManifestResult ? contentDigest(artifactManifestResult) : undefined;
+      const artifactIntegrityDigest = artifactManifestResult ? workspaceDigest(artifactManifestResult) : undefined;
 
       const after = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE");
       if (!sameLiveBoundary(after, sourceScope)) {
@@ -464,7 +500,7 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
             recordDigest: parent.recordDigest,
           }
         : undefined;
-      const id = snapshotId(taskId, sourceScope, snapshotContentDigest, parentRecord);
+      const id = snapshotId(taskId, sourceScope, snapshotContentDigest, artifactContentDigest, parentRecord);
       const candidate = `${SNAPSHOT_PREFIX}${id}`;
       const changedFiles = parent ? changedManifestPaths(parent.manifest, manifest) : sourceScope.changedFiles;
       const changeDigest = parent ? deltaDigest(parent.manifest, manifest) : sourceScope.changeDigest;
@@ -482,6 +518,8 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
         taskId,
         contentDigest: snapshotContentDigest,
         workspaceDigest: snapshotWorkspaceDigest,
+        ...(artifactContentDigest ? { artifactContentDigest } : {}),
+        ...(artifactIntegrityDigest ? { artifactIntegrityDigest } : {}),
         sourceScope,
         scope,
         parent: parentRecord,
@@ -592,40 +630,105 @@ async function copyLocalDependencies(sourceRoot: string, snapshotRoot: string): 
 /**
  * Build artifacts belong to the reviewed copy, never to the live worktree. The CLI test suite
  * invokes `dist/index.js`, but `dist/` is ignored and therefore absent from a clean snapshot.
- * This is an akrctx repository concern, not permission to execute a consumer's package script:
- * every other project remains a source-only snapshot.
+ * This fixed build is an akrctx repository concern, not permission to execute a consumer's
+ * package script: every other project remains a source-only snapshot.
  */
-async function buildSnapshotArtifacts(worktreePath: string): Promise<void> {
-  const packageJsonPath = path.join(worktreePath, "package.json");
-  if (!(await lstat(packageJsonPath).catch(() => undefined))) return;
-  let packageJson: { name?: unknown; scripts?: Record<string, unknown> };
+async function buildSnapshotArtifacts(worktreePath: string): Promise<boolean> {
+  const snapshotRoot = await realpath(worktreePath);
+  const packageJsonPath = path.join(snapshotRoot, "package.json");
+  const packageInfo = await lstat(packageJsonPath).catch(() => undefined);
+  if (!packageInfo) return false;
+  if (packageInfo.isSymbolicLink()) {
+    await assertSnapshotPath(snapshotRoot, packageJsonPath, "package.json");
+    throw new Error("Cannot build judge snapshot artifacts: package.json must not be a symlink.");
+  }
+  if (!packageInfo.isFile()) {
+    throw new Error("Cannot build judge snapshot artifacts: package.json must be a regular file.");
+  }
+  await assertSnapshotPath(snapshotRoot, packageJsonPath, "package.json");
+  let packageJson: { name?: unknown };
   try {
-    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as {
-      name?: unknown;
-      scripts?: Record<string, unknown>;
-    };
+    packageJson = JSON.parse(await readFile(packageJsonPath, "utf8")) as { name?: unknown };
   } catch {
-    return;
+    return false;
   }
-  if (
-    packageJson.name !== "akr-context" ||
-    typeof packageJson.scripts?.build !== "string" ||
-    !packageJson.scripts.build.trim()
-  ) {
-    return;
+  if (packageJson.name !== AKRCTX_PACKAGE_NAME) return false;
+  const entryPath = path.join(snapshotRoot, AKRCTX_BUILD_ENTRY);
+  const entryInfo = await lstat(entryPath).catch(() => undefined);
+  if (!entryInfo) {
+    throw new Error(`Cannot build judge snapshot artifacts: fixed entry ${AKRCTX_BUILD_ENTRY} is missing.`);
   }
+  if (entryInfo.isSymbolicLink()) {
+    throw new Error(`Cannot build judge snapshot artifacts: fixed entry ${AKRCTX_BUILD_ENTRY} must not be a symlink.`);
+  }
+  await assertSnapshotPath(snapshotRoot, entryPath, `fixed entry ${AKRCTX_BUILD_ENTRY}`);
+
   try {
-    await execFileAsync("pnpm", ["build"], {
-      cwd: worktreePath,
-      encoding: "utf8",
-      maxBuffer: 64 * 1024 * 1024,
-      timeout: 15 * 60_000,
+    await buildWithEsbuild({
+      absWorkingDir: snapshotRoot,
+      entryPoints: [entryPath],
+      outfile: AKRCTX_BUILD_OUTPUT,
+      bundle: true,
+      format: "esm",
+      packages: "external",
+      platform: "node",
+      sourcemap: "external",
+      target: "node20",
+      tsconfigRaw: {
+        compilerOptions: {
+          module: "ESNext",
+          moduleResolution: "Bundler",
+          target: "ES2022",
+        },
+      },
+      logLevel: "silent",
+      plugins: [snapshotBoundaryPlugin(snapshotRoot)],
     });
   } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr ?? "";
-    throw new Error(
-      `Cannot build judge snapshot artifacts (pnpm build failed): ${messageOf(error)}${stderr ? `\n${stderr}` : ""}`,
-    );
+    throw new Error(`Cannot build judge snapshot artifacts (fixed akrctx build failed): ${messageOf(error)}`);
+  }
+  await artifactManifest(snapshotRoot);
+  return true;
+}
+
+function snapshotBoundaryPlugin(snapshotRoot: string): Plugin {
+  return {
+    name: "akrctx-snapshot-boundary",
+    setup(build) {
+      build.onResolve({ filter: /.*/ }, async (args) => {
+        if (!isLocalImport(args.path)) return undefined;
+        const requestedPath = path.isAbsolute(args.path)
+          ? args.path
+          : path.resolve(args.resolveDir || snapshotRoot, args.path);
+        if (!(await lstat(requestedPath).catch(() => undefined))) return undefined;
+        await assertSnapshotPath(snapshotRoot, requestedPath, `local import ${args.path}`);
+        return undefined;
+      });
+      build.onLoad({ filter: /.*/ }, async (args) => {
+        await assertSnapshotPath(snapshotRoot, args.path, `loaded path ${args.path}`);
+        return undefined;
+      });
+    },
+  };
+}
+
+function isLocalImport(specifier: string): boolean {
+  return (
+    path.isAbsolute(specifier) ||
+    specifier === "." ||
+    specifier === ".." ||
+    specifier.startsWith("./") ||
+    specifier.startsWith("../")
+  );
+}
+
+async function assertSnapshotPath(snapshotRoot: string, candidatePath: string, label: string): Promise<void> {
+  const resolvedPath = await realpath(candidatePath).catch((error) => {
+    throw new Error(`Cannot resolve ${label}: ${messageOf(error)}`);
+  });
+  const relative = path.relative(snapshotRoot, resolvedPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error(`${label} resolves outside the snapshot: ${resolvedPath}`);
   }
 }
 
@@ -700,6 +803,21 @@ async function workspaceManifest(root: string, blockedPatterns: string[]): Promi
     const info = await lstat(path.join(root, dir)).catch(() => undefined);
     if (!info || !info.isDirectory()) continue;
     manifest.set(dir, { content: "dir", stat: statOf(info) });
+  }
+  return manifest;
+}
+
+async function artifactManifest(root: string): Promise<Map<string, PathFingerprint>> {
+  const snapshotRoot = await realpath(root);
+  const manifest = new Map<string, PathFingerprint>();
+  for (const relativePath of AKRCTX_BUILD_ARTIFACTS) {
+    const absolutePath = path.join(snapshotRoot, relativePath);
+    const info = await lstat(absolutePath).catch(() => undefined);
+    if (!info || !info.isFile() || info.isSymbolicLink()) {
+      throw new Error(`generated artifact ${relativePath} is missing or not a regular file`);
+    }
+    await assertSnapshotPath(snapshotRoot, absolutePath, `generated artifact ${relativePath}`);
+    manifest.set(relativePath, { content: hash(["file\0", await readFile(absolutePath)]), stat: statOf(info) });
   }
   return manifest;
 }
@@ -787,9 +905,13 @@ function snapshotId(
   taskId: string,
   sourceScope: JudgeScope,
   contentDigest: string,
+  artifactContentDigest: string | undefined,
   parent?: JudgeSnapshotParent,
 ): string {
-  return hash([JSON.stringify({ taskId, sourceScope, contentDigest, parent })]).slice("sha256:".length, 27);
+  return hash([JSON.stringify({ taskId, sourceScope, contentDigest, artifactContentDigest, parent })]).slice(
+    "sha256:".length,
+    27,
+  );
 }
 
 function scopeDigest(scope: Omit<JudgeScope, "scopeDigest"> | JudgeScope): string {
