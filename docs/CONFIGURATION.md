@@ -258,7 +258,7 @@ Every field is optional. An absent field falls back to the built-in default.
 | Field | Meaning |
 | --- | --- |
 | `enabled` | Whether the agent is emitted and offered. Default `false`. |
-| `trigger` | A scheduling hint the lead agent / host may honour. A free string akrctx propagates but does not enforce (see below). |
+| `trigger` | A scheduling hint for the lead agent / host. Recognized values and behavior depend on the agent; see the implementer semantics below. Unknown values remain warnings. |
 | `targets` | Narrows emission to a subset of the installed targets. |
 | `model` | Per target: `{ "claude": …, "codex": …, "copilot": … }`. |
 | `maxAttempts` | `implementer` only. Positive integer, default `3`. |
@@ -273,17 +273,18 @@ akrctx config set agents.judge.model.claude opus
 akrctx config set agents.implementer.maxAttempts 3
 ```
 
-### `trigger` is a hint, not a switch akrctx enforces
+### Implementer trigger semantics
 
-`trigger` is advisory scheduling metadata. akrctx writes the string into the generated
-agent file and reports it in `status`, but it does **not** act on it: nothing in akrctx
-schedules or fires an agent at the trigger point. Whether an agent is actually invoked at
-`post-implementation` or `post-clarification` depends on the lead agent / host honouring
-that hint, not on akrctx enforcing it. The field is named `trigger` for brevity; treat it as
-a scheduling hint the host interprets, not a switch akrctx actuates. A free string is
-accepted precisely because akrctx cannot enumerate every point in a workflow a project
-might want an agent invoked at, and refusing an unfamiliar value would block legitimate
-work to catch a typo.
+The lead agent reads the resolved implementer state from `akrctx impl status TASK-XXX --json`;
+it must not duplicate canonical/legacy precedence by reading a raw config key. When the
+resolved implementer is disabled, it is neither offered nor started. With `on-request`, the
+handoff is offered only after the user asks to use the implementer. With
+`post-clarification`, it is offered after the capsule is ready and clarifications are
+resolved. Both paths require explicit human confirmation before delegation. akrctx does not
+schedule or fire an agent automatically.
+
+Unknown trigger values remain warnings. They never invent an automatic invocation; the lead
+agent waits for an explicit user request and confirmation.
 
 ### Warnings, not errors
 
@@ -331,7 +332,7 @@ acceptance criteria and records every round in an append-only log.
 akrctx impl enable                 # install the agent files, set agents.implementer.enabled
 akrctx impl start TASK-001         # open or resume the log, get the round number
 akrctx impl log TASK-001 ...       # append one round record
-akrctx impl status TASK-001        # attempts used, remaining, last blocker
+akrctx impl status TASK-001        # resolved enabled/trigger, attempts, remaining, last blocker
 ```
 
 The log lives at `.akrctx/local/impl/<TASK-ID>/log.md`, which `.akrctx/local/.gitignore`

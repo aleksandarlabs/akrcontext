@@ -52,6 +52,9 @@ export interface RoundRecord {
 export interface ImplStatusResult {
   taskId: string;
   logPath: string;
+  /** Implementer settings resolved through resolveAgent, including legacy fallback. */
+  enabled: boolean;
+  trigger: string;
   /**
    * Null when the log is unreadable.
    *
@@ -223,18 +226,17 @@ async function readRecords(cwd: string, taskId: string): Promise<{ records: Roun
   }
 }
 
-async function maxAttempts(cwd: string): Promise<number> {
-  const config = await readConfig(cwd);
-  if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
-  return resolveAgent(config, "implementer").maxAttempts;
-}
-
 export async function runImplStatus(taskId: string, options: CommandOptions): Promise<ImplStatusResult> {
   const cwd = options.cwd ?? process.cwd();
-  const budget = await maxAttempts(cwd);
+  const config = await readConfig(cwd);
+  if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
+  const resolved = resolveAgent(config, "implementer");
+  const budget = resolved.maxAttempts;
   const unusable = {
     taskId,
     logPath: implLogPath(taskId),
+    enabled: resolved.enabled,
+    trigger: resolved.trigger,
     attemptsUsed: null,
     attemptsRemaining: 0,
     maxAttempts: budget,
@@ -253,19 +255,23 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     return { ...unusable, readable: false, blocked, error };
   }
 
-  const stopped = records.length >= budget;
+  const stopped = !resolved.enabled || records.length >= budget;
   return {
     taskId,
     logPath: implLogPath(taskId),
+    enabled: resolved.enabled,
+    trigger: resolved.trigger,
     attemptsUsed: records.length,
     attemptsRemaining: Math.max(0, budget - records.length),
     maxAttempts: budget,
     stopped,
     lastBlocker: records.length ? records[records.length - 1].blocker : undefined,
     readable: true,
-    blocked: stopped
-      ? `Attempt budget spent: ${records.length} of ${budget} rounds recorded. Hand the task back instead of starting another round.`
-      : undefined,
+    blocked: !resolved.enabled
+      ? "Implementer is disabled in the resolved configuration. Ask the user to enable it before delegating."
+      : stopped
+        ? `Attempt budget spent: ${records.length} of ${budget} rounds recorded. Hand the task back instead of starting another round.`
+        : undefined,
   };
 }
 

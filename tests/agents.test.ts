@@ -25,6 +25,7 @@ import { createJudgeScope } from "../src/judge-enforcement.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runStatus } from "../src/status.js";
 import { runTask } from "../src/task.js";
+import { mainInstructionTemplate } from "../src/templates/instructions.js";
 import { targets as targetNames } from "../src/types.js";
 import { runUpgrade } from "../src/upgrade.js";
 
@@ -181,6 +182,42 @@ describe("agents configuration", () => {
     });
 
     expect(resolveAgent((await readConfig(tmp)) as never, "implementer").enabled).toBe(true);
+  });
+
+  it("exposes the resolved implementer configuration in status for canonical and legacy config", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await setConfigValue(tmp, "agents.implementer.enabled", "true");
+    await setConfigValue(tmp, "agents.implementer.trigger", "on-request");
+
+    await expect(runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true })).resolves.toMatchObject({
+      enabled: true,
+      trigger: "on-request",
+    });
+
+    await writeRawConfig((config) => {
+      // biome-ignore lint/performance/noDelete: the test verifies legacy fallback when canonical config is absent.
+      delete (config.agents as Record<string, unknown>).implementer;
+      Object.assign(config, { impl: { enabled: true } });
+    });
+    await expect(runImplStatus("TASK-002", { cwd: tmp, nonInteractive: true })).resolves.toMatchObject({
+      enabled: true,
+      trigger: "post-clarification",
+    });
+  });
+
+  it("refuses to start or log implementation when the resolved implementer is disabled", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const status = await runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true });
+    expect(status).toMatchObject({ enabled: false, trigger: "post-clarification", stopped: true });
+    expect(status.blocked).toMatch(/disabled/i);
+
+    const start = await runImplStart("TASK-001", { cwd: tmp, nonInteractive: true });
+    expect(start).toMatchObject({ refused: true, enabled: false });
+    await expect(runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true })).resolves.toMatchObject({
+      refused: true,
+      enabled: false,
+    });
   });
 
   it("does not rewrite a legacy configuration when a read-only command runs", async () => {
@@ -363,6 +400,17 @@ describe("agent models", () => {
 // ── triggers ─────────────────────────────────────────────────────────────────
 
 describe("agent triggers", () => {
+  it("renders distinct on-request and post-clarification handoff rules with human confirmation", () => {
+    for (const target of ["codex", "claude", "copilot"] as const) {
+      const content = mainInstructionTemplate(target);
+      expect(content).toContain("akrctx impl status TASK-XXX --json");
+      expect(content).toContain("on-request");
+      expect(content).toContain("post-clarification");
+      expect(content).toMatch(/Never delegate automatically/i);
+      expect(content).toMatch(/explicit human confirmation/i);
+    }
+  });
+
   it("propagates an unrecognized trigger with a warning", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await setConfigValue(tmp, "agents.judge.trigger", "before-lunch");
@@ -532,6 +580,11 @@ const round = (overrides: Partial<Parameters<typeof runImplLog>[1]> = {}) => ({
 });
 
 describe("akrctx impl", () => {
+  beforeEach(async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runImplEnable({ cwd: tmp, nonInteractive: true });
+  });
+
   it("creates the log, reports round 1, and reports round 3 after two rounds", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
 
@@ -835,6 +888,7 @@ describe("implementation log privacy", () => {
 
   it("refuses to append to a log the review boundary would pick up", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runImplEnable({ cwd: tmp, nonInteractive: true });
     await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
     await rm(localIgnore());
 

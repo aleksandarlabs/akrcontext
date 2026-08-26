@@ -30,7 +30,7 @@ export function registerImpl(program: Command): void {
         "  akrctx impl enable                 install the implementer agent files",
         "  akrctx impl start TASK-001         open or resume the log, get the round number",
         "  akrctx impl log TASK-001 ...       append one round record",
-        "  akrctx impl status TASK-001        attempts used, remaining, last blocker",
+        "  akrctx impl status TASK-001        resolved enabled/trigger, attempts, remaining, last blocker",
         "",
         "The attempt budget comes from agents.implementer.maxAttempts (default 3) and is",
         "enforced by the store: `impl log` refuses to append past it whether or not",
@@ -155,7 +155,7 @@ export function registerImpl(program: Command): void {
   addCommon(
     impl
       .command("status")
-      .description("Report attempts used, attempts remaining, the last blocker, and whether the task is stopped.")
+      .description("Report resolved implementer settings, attempts used, remaining budget, and stopped state.")
       .argument("<task-id>", "task capsule ID, for example TASK-001"),
     false,
   ).action(async (taskId: string, raw) => {
@@ -175,6 +175,7 @@ export function registerImpl(program: Command): void {
     log(
       `${bold("Implementation:")} ${result.stopped ? yellow("stopped") : green("open")} ${dim(`(${result.attemptsUsed}/${result.maxAttempts} rounds)`)}`,
     );
+    log(`  ${dim(`Enabled: ${result.enabled}  Trigger: ${result.trigger}`)}`);
     log(`  ${dim(`Log: ${result.logPath}`)}`);
     log(`  ${dim(`Attempts remaining: ${result.attemptsRemaining}`)}`);
     if (result.lastBlocker) log(`  ${dim(`Last blocker: ${result.lastBlocker}`)}`);

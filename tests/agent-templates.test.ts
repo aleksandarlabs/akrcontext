@@ -31,8 +31,11 @@ describe("agent template renderings", () => {
     it.each(["codex", "claude", "copilot"] as const)("%s rendering describes implementer delegation", (target) => {
       const content = mainInstructionTemplate(target);
       expect(content).toContain("akrctx-implementer");
-      expect(content).toContain("agents.implementer.enabled");
-      expect(content).toContain("ask the user before delegating");
+      expect(content).toContain("akrctx impl status TASK-XXX --json");
+      expect(content).toContain("on-request");
+      expect(content).toContain("post-clarification");
+      expect(content).toContain("explicit human confirmation");
+      expect(content).toContain("Never delegate automatically");
       expect(content).toContain("akrctx impl start TASK-XXX");
       expect(content).toContain("akrctx impl status TASK-XXX");
       expect(content).toContain("owner of the capsule, validation, and handoff to `akrctx-judge`");

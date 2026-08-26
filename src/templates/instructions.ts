@@ -49,7 +49,15 @@ In both sections one entry is one top-level \`- \` bullet, wrapped with indented
 
 ## Implementation Delegation
 
-After the capsule is ready and clarifications are resolved, if \`agents.implementer.enabled\` is true, ask the user before delegating implementation to \`akrctx-implementer\`. This depends on \`enabled\`, not the implementer's \`trigger\` value. Before its first round, direct it to run \`akrctx impl start TASK-XXX\`; use \`akrctx impl status TASK-XXX\` to check the remaining attempt budget.
+Before considering delegation, run \`akrctx impl status TASK-XXX --json\` and use its resolved \`enabled\` and \`trigger\` fields as the single source of truth; this includes legacy \`impl.enabled\` fallback. If \`enabled\` is false, do not offer or start the implementer. Never delegate automatically: every handoff to \`akrctx-implementer\` requires explicit human confirmation.
+
+Honor the resolved trigger as follows:
+
+- \`on-request\`: offer the handoff only when the user asks to use the implementer.
+- \`post-clarification\`: after the capsule is ready and clarifications are resolved, ask whether the user wants the handoff, then delegate only after explicit human confirmation.
+- Any other trigger: preserve the warning and do not invent an automatic invocation; wait for an explicit user request and confirmation.
+
+Before its first approved round, direct the implementer to run \`akrctx impl start TASK-XXX\`; use \`akrctx impl status TASK-XXX --json\` to check the remaining attempt budget.
 
 You remain the owner of the capsule, validation, and handoff to \`akrctx-judge\`. The implementer writes code and records its round; it does not take over those responsibilities.
 
