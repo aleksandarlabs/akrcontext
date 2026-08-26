@@ -20,16 +20,17 @@ los escenarios donde la inferencia por ausencia provoca pérdida de información
   dentro de un directorio ignorado o por no aparecer en los `writes` actuales.
 - **Postconditions:** candidatos pendientes sobreviven a desactivación de agentes, retirada
   de targets y cambios de inventario; archivos sin procedencia sobreviven; un candidato
-  aplicado puede limpiarse y se informa en `UpgradeResult.removed`.
+  aplicado con registro de ruta, hash intacto y bytes idénticos al destino puede limpiarse y
+  se informa en `UpgradeResult.removed`.
 - **Out of scope:** limpieza de versiones antiguas o heurísticas destructivas.
 
 ## Implementation Brief
 
 1. Escribir regresiones para agente desactivado, target retirado, archivo ya no gestionado y
    archivo ajeno; confirmar que la implementación actual los borra.
-2. Definir una prueba positiva de resolución. Puede reutilizar hashes/procedencia o comparar
-   de forma segura el candidato conocido con su destino, pero no puede depender únicamente
-   del conjunto de sugerencias generado en el run actual.
+2. Registrar ruta y hash durablemente al crear cada candidato; exigir ese registro, hash
+   intacto y contenido idéntico al destino para resolverlo. La procedencia solo se registra
+   cuando `writePlannedFile` confirma `kind="create"`; un candidato preexistente no se adopta.
 3. Aplicar la misma clasificación en dry-run y ejecución real.
 4. Mantener intactos los límites existentes: otros CLI_VERSION, runs parciales y el propio
    `.akrctx/upgrades/.gitignore`.
@@ -37,7 +38,8 @@ los escenarios donde la inferencia por ausencia provoca pérdida de información
 
 ## Steps
 
-1. Fijar ejemplos destructivos con tests fallidos.
-2. Implementar clasificación conservadora con procedencia verificable.
+1. Fijar ejemplos destructivos con tests fallidos, incluido un candidato extranjero que
+   coincide byte a byte con un destino real.
+2. Implementar clasificación conservadora con procedencia verificable y hash intacto.
 3. Validar preview y aplicación real.
 4. Completar checklist y solicitar revisión independiente.

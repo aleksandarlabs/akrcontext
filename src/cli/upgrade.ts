@@ -24,9 +24,10 @@ export function registerUpgrade(program: Command): void {
           "legacy files are preserved and receive a candidate under .akrctx/upgrades/.",
           "Resolve candidates and rerun upgrade to complete installedVersion migration.",
           "",
-          "A rerun that covers every installed target removes the candidates it no longer",
-          "writes, because those are the resolved ones. Candidate directories of earlier",
-          "versions are kept: they cannot be regenerated.",
+          "A rerun that covers every installed target removes only candidates whose exact",
+          "content is present at the destination and whose durable akrctx hash is intact.",
+          "Unresolved, tampered, and foreign candidates survive.",
+          "Candidate directories of earlier versions are kept: they cannot be regenerated.",
         ].join("\n"),
       ),
   ).action(async (raw) => {

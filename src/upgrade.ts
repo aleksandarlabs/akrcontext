@@ -61,9 +61,11 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
     schemaVersion: 1,
     cliVersion: CLI_VERSION,
     files: { ...(previousManifest?.files ?? {}) },
+    candidates: { ...(previousManifest?.candidates ?? {}) },
   };
   const writes: WriteResult[] = [];
   const conflicts: string[] = [];
+  const createdCandidates = new Set<string>();
 
   const desired = desiredManagedFiles(config, selectedTargets);
   for (const [relativePath, content] of Object.entries(desired)) {
@@ -71,18 +73,22 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
     writes.push(...result.writes);
     if (result.conflict) conflicts.push(relativePath);
     if (result.appliedHash) nextManifest.files[relativePath] = { hash: result.appliedHash };
+    if (result.createdCandidate) createdCandidates.add(result.createdCandidate);
   }
 
   for (const target of selectedTargets) {
     const root = rootInstruction(target);
     if (!root) continue;
-    writes.push(...(await preserveRootInstruction(cwd, root.path, root.content, options)));
+    const rootResult = await preserveRootInstruction(cwd, root.path, root.content, options);
+    writes.push(...rootResult.writes);
+    if (rootResult.createdCandidate) createdCandidates.add(rootResult.createdCandidate);
   }
 
   writes.push(...(await preserveProjectKnowledge(cwd, config, options)));
   const policyMigration = await migratePolicy(cwd, config, options);
   writes.push(...policyMigration.writes);
   if (policyMigration.conflict) conflicts.push(".akrctx/policy.json");
+  if (policyMigration.createdCandidate) createdCandidates.add(policyMigration.createdCandidate);
 
   const allDesiredPaths = new Set(Object.keys(desiredManagedFiles(config, config.targets)));
   const templateOwnedPaths = new Set(config.templatePacks.flatMap((pack) => Object.keys(pack.fileHashes)));
@@ -104,18 +110,22 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
   if (invalidManifest) {
     const relativePath = ".akrctx/manifest.json";
     const suggestionPath = path.posix.join(".akrctx", "upgrades", CLI_VERSION, relativePath);
-    await writePlannedFile(cwd, suggestionPath, `${JSON.stringify(nextManifest, null, 2)}\n`, {
+    const suggestion = await writePlannedFile(cwd, suggestionPath, `${JSON.stringify(nextManifest, null, 2)}\n`, {
       dryRun: options.dryRun,
       reason: "Replacement provenance manifest candidate.",
     });
+    if (suggestion.kind === "create") createdCandidates.add(suggestion.path);
     writes.push(
       { kind: "preserve", path: relativePath, reason: "Invalid provenance manifest was preserved." },
-      { kind: "suggest", path: suggestionPath, reason: "Review replacement manifest, then rerun upgrade." },
+      {
+        ...asCandidateWrite(suggestion),
+        reason: suggestion.reason ?? "Review replacement manifest, then rerun upgrade.",
+      },
     );
     conflicts.push(relativePath);
-  } else {
-    writes.push(await writeManifest(cwd, nextManifest, Boolean(options.dryRun)));
   }
+
+  if (!options.dryRun) await recordUpgradeCandidates(cwd, nextManifest, writes, createdCandidates);
 
   const completed = conflicts.length === 0;
   const coversAllTargets = config.targets.every((target) => selectedTargets.includes(target));
@@ -123,7 +133,8 @@ export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult
   const nextConfig = { ...config, installedVersion: installationComplete ? CLI_VERSION : config.installedVersion };
   writes.push(await writeJsonIfChanged(cwd, ".akrctx/config.json", nextConfig, options, "akrctx config migration."));
 
-  const removed = coversAllTargets ? await removeResolvedCandidates(cwd, writes, options) : [];
+  const removed = coversAllTargets ? await removeResolvedCandidates(cwd, nextManifest, writes, options) : [];
+  if (!invalidManifest) writes.push(await writeManifest(cwd, nextManifest, Boolean(options.dryRun)));
 
   return {
     dryRun: Boolean(options.dryRun),
@@ -176,7 +187,7 @@ async function upgradeManagedFile(
   content: string,
   manifest: akrctxManifest | undefined,
   options: CommandOptions,
-): Promise<{ writes: WriteResult[]; conflict: boolean; appliedHash?: string }> {
+): Promise<{ writes: WriteResult[]; conflict: boolean; appliedHash?: string; createdCandidate?: string }> {
   const absolute = path.join(cwd, relativePath);
   const desired = ensureTrailingNewline(content);
   const desiredHash = templateHash(content);
@@ -208,7 +219,7 @@ async function upgradeManagedFile(
   }
 
   const suggestionPath = path.posix.join(".akrctx", "upgrades", CLI_VERSION, relativePath);
-  await writePlannedFile(cwd, suggestionPath, desired, {
+  const suggestion = await writePlannedFile(cwd, suggestionPath, desired, {
     dryRun: options.dryRun,
     reason: `Upgrade candidate for ${relativePath}.`,
   });
@@ -219,9 +230,10 @@ async function upgradeManagedFile(
         path: relativePath,
         reason: "Preserved because installed provenance is missing or content changed.",
       },
-      { kind: "suggest", path: suggestionPath, reason: `Review and merge into ${relativePath}.` },
+      { ...asCandidateWrite(suggestion), reason: suggestion.reason ?? `Review and merge into ${relativePath}.` },
     ],
     conflict: true,
+    createdCandidate: suggestion.kind === "create" ? suggestion.path : undefined,
   };
 }
 
@@ -239,25 +251,30 @@ async function preserveRootInstruction(
   relativePath: string,
   content: string,
   options: CommandOptions,
-): Promise<WriteResult[]> {
+): Promise<{ writes: WriteResult[]; createdCandidate?: string }> {
   const absolute = path.join(cwd, relativePath);
   if (!(await pathExists(absolute))) {
-    return [
-      await writePlannedFile(cwd, relativePath, content, {
-        dryRun: options.dryRun,
-        reason: "Missing root instruction file restored.",
-      }),
-    ];
+    return {
+      writes: [
+        await writePlannedFile(cwd, relativePath, content, {
+          dryRun: options.dryRun,
+          reason: "Missing root instruction file restored.",
+        }),
+      ],
+    };
   }
   if (contentHash(await readFile(absolute)) === templateHash(content)) {
-    return [{ kind: "preserve", path: relativePath, reason: "Root instructions already current." }];
+    return { writes: [{ kind: "preserve", path: relativePath, reason: "Root instructions already current." }] };
   }
   const suggestionPath = path.posix.join(".akrctx", "upgrades", CLI_VERSION, relativePath);
-  await writePlannedFile(cwd, suggestionPath, content, { dryRun: options.dryRun });
-  return [
-    { kind: "preserve", path: relativePath, reason: "Project-owned root instructions are never overwritten." },
-    { kind: "suggest", path: suggestionPath, reason: `Optional merge candidate for ${relativePath}.` },
-  ];
+  const suggestion = await writePlannedFile(cwd, suggestionPath, content, { dryRun: options.dryRun });
+  return {
+    writes: [
+      { kind: "preserve", path: relativePath, reason: "Project-owned root instructions are never overwritten." },
+      { ...asCandidateWrite(suggestion), reason: suggestion.reason ?? `Optional merge candidate for ${relativePath}.` },
+    ],
+    createdCandidate: suggestion.kind === "create" ? suggestion.path : undefined,
+  };
 }
 
 /**
@@ -271,6 +288,7 @@ async function preserveRootInstruction(
  */
 async function removeResolvedCandidates(
   cwd: string,
+  manifest: akrctxManifest,
   writes: WriteResult[],
   options: CommandOptions,
 ): Promise<string[]> {
@@ -280,17 +298,64 @@ async function removeResolvedCandidates(
 
   const written = new Set(writes.filter((write) => write.kind === "suggest").map((write) => write.path));
   const entries = await readdir(absoluteDir, { recursive: true, withFileTypes: true });
-  const stale = entries
+  const candidates = entries
     .filter((entry) => entry.isFile())
     .map((entry) => toPosix(path.relative(cwd, path.join(entry.parentPath, entry.name))))
-    .filter((relativePath) => !written.has(relativePath))
     .sort();
+  const stale: string[] = [];
+  for (const relativePath of candidates) {
+    if (written.has(relativePath)) continue;
+    if (await candidateMatchesDestination(cwd, versionDir, relativePath, manifest.candidates?.[relativePath])) {
+      stale.push(relativePath);
+    }
+  }
 
   if (!options.dryRun) {
     for (const relativePath of stale) await rm(path.join(cwd, relativePath), { force: true });
+    for (const relativePath of stale) delete manifest.candidates?.[relativePath];
     await removeEmptyDirectories(absoluteDir);
   }
   return stale;
+}
+
+/** A candidate is removable only with durable provenance, intact bytes, and an identical destination. */
+async function candidateMatchesDestination(
+  cwd: string,
+  versionDir: string,
+  candidatePath: string,
+  provenance: { hash: string } | undefined,
+): Promise<boolean> {
+  const prefix = `${versionDir}/`;
+  if (!provenance || !candidatePath.startsWith(prefix)) return false;
+  const destination = candidatePath.slice(prefix.length);
+  try {
+    const [candidate, applied] = await Promise.all([
+      readFile(path.join(cwd, candidatePath)),
+      readFile(path.join(cwd, destination)),
+    ]);
+    return contentHash(candidate) === provenance.hash && candidate.equals(applied);
+  } catch {
+    return false;
+  }
+}
+
+async function recordUpgradeCandidates(
+  cwd: string,
+  manifest: akrctxManifest,
+  writes: WriteResult[],
+  createdCandidates: Set<string>,
+): Promise<void> {
+  if (!manifest.candidates) manifest.candidates = {};
+  const candidates = manifest.candidates;
+  for (const write of writes) {
+    if (!createdCandidates.has(write.path) || !write.path.startsWith(`${upgradesDir}/${CLI_VERSION}/`)) continue;
+    const candidate = await readFile(path.join(cwd, write.path));
+    candidates[write.path] = { hash: contentHash(candidate) };
+  }
+}
+
+function asCandidateWrite(write: WriteResult): WriteResult {
+  return { ...write, kind: write.kind === "create" ? "suggest" : write.kind };
 }
 
 /** Removes a directory tree bottom-up, stopping at the first level that still holds content. */
@@ -372,7 +437,7 @@ async function migratePolicy(
   cwd: string,
   config: akrctxConfig,
   options: CommandOptions,
-): Promise<{ writes: WriteResult[]; conflict: boolean }> {
+): Promise<{ writes: WriteResult[]; conflict: boolean; createdCandidate?: string }> {
   const profile = config.profile ?? "default";
   const relativePath = ".akrctx/policy.json";
   const absolute = path.join(cwd, relativePath);
@@ -389,16 +454,22 @@ async function migratePolicy(
     current = JSON.parse(await readFile(absolute, "utf8"));
   } catch {
     const suggestionPath = path.posix.join(".akrctx", "upgrades", CLI_VERSION, relativePath);
-    await writePlannedFile(cwd, suggestionPath, `${JSON.stringify(defaultPolicy(profile), null, 2)}\n`, {
-      dryRun: options.dryRun,
-      reason: "Safe policy replacement candidate.",
-    });
+    const suggestion = await writePlannedFile(
+      cwd,
+      suggestionPath,
+      `${JSON.stringify(defaultPolicy(profile), null, 2)}\n`,
+      {
+        dryRun: options.dryRun,
+        reason: "Safe policy replacement candidate.",
+      },
+    );
     return {
       writes: [
         { kind: "preserve", path: relativePath, reason: "Invalid policy JSON was preserved." },
-        { kind: "suggest", path: suggestionPath, reason: "Repair policy manually, then rerun upgrade." },
+        { ...asCandidateWrite(suggestion), reason: suggestion.reason ?? "Repair policy manually, then rerun upgrade." },
       ],
       conflict: true,
+      createdCandidate: suggestion.kind === "create" ? suggestion.path : undefined,
     };
   }
   const migrated = mergeTemplateJson(defaultPolicy(profile), current);

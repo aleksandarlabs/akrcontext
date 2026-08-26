@@ -2294,6 +2294,10 @@ describe("upgrade candidate hygiene", () => {
   it("removes a candidate the run no longer writes", async () => {
     const candidatePath = await initWithConflict();
     expect(await pathExists(candidatePath)).toBe(true);
+    const manifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(manifest.candidates[path.posix.join(candidateDir, editedSkill)]).toMatchObject({
+      hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
 
     await writeFile(path.join(tmp, editedSkill), await readFile(candidatePath));
     const resolved = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
@@ -2301,6 +2305,8 @@ describe("upgrade candidate hygiene", () => {
     expect(resolved.completed).toBe(true);
     expect(await pathExists(candidatePath)).toBe(false);
     expect(resolved.removed).toContain(path.posix.join(candidateDir, editedSkill));
+    const updatedManifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(updatedManifest.candidates[path.posix.join(candidateDir, editedSkill)]).toBeUndefined();
   });
 
   it("keeps a candidate that is still unresolved", async () => {
@@ -2308,6 +2314,138 @@ describe("upgrade candidate hygiene", () => {
 
     await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
 
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("keeps a candidate when its agent is disabled before rerunning upgrade", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runJudgeEnable({ cwd: tmp, nonInteractive: true });
+    const agentPath = ".codex/agents/akrctx-judge.toml";
+    await writeFile(path.join(tmp, agentPath), `${await readFile(path.join(tmp, agentPath), "utf8")}\n# local edit\n`);
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const candidatePath = path.join(tmp, candidateDir, agentPath);
+
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.agents.judge.enabled = false;
+    await writeFile(configPath, JSON.stringify(config, null, 2));
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, agentPath));
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("keeps a candidate when its target is removed from config", async () => {
+    const candidatePath = await initWithConflict();
+    const configPath = path.join(tmp, ".akrctx/config.json");
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    config.targets = ["claude"];
+    await writeFile(configPath, JSON.stringify(config, null, 2));
+
+    const result = await runUpgrade({ cwd: tmp, nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, editedSkill));
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("keeps a candidate for a path no longer in the managed inventory", async () => {
+    const candidatePath = await initWithConflict();
+    const retiredPath = ".agents/skills/akrctx-retired/SKILL.md";
+    const retiredCandidate = path.join(tmp, candidateDir, retiredPath);
+    await mkdir(path.dirname(retiredCandidate), { recursive: true });
+    await writeFile(retiredCandidate, await readFile(candidatePath));
+    await rm(candidatePath);
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, retiredPath));
+    expect(await pathExists(retiredCandidate)).toBe(true);
+  });
+
+  it("keeps a foreign regular file under the current candidate directory", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const foreignPath = path.join(tmp, candidateDir, "foreign.txt");
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, "not created by akrctx\n");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, "foreign.txt"));
+    expect(await pathExists(foreignPath)).toBe(true);
+  });
+
+  it("keeps a foreign candidate matching a real destination byte-for-byte", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const destination = ".agents/skills/akrctx-doctor/SKILL.md";
+    const foreignPath = path.join(tmp, candidateDir, destination);
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, await readFile(path.join(tmp, destination)));
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, destination));
+    expect(await pathExists(foreignPath)).toBe(true);
+  });
+
+  it("does not adopt a preexisting matching candidate and never removes it later", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const destination = ".agents/skills/akrctx-doctor/SKILL.md";
+    const destinationPath = path.join(tmp, destination);
+    const foreignPath = path.join(tmp, candidateDir, destination);
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, await readFile(destinationPath));
+    await writeFile(destinationPath, `${await readFile(destinationPath, "utf8")}\n<!-- local edit -->\n`);
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const candidateKey = path.posix.join(candidateDir, destination);
+    const firstManifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(firstManifest.candidates?.[candidateKey]).toBeUndefined();
+
+    await writeFile(destinationPath, await readFile(foreignPath));
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(candidateKey);
+    expect(await pathExists(foreignPath)).toBe(true);
+    const secondManifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(secondManifest.candidates?.[candidateKey]).toBeUndefined();
+  });
+
+  it("records and cleans a policy candidate created by akrctx", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const policyPath = path.join(tmp, ".akrctx/policy.json");
+    const candidateKey = path.posix.join(candidateDir, ".akrctx/policy.json");
+    const candidatePath = path.join(tmp, candidateKey);
+    await writeFile(policyPath, "{ invalid policy\n", "utf8");
+
+    const first = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(first.conflicts).toContain(".akrctx/policy.json");
+    expect(await pathExists(candidatePath)).toBe(true);
+    const firstManifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(firstManifest.candidates?.[candidateKey]).toMatchObject({
+      hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
+
+    await writeFile(policyPath, await readFile(candidatePath));
+    const resolved = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(resolved.removed).toContain(candidateKey);
+    expect(await pathExists(candidatePath)).toBe(false);
+    const secondManifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(secondManifest.candidates?.[candidateKey]).toBeUndefined();
+  });
+
+  it("keeps a registered candidate after its bytes are tampered with", async () => {
+    const candidatePath = await initWithConflict();
+    const tampered = `${await readFile(candidatePath, "utf8")}\n<!-- tampered -->\n`;
+    await writeFile(candidatePath, tampered);
+    await writeFile(path.join(tmp, editedSkill), tampered);
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(path.posix.join(candidateDir, editedSkill));
     expect(await pathExists(candidatePath)).toBe(true);
   });
 

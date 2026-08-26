@@ -10,10 +10,15 @@ export interface ManagedFileRecord {
   hash: string;
 }
 
+export interface UpgradeCandidateRecord {
+  hash: string;
+}
+
 export interface akrctxManifest {
   schemaVersion: 1;
   cliVersion: string;
   files: Record<string, ManagedFileRecord>;
+  candidates?: Record<string, UpgradeCandidateRecord>;
 }
 
 export function contentHash(content: string | Buffer): string {
@@ -38,6 +43,20 @@ export async function readManifest(cwd: string): Promise<akrctxManifest | undefi
           typeof entry === "object" &&
           /^sha256:[0-9a-f]{64}$/.test(String((entry as ManagedFileRecord).hash)),
       )
+    ) {
+      return undefined;
+    }
+    if (
+      value.candidates !== undefined &&
+      (typeof value.candidates !== "object" ||
+        Array.isArray(value.candidates) ||
+        !Object.entries(value.candidates).every(
+          ([relativePath, entry]) =>
+            isSafeManifestPath(relativePath) &&
+            entry &&
+            typeof entry === "object" &&
+            /^sha256:[0-9a-f]{64}$/.test(String((entry as UpgradeCandidateRecord).hash)),
+        ))
     ) {
       return undefined;
     }

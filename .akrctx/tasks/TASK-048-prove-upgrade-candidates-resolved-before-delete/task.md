@@ -12,8 +12,12 @@ el inventario gestionado puede cambiar o el directorio puede contener un archivo
 nunca creó. En esos casos el upgrade elimina información no aceptada y difícil de recuperar.
 
 La limpieza debe ser conservadora: solo puede borrar un candidato cuya procedencia sea
-conocida y cuyo estado actual demuestre que ya fue aplicado o sustituido de forma segura.
-La mera ausencia en `writes` no es evidencia suficiente.
+conocida y durable, cuyo hash registrado siga intacto y cuyo estado actual demuestre que ya
+fue aplicado o sustituido de forma segura. La mera ausencia en `writes` o la coincidencia
+de bytes con el destino no es evidencia suficiente.
+
+La procedencia de cada candidato creado por akrctx se registra en `.akrctx/manifest.json`
+con su ruta y hash. Candidatos antiguos, manipulados o sin registro se conservan.
 
 ## Validation
 
