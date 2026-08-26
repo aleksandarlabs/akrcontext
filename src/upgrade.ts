@@ -1,4 +1,5 @@
-import { readFile, readdir, rm } from "node:fs/promises";
+import type { Dirent } from "node:fs";
+import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { agentFiles, agentWarningTexts, hasAgentFormat, resolveAgents } from "./agents.js";
 import { readConfig } from "./config.js";
@@ -47,6 +48,36 @@ export interface UpgradeResult {
   completed: boolean;
   installationComplete: boolean;
   warnings: string[];
+}
+
+type CandidateDirent = Pick<Dirent, "name" | "isDirectory" | "isFile" | "isSymbolicLink">;
+type CandidateDirectoryReader = (directory: string) => Promise<readonly CandidateDirent[]>;
+
+/** Lists regular files below a directory without relying on post-Node-20 recursive APIs. */
+export async function collectRegularFiles(
+  root: string,
+  readDirectory: CandidateDirectoryReader = async (directory) => readdir(directory, { withFileTypes: true }),
+  base = root,
+): Promise<string[]> {
+  const files: string[] = [];
+  const rootInfo = await lstat(root).catch(() => undefined);
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) return files;
+
+  async function walk(directory: string): Promise<void> {
+    const entries = [...(await readDirectory(directory))].sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const child = path.join(directory, entry.name);
+      if (entry.isSymbolicLink()) continue;
+      if (entry.isDirectory()) {
+        await walk(child);
+      } else if (entry.isFile()) {
+        files.push(toPosix(path.relative(base, child)));
+      }
+    }
+  }
+
+  await walk(root);
+  return files.sort();
 }
 
 export async function runUpgrade(options: CommandOptions): Promise<UpgradeResult> {
@@ -295,13 +326,11 @@ async function removeResolvedCandidates(
   const versionDir = path.posix.join(upgradesDir, CLI_VERSION);
   const absoluteDir = path.join(cwd, versionDir);
   if (!(await pathExists(absoluteDir))) return [];
+  const rootInfo = await lstat(absoluteDir).catch(() => undefined);
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) return [];
 
   const written = new Set(writes.filter((write) => write.kind === "suggest").map((write) => write.path));
-  const entries = await readdir(absoluteDir, { recursive: true, withFileTypes: true });
-  const candidates = entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => toPosix(path.relative(cwd, path.join(entry.parentPath, entry.name))))
-    .sort();
+  const candidates = await collectRegularFiles(absoluteDir, undefined, cwd);
   const stale: string[] = [];
   for (const relativePath of candidates) {
     if (written.has(relativePath)) continue;

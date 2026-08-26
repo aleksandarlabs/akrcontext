@@ -47,7 +47,7 @@ import {
   taskTemplateFiles,
 } from "../src/templates.js";
 import { workflows } from "../src/types.js";
-import { runUpgrade } from "../src/upgrade.js";
+import { collectRegularFiles, runUpgrade } from "../src/upgrade.js";
 import { CLI_VERSION } from "../src/version.js";
 import { lintWiki } from "../src/wiki-lint.js";
 
@@ -2258,6 +2258,56 @@ describe("upgrade", () => {
 describe("upgrade candidate hygiene", () => {
   const candidateDir = `.akrctx/upgrades/${CLI_VERSION}`;
   const editedSkill = ".agents/skills/akrctx-doctor/SKILL.md";
+
+  it("does not traverse a real nested directory symlink", async () => {
+    const root = path.join(tmp, "upgrade");
+    const outside = path.join(tmp, "outside");
+    await mkdir(root, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await writeFile(path.join(root, "local.txt"), "local\n");
+    await writeFile(path.join(outside, "external.txt"), "external\n");
+    await symlink(outside, path.join(root, "nested"), "dir");
+
+    await expect(collectRegularFiles(root)).resolves.toEqual(["local.txt"]);
+  });
+
+  it("does not traverse a real symlink used as the collection root", async () => {
+    const outside = path.join(tmp, "outside");
+    const root = path.join(tmp, "upgrade");
+    await mkdir(outside, { recursive: true });
+    await writeFile(path.join(outside, "external.txt"), "external\n");
+    await symlink(outside, root, "dir");
+
+    await expect(collectRegularFiles(root)).resolves.toEqual([]);
+  });
+
+  it("walks nested candidates with only the Node 20.0 Dirent surface", async () => {
+    const root = path.join(tmp, "upgrade");
+    await mkdir(root, { recursive: true });
+    const tree = new Map<string, Array<Record<string, unknown>>>([
+      [
+        root,
+        [
+          { name: "nested", isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false },
+          { name: "link.txt", isDirectory: () => false, isFile: () => false, isSymbolicLink: () => true },
+        ],
+      ],
+      [
+        path.join(root, "nested"),
+        [
+          { name: "z.txt", isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+          { name: "file.txt", isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+          { name: "a.txt", isDirectory: () => false, isFile: () => true, isSymbolicLink: () => false },
+          { name: "empty", isDirectory: () => true, isFile: () => false, isSymbolicLink: () => false },
+        ],
+      ],
+      [path.join(root, "nested", "empty"), []],
+    ]);
+
+    const files = await collectRegularFiles(root, async (directory) => tree.get(directory) ?? []);
+
+    expect(files).toEqual(["nested/a.txt", "nested/file.txt", "nested/z.txt"]);
+  });
 
   async function initWithConflict(): Promise<string> {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
