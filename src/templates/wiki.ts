@@ -257,7 +257,7 @@ const capsuleTemplates: CapsuleContent = {
   "acceptance-criteria.md":
     "# Acceptance Criteria\n\n- State each criterion so it can be checked, not interpreted.\n- Existing agent instruction files are preserved unless a human approves a merge.\n- Relevant validation commands are documented or run.\n- The review checklist is completed before handoff.\n",
   "review-checklist.md":
-    "# Review Checklist\n\n- [ ] Goal is clear.\n- [ ] Scope is controlled.\n- [ ] Tests or validation commands are defined.\n- [ ] Existing instructions were not overwritten.\n",
+    "# Review Checklist\n\n- [ ] Goal is clear.\n- [ ] Scope is controlled.\n- [ ] Tests or validation commands are defined.\n- [ ] Existing instructions were not overwritten.\n- [ ] All capsule changes are final before snapshot capture.\n- [ ] The capsule is ready for independent review.\n",
 };
 
 export const taskTemplateFiles: Record<string, string> = Object.fromEntries(

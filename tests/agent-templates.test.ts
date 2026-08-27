@@ -4,6 +4,7 @@ import { claudeImplementerFile, codexImplementerFile, copilotImplementerFile } f
 import { mainInstructionTemplate } from "../src/templates/instructions.js";
 import { judgeContractFiles } from "../src/templates/judge-contract.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile, judgeExampleRecord } from "../src/templates/judge.js";
+import { taskTemplateFiles } from "../src/templates/wiki.js";
 
 const REVIEW_SCHEMA_PATH = ".akrctx/judge/schemas/review.schema.json";
 
@@ -27,6 +28,28 @@ function onlyContent(record: Record<string, string>): string {
 }
 
 describe("agent template renderings", () => {
+  describe("review boundary", () => {
+    it("ships a checklist that is ready before snapshot capture", () => {
+      const checklist = taskTemplateFiles["tasks/_template/review-checklist.md"] ?? "";
+
+      expect(checklist).toContain("ready for independent review");
+      expect(checklist).not.toContain("Independent review is completed");
+      expect(checklist).not.toContain("independent review completed");
+    });
+
+    it.each(["codex", "claude", "copilot"] as const)(
+      "%s rendering makes the pre-snapshot boundary and post-judge write prohibition explicit",
+      (target) => {
+        const content = mainInstructionTemplate(target);
+
+        expect(content).toContain("Complete the checklist and all capsule changes before snapshot capture");
+        expect(content).toContain("Do not edit the task capsule or checklist after the judge snapshot");
+        expect(content).toContain("verified APPROVED record and judge current reports CURRENT");
+        expect(content).toMatch(/substantive changes still require catch-up review/i);
+      },
+    );
+  });
+
   describe("root instructions", () => {
     it.each(["codex", "claude", "copilot"] as const)("%s rendering describes implementer delegation", (target) => {
       const content = mainInstructionTemplate(target);

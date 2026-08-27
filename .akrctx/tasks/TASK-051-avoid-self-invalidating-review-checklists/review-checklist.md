@@ -4,10 +4,10 @@
 - [x] Workflow and reason are recorded.
 - [x] Validation commands are defined.
 - [x] No unresolved questions remain.
-- [ ] Generated checklists are final before snapshot capture.
-- [ ] Verified records replace post-review completion checkboxes.
-- [ ] Real capsule edits still invalidate currency.
-- [ ] Documentation and templates agree.
-- [ ] Full validation passes.
-- [ ] Protected instructions follow exact-diff approval policy.
-- [ ] The final boundary is ready for independent review.
+- [x] Generated checklists are final before snapshot capture.
+- [x] Verified records replace post-review completion checkboxes.
+- [x] Real capsule edits still invalidate currency.
+- [x] Documentation and templates agree.
+- [x] Full validation passes.
+- [x] Protected instructions follow exact-diff approval policy.
+- [x] The final boundary is ready for independent review.

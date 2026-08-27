@@ -2651,7 +2651,7 @@ describe("comprehension gate", () => {
 
 describe("judge", () => {
   async function createReviewFixture(
-    options: { declares?: string[]; claims?: string[]; legacyCapsule?: boolean } = {},
+    options: { declares?: string[]; claims?: string[]; legacyCapsule?: boolean; checklist?: string } = {},
   ) {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const task = await runTask("Enforce judge approvals", { cwd: tmp, nonInteractive: true });
@@ -2667,6 +2667,9 @@ describe("judge", () => {
       const filled = original.replace("```\n```", `\`\`\`\n${declares.join("\n")}\n\`\`\``);
       expect(filled).not.toBe(original);
       await writeFile(taskFile, filled, "utf8");
+    }
+    if (options.checklist !== undefined) {
+      await writeFile(path.join(tmp, task.taskDir, "review-checklist.md"), options.checklist, "utf8");
     }
     await writeFile(path.join(tmp, "app.ts"), "export const value = 1;\n", "utf8");
     await execFileAsync("git", ["init"], { cwd: tmp });
@@ -2706,6 +2709,16 @@ describe("judge", () => {
       declaredCommands: ["pnpm test"],
       reexecuted: [],
     });
+  });
+
+  it("accepts a checklist finalized before capture without a post-judge administrative write", async () => {
+    const checklist = "# Review Checklist\n\n- [x] The capsule is ready for independent review.\n";
+    const { recordPath } = await createReviewFixture({ checklist });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
   });
 
   it("reports a non-independent review as a notice without changing approval", async () => {
@@ -2861,6 +2874,20 @@ describe("judge", () => {
   it("invalidates an approved review when the task capsule changes", async () => {
     const { task, recordPath } = await createReviewFixture();
     await writeFile(path.join(tmp, task.taskDir, "task.md"), "# Changed goal\n", "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("scope.taskDigest no longer matches the repository.");
+  });
+
+  it("keeps taskDigest sensitive to a real review-checklist change", async () => {
+    const { task, recordPath } = await createReviewFixture();
+    await writeFile(
+      path.join(tmp, task.taskDir, "review-checklist.md"),
+      "# Review Checklist\n\n- [x] changed\n",
+      "utf8",
+    );
 
     const result = await verifyJudgeRecord(tmp, recordPath);
 

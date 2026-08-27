@@ -85,9 +85,12 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 
 ## Independent Review and Comprehension
 
+- Complete the checklist and all capsule changes before snapshot capture. The final checklist state must say the capsule is ready for independent review; do not add a completion item that can only be checked after APPROVED.
 - If judge.enabled is true, ask for confirmation before invoking akrctx-judge after implementation. Once approved, capture an immutable local boundary with akrctx judge snapshot; snapshot capture never changes Git state or live files.
 - Whenever a judge review comes back, save its exact JSON record under .akrctx/local/judge/ and run akrctx judge verify <record> --run-tests before acting on the verdict. Snapshot validation runs in a disposable copy outside the live project, so it cannot corrupt the immutable snapshot and newer live edits do not invalidate an approval for older reviewed content.
+- Do not edit the task capsule or checklist after the judge snapshot to record that review completed. The verified APPROVED record and judge current reports CURRENT are the evidence that the review completed; there is no post-judge administrative write.
 - Use akrctx judge current <record> to distinguish CURRENT, NEWER_CHANGES, and DIVERGED. For newer changes, create a catch-up snapshot from the verified record and review only that delta; never stretch an old approval over new code.
+- Substantive changes still require catch-up review, even when the change is limited to a capsule file.
 - Always use the --run-tests form. Without it, verification accepts the judge's claim that validation passed. You are the trusted caller and you can execute; the read-only judge and comprehension agents cannot, so this check belongs here and nowhere else. The flag requires a snapshot candidate and never runs anything unapproved: the CLI prints the declared commands and asks, or headless requires --approve-commands once per command in declared order. Read that list before approving — the disposable copy isolates ordinary relative writes but is not an OS sandbox for malicious commands.
 - If comprehensionGate.enabled is true, ask separately before invoking akrctx-comprehension, and hand off only when the verification above reports APPROVED and current.
 - Give the comprehension agent only the task ID, exact base/candidate boundary, and verified judge-record path. Do not pass implementation explanations, suggested questions, expected answers, or the main conversation history as evidence.
