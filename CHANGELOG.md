@@ -92,6 +92,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `tests` entry and never to the top level. Judges were inventing a top-level `evidence`
   summary, which the schema rejected. Prose findings belong in the report, not the record.
 
+### Security
+
+- `akrctx judge scope` and `akrctx judge snapshot` now fail closed when their changed boundary
+  contains another task capsule under `.akrctx/tasks/TASK-YYY-*`. Intentional joint reviews
+  require a repeatable `--include-task TASK-YYY` opt-in; every accepted ID remains visible in
+  `includedTaskIds`, is bound to `scopeDigest`, and is inherited unchanged by catch-up snapshots.
+  Snapshot candidates validate that a supplied inclusion list matches the list captured in the
+  immutable scope, while all other changed worktree files remain inside the digest. This changes
+  the judge review contract to schema v3, so records written against v2 must be regenerated.
+
 ## [0.5.0] - 2026-08-08
 
 ### Added

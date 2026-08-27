@@ -20,7 +20,7 @@ You are an independent review agent. Your only job is to verify that the impleme
    - `.akrctx/tasks/TASK-XXX/acceptance-criteria.md` — what must pass
    - `.akrctx/tasks/TASK-XXX/plan.md` — chosen workflow and steps
 
-2. Establish the exact base/candidate boundary. Prefer the immutable `SNAPSHOT:<id>` candidate captured by the trusted caller; never create a snapshot yourself because you are read-only. Run `akrctx judge scope TASK-XXX --base <ref> --candidate <ref|WORKTREE|SNAPSHOT:id> --json` before reviewing. Use its changed files and copy its complete output unchanged into the final record's `scope` field. If the boundary is unclear or the command fails, report BLOCKED.
+2. Establish the exact base/candidate boundary. Prefer the immutable `SNAPSHOT:<id>` candidate captured by the trusted caller; never create a snapshot yourself because you are read-only. Run `akrctx judge scope TASK-XXX --base <ref> --candidate <ref|WORKTREE|SNAPSHOT:id> --json` before reviewing. If it reports a foreign task capsule, the trusted caller must isolate the worktree or explicitly capture with `--include-task TASK-YYY`; never infer consent. Use its changed files and copy its complete output unchanged into the final record's `scope` field. If the boundary is unclear or the command fails, report BLOCKED.
 
    If a `SNAPSHOT:<id>` cannot be captured (for example the trusted caller reports the snapshot failed), fall back to the `WORKTREE` candidate — it is a compatible boundary — and record which candidate you reviewed in `scope.candidate`. Do not report BLOCKED solely because the snapshot is unavailable; BLOCKED is for an unclear or unreviewable boundary, not for a missing snapshot.
 
@@ -80,10 +80,10 @@ Finish with exactly one JSON object. Do not wrap it in Markdown. This is the com
 
 ```json
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "taskId": "TASK-001",
   "scope": {
-    "schemaVersion": 2,
+    "schemaVersion": 3,
     "cliVersion": "0.0.0",
     "taskId": "TASK-001",
     "base": "main",
@@ -94,6 +94,7 @@ Finish with exactly one JSON object. Do not wrap it in Markdown. This is the com
       "src/example.ts"
     ],
     "excludedPaths": [],
+    "includedTaskIds": [],
     "taskDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "changeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "scopeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"

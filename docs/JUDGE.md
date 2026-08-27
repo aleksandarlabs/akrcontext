@@ -77,6 +77,15 @@ historical approval.
 
 The version check is deliberate: approval rules change between releases, so a record written under older rules must not silently satisfy a newer gate.
 
+### Foreign task capsules
+
+`judge scope` and `judge snapshot` fail closed when the changed boundary contains files below a
+different `.akrctx/tasks/TASK-YYY-*` capsule. The error lists the foreign task IDs and paths;
+isolate the worktree or explicitly repeat `--include-task TASK-YYY` for each intentional
+additional task. The decision is recorded in `scope.includedTaskIds` and included in
+`scopeDigest`; catch-up snapshots preserve the parent's decision. No other changed files are
+inferred or silently excluded from the digest.
+
 ### What APPROVED requires
 
 An `APPROVED` record must also be backed by evidence and internally coherent. Verification rejects it when:

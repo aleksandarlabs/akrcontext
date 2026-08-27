@@ -110,8 +110,13 @@ export function isSnapshotCandidate(candidate: string): boolean {
   return /^SNAPSHOT:[0-9a-f]{20}$/.test(candidate);
 }
 
-export async function captureJudgeSnapshot(cwd: string, taskId: string, base: string): Promise<JudgeSnapshot> {
-  return capture(cwd, taskId, base);
+export async function captureJudgeSnapshot(
+  cwd: string,
+  taskId: string,
+  base: string,
+  includedTaskIds: string[] = [],
+): Promise<JudgeSnapshot> {
+  return capture(cwd, taskId, base, undefined, includedTaskIds);
 }
 
 export async function captureJudgeCatchUpSnapshot(
@@ -151,7 +156,13 @@ export async function captureJudgeCatchUpSnapshot(
     worktreePath: loaded.worktreePath,
     manifest: loaded.manifest,
   };
-  return capture(cwd, taskId, loaded.metadata.sourceScope.baseCommit, parent);
+  return capture(
+    cwd,
+    taskId,
+    loaded.metadata.sourceScope.baseCommit,
+    parent,
+    loaded.metadata.sourceScope.includedTaskIds,
+  );
 }
 
 export async function loadJudgeSnapshot(cwd: string, candidate: string): Promise<LoadedJudgeSnapshot> {
@@ -280,6 +291,7 @@ export async function checkJudgeSnapshotCurrentState(
       snapshot.metadata.taskId,
       snapshot.metadata.sourceScope.baseCommit,
       "WORKTREE",
+      snapshot.metadata.sourceScope.includedTaskIds,
     );
     const blockedPatterns = await readBlockedPatterns(snapshot.worktreePath);
     const liveManifest = await workspaceManifest(cwd, blockedPatterns);
@@ -443,13 +455,19 @@ export async function pruneJudgeSnapshots(
   return { dryRun, keep: options.keep, kept, removed };
 }
 
-async function capture(cwd: string, taskId: string, base: string, parent?: CaptureParent): Promise<JudgeSnapshot> {
+async function capture(
+  cwd: string,
+  taskId: string,
+  base: string,
+  parent?: CaptureParent,
+  includedTaskIds: string[] = [],
+): Promise<JudgeSnapshot> {
   const snapshotsRoot = path.join(cwd, SNAPSHOT_ROOT);
   await mkdir(snapshotsRoot, { recursive: true });
   const { createJudgeScope } = await import("./judge-enforcement.js");
 
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt += 1) {
-    const sourceScope = await createJudgeScope(cwd, taskId, base, "WORKTREE");
+    const sourceScope = await createJudgeScope(cwd, taskId, base, "WORKTREE", includedTaskIds);
     const temporaryRoot = await mkdtemp(path.join(snapshotsRoot, ".capture-"));
     const worktreePath = path.join(temporaryRoot, "worktree");
     let finalRoot = "";
@@ -471,7 +489,7 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
       const artifactContentDigest = artifactManifestResult ? contentDigest(artifactManifestResult) : undefined;
       const artifactIntegrityDigest = artifactManifestResult ? workspaceDigest(artifactManifestResult) : undefined;
 
-      const after = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE");
+      const after = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE", includedTaskIds);
       if (!sameLiveBoundary(after, sourceScope)) {
         await rm(temporaryRoot, { recursive: true, force: true });
         continue;
@@ -480,7 +498,7 @@ async function capture(cwd: string, taskId: string, base: string, parent?: Captu
       const snapshotBlockedPatterns = await readBlockedPatterns(worktreePath);
       const manifest = await workspaceManifest(worktreePath, snapshotBlockedPatterns);
       const liveManifest = await workspaceManifest(cwd, snapshotBlockedPatterns);
-      const finalSourceScope = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE");
+      const finalSourceScope = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE", includedTaskIds);
       if (!sameLiveBoundary(finalSourceScope, sourceScope)) {
         await rm(temporaryRoot, { recursive: true, force: true });
         continue;

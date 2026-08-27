@@ -10,7 +10,7 @@ const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
-export const JUDGE_SCHEMA_VERSION = 2;
+export const JUDGE_SCHEMA_VERSION = 3;
 
 export interface JudgeScope {
   schemaVersion: typeof JUDGE_SCHEMA_VERSION;
@@ -22,6 +22,7 @@ export interface JudgeScope {
   candidateCommit: string;
   changedFiles: string[];
   excludedPaths: string[];
+  includedTaskIds: string[];
   taskDigest: string;
   changeDigest: string;
   scopeDigest: string;
@@ -54,13 +55,19 @@ export async function createJudgeScope(
   taskId: string,
   base: string,
   candidate = "WORKTREE",
+  includedTaskIds: string[] = [],
 ): Promise<JudgeScope> {
   requireTaskId(taskId);
+  const requestedTaskIds = [...new Set(includedTaskIds)].sort();
+  for (const includedTaskId of requestedTaskIds) requireTaskId(includedTaskId);
   const { isSnapshotCandidate, loadJudgeSnapshot } = await import("./judge-snapshot.js");
   if (isSnapshotCandidate(candidate)) {
     const snapshot = await loadJudgeSnapshot(cwd, candidate);
     if (snapshot.scope.taskId !== taskId) {
       throw new Error(`Snapshot ${snapshot.id} belongs to ${snapshot.scope.taskId}, not ${taskId}.`);
+    }
+    if (JSON.stringify(requestedTaskIds) !== JSON.stringify(snapshot.scope.includedTaskIds)) {
+      throw new Error(`Snapshot ${snapshot.id} was captured with a different --include-task scope.`);
     }
     return snapshot.scope;
   }
@@ -104,6 +111,20 @@ export async function createJudgeScope(
   const uniqueExcludedPaths = [...new Set(excludedPaths)].sort();
   changeParts.push("excluded\0", uniqueExcludedPaths.join("\0"), "\0");
   const uniqueChangedFiles = [...new Set(changedFiles)].sort();
+  const foreignTaskPaths = uniqueChangedFiles.filter((file) => {
+    const match = /^\.akrctx\/tasks\/(TASK-[0-9]+)-[^/]+(?:\/|$)/.exec(file);
+    return match && match[1] !== taskId && !requestedTaskIds.includes(match[1]);
+  });
+  if (foreignTaskPaths.length > 0) {
+    const foreignTaskIds = [
+      ...new Set(foreignTaskPaths.map((file) => /^\.akrctx\/tasks\/(TASK-[0-9]+)-/.exec(file)?.[1])),
+    ]
+      .filter((value): value is string => Boolean(value))
+      .sort();
+    throw new Error(
+      `Judge scope for ${taskId} contains foreign task capsule changes from ${foreignTaskIds.join(", ")}: ${foreignTaskPaths.join(", ")}. Isolate the worktree or retry with --include-task ${foreignTaskIds.map((id) => `${id}`).join(" --include-task ")}.`,
+    );
+  }
   const taskRoot = await resolveTaskRoot(cwd, taskId);
   const taskParts: Array<string | Buffer> = [];
   for (const fileName of capsuleFiles) {
@@ -129,6 +150,7 @@ export async function createJudgeScope(
     candidateCommit,
     changedFiles: uniqueChangedFiles,
     excludedPaths: uniqueExcludedPaths,
+    includedTaskIds: requestedTaskIds,
     taskDigest,
     changeDigest,
   };
@@ -189,7 +211,13 @@ export async function verifyJudgeRecord(
   const reviewCwd = snapshot?.worktreePath ?? cwd;
   let current: JudgeScope;
   try {
-    current = await createJudgeScope(cwd, record.taskId, record.scope.base, record.scope.candidate);
+    current = await createJudgeScope(
+      cwd,
+      record.taskId,
+      record.scope.base,
+      record.scope.candidate,
+      record.scope.includedTaskIds,
+    );
   } catch (error) {
     return {
       valid: false,
@@ -214,6 +242,9 @@ export async function verifyJudgeRecord(
     if (JSON.stringify(record.scope[field]) !== JSON.stringify(current[field])) {
       reasons.push(`scope.${field} no longer matches the repository.`);
     }
+  }
+  if (JSON.stringify(record.scope.includedTaskIds) !== JSON.stringify(current.includedTaskIds)) {
+    reasons.push("scope.includedTaskIds no longer matches the reviewed snapshot.");
   }
   if (record.verdict !== "APPROVED") reasons.push(`Judge verdict is ${record.verdict}, not APPROVED.`);
   if (record.tests.some((test) => test.status === "failed")) {
@@ -309,7 +340,7 @@ export async function verifyJudgeRecord(
 async function snapshotValidationDrift(cwd: string, before: JudgeScope): Promise<string[]> {
   let after: JudgeScope;
   try {
-    after = await createJudgeScope(cwd, before.taskId, before.base, "WORKTREE");
+    after = await createJudgeScope(cwd, before.taskId, before.base, "WORKTREE", before.includedTaskIds);
   } catch (error) {
     return [`the boundary could not be recomputed (${messageOf(error)})`];
   }
@@ -479,6 +510,7 @@ function isScope(value: unknown): value is JudgeScope {
     "candidateCommit",
     "changedFiles",
     "excludedPaths",
+    "includedTaskIds",
     "taskDigest",
     "changeDigest",
     "scopeDigest",
@@ -506,6 +538,9 @@ function isScope(value: unknown): value is JudgeScope {
     Array.isArray(scope.excludedPaths) &&
     scope.excludedPaths.every((item) => typeof item === "string") &&
     new Set(scope.excludedPaths).size === scope.excludedPaths.length &&
+    Array.isArray(scope.includedTaskIds) &&
+    scope.includedTaskIds.every((item) => typeof item === "string" && /^TASK-[0-9]+$/.test(item)) &&
+    new Set(scope.includedTaskIds).size === scope.includedTaskIds.length &&
     typeof scope.taskDigest === "string" &&
     digestPattern.test(scope.taskDigest) &&
     typeof scope.changeDigest === "string" &&

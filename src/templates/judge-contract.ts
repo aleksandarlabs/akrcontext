@@ -26,6 +26,7 @@ const reviewSchema = {
         "candidateCommit",
         "changedFiles",
         "excludedPaths",
+        "includedTaskIds",
         "taskDigest",
         "changeDigest",
         "scopeDigest",
@@ -40,6 +41,7 @@ const reviewSchema = {
         candidateCommit: { type: "string", pattern: "^[0-9a-f]{40,64}$" },
         changedFiles: { type: "array", items: { type: "string" }, uniqueItems: true },
         excludedPaths: { type: "array", items: { type: "string" }, uniqueItems: true },
+        includedTaskIds: { type: "array", items: { type: "string", pattern: "^TASK-[0-9]+$" }, uniqueItems: true },
         taskDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
         changeDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
         scopeDigest: { type: "string", pattern: "^sha256:[0-9a-f]{64}$" },
@@ -87,6 +89,8 @@ export const judgeContractFiles: Record<string, string> = {
   ".akrctx/judge/README.md": `# Judge Enforcement Contract
 
 The trusted caller normally captures \`akrctx judge snapshot TASK-XXX --base <ref>\` before invoking the judge. Capture creates an immutable ignored local copy without committing, staging, stashing, checking out, creating refs, or changing live files. The private repository is shallow, policy-blocked paths are absent from its reviewable worktree, local Node dependencies are copied instead of linked when present, and \`akrctx judge prune --keep <n>\` provides dry-run-first retention. The judge then runs \`akrctx judge scope TASK-XXX --base <ref> --candidate SNAPSHOT:<id> --json\` and copies that exact scope into its review record. Commit and legacy \`WORKTREE\` candidates remain supported.
+
+Scope and snapshot capture fail closed when changed files include a different task capsule under \`.akrctx/tasks/TASK-YYY-*\`. The error lists every foreign task ID and path; isolate the worktree or explicitly repeat \`--include-task TASK-YYY\` on \`judge scope\` or \`judge snapshot\`. Explicit inclusions are recorded in \`scope.includedTaskIds\` and bound to \`scopeDigest\`; catch-up snapshots preserve the parent's decision. Other changed files remain in the boundary — akrctx does not infer or silently omit source files.
 
 Before using an approval, run \`akrctx judge verify <review.json> --run-tests\`. Verification checks the record shape and recomputes SHA-256 digests for the task capsule and exact code boundary. A snapshot approval remains valid when the live workspace moves; tampering with the snapshot or any catch-up ancestor invalidates it. \`akrctx judge current <review.json>\` first rejects an invalid or non-approved record, then reports whether live content is \`CURRENT\`, has \`NEWER_CHANGES\`, or \`DIVERGED\`. This binds a verdict to evidence; it does not cryptographically prove which model produced the verdict.
 

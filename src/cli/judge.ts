@@ -119,6 +119,12 @@ export function registerJudge(program: Command): void {
     .description("Capture an immutable local review snapshot without changing Git state.")
     .argument("<task-id>", "task capsule ID, for example TASK-001")
     .option("--base <ref>", "base Git ref for a full snapshot", "HEAD")
+    .option(
+      "--include-task <task-id>",
+      "explicitly include changes from another task capsule; repeat for each task",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .option("--from-review <file>", "capture only changes since a verified approved snapshot review")
     .option(
       "--approve-commands <cmd>",
@@ -135,7 +141,12 @@ export function registerJudge(program: Command): void {
         ? await captureJudgeCatchUpSnapshot(cwd, taskId, String(raw.fromReview), (commands) =>
             approveCommands(commands, approved),
           )
-        : await captureJudgeSnapshot(cwd, taskId, String(raw.base));
+        : await captureJudgeSnapshot(
+            cwd,
+            taskId,
+            String(raw.base),
+            Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
+          );
       if (options.json) {
         console.log(JSON.stringify(snapshot, null, 2));
         return;
@@ -143,6 +154,9 @@ export function registerJudge(program: Command): void {
       log(`${bold("Judge snapshot:")} ${taskId}@${snapshot.id}`);
       log(`  ${dim("candidate")} ${snapshot.candidate}`);
       log(`  ${dim("changed")}   ${snapshot.scope.changedFiles.length} file(s)`);
+      if (snapshot.scope.includedTaskIds.length) {
+        log(`  ${dim("included")}  ${snapshot.scope.includedTaskIds.join(", ")}`);
+      }
       if (snapshot.parent) log(`  ${dim("catch-up")}  from ${snapshot.parent.snapshotId}`);
       ln();
       log(`  ${green("✓")} ${dim("Captured without changing branch, index, stash, refs, or live files.")}`);
@@ -204,6 +218,12 @@ export function registerJudge(program: Command): void {
     .argument("<task-id>", "task capsule ID, for example TASK-001")
     .requiredOption("--base <ref>", "base Git commit or ref")
     .option("--candidate <ref>", "candidate Git commit/ref, or WORKTREE", "WORKTREE")
+    .option(
+      "--include-task <task-id>",
+      "explicitly include changes from another task capsule; repeat for each task",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
     .option("--json", "emit the scope block to copy into the review record", false)
     .action(async (taskId: string, raw: Record<string, unknown>) => {
       const options = normalizeOptions(raw);
@@ -212,6 +232,7 @@ export function registerJudge(program: Command): void {
         taskId,
         raw.base as string,
         raw.candidate as string,
+        Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
       );
       if (options.json) {
         console.log(JSON.stringify(scope, null, 2));
@@ -225,6 +246,9 @@ export function registerJudge(program: Command): void {
       log(`  ${dim("task")}       ${scope.taskDigest}`);
       log(`  ${dim("change")}     ${scope.changeDigest}`);
       log(`  ${dim("scope")}      ${scope.scopeDigest}`);
+      if (scope.includedTaskIds.length) {
+        log(`  ${dim("included")}   ${scope.includedTaskIds.join(", ")}`);
+      }
       ln();
       log(`  ${dim(`Changed files (${scope.changedFiles.length}):`)}`);
       for (const f of scope.changedFiles) log(`    ${file(f)}`);

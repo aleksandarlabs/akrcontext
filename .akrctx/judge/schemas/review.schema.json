@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "akrctx-judge-review-v2",
+  "$id": "akrctx-judge-review-v3",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 2
+      "const": 3
     },
     "taskId": {
       "type": "string",
@@ -33,13 +33,14 @@
         "candidateCommit",
         "changedFiles",
         "excludedPaths",
+        "includedTaskIds",
         "taskDigest",
         "changeDigest",
         "scopeDigest"
       ],
       "properties": {
         "schemaVersion": {
-          "const": 2
+          "const": 3
         },
         "cliVersion": {
           "type": "string",
@@ -76,6 +77,14 @@
           "type": "array",
           "items": {
             "type": "string"
+          },
+          "uniqueItems": true
+        },
+        "includedTaskIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^TASK-[0-9]+$"
           },
           "uniqueItems": true
         },

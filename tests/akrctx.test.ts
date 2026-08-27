@@ -3270,6 +3270,102 @@ describe("judge", () => {
     expect(JSON.parse(asJson)).toEqual(scope);
   });
 
+  it("rejects foreign task capsules in scope and snapshot capture by default", async () => {
+    const { task } = await createReviewFixture();
+    const foreignPath = path.join(tmp, ".akrctx/tasks/TASK-999-other-work/task.md");
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, "foreign\n", "utf8");
+
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow(
+      /TASK-999.*\.akrctx\/tasks\/TASK-999-other-work\/task\.md.*--include-task TASK-999/,
+    );
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(/foreign task capsule/);
+  });
+
+  it("records explicit foreign task inclusion in the scope digest", async () => {
+    const { task } = await createReviewFixture();
+    const foreignPath = path.join(tmp, ".akrctx/tasks/TASK-999-other-work/task.md");
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, "foreign\n", "utf8");
+
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE", ["TASK-999"]);
+
+    expect(scope.includedTaskIds).toEqual(["TASK-999"]);
+    expect(scope.changedFiles).toContain(".akrctx/tasks/TASK-999-other-work/task.md");
+    expect(scope.scopeDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow(/foreign task capsule/);
+  });
+
+  it("reports every foreign task and ignores task-like paths outside capsule names", async () => {
+    const { task } = await createReviewFixture();
+    for (const directory of ["TASK-998-first", "TASK-999-second", "TASK-001ish"]) {
+      const file = path.join(tmp, ".akrctx/tasks", directory, "task.md");
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, "changed\n", "utf8");
+    }
+
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE")).rejects.toThrow(
+      /TASK-998, TASK-999.*TASK-998-first\/task\.md.*TASK-999-second\/task\.md/,
+    );
+  });
+
+  it("exposes foreign-capsule rejection and repeated inclusion through the CLI", async () => {
+    const { task } = await createReviewFixture();
+    for (const id of ["TASK-998", "TASK-999"]) {
+      const file = path.join(tmp, `.akrctx/tasks/${id}-extra/task.md`);
+      await mkdir(path.dirname(file), { recursive: true });
+      await writeFile(file, "changed\n", "utf8");
+    }
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    const writes: string[] = [];
+    console.log = (message?: unknown) => writes.push(String(message));
+    try {
+      process.chdir(tmp);
+      await expect(main(["node", "akrctx", "judge", "scope", task.taskId, "--base", "HEAD"])).rejects.toThrow(
+        /TASK-998, TASK-999.*--include-task TASK-998 --include-task TASK-999/,
+      );
+      await main([
+        "node",
+        "akrctx",
+        "judge",
+        "scope",
+        task.taskId,
+        "--base",
+        "HEAD",
+        "--json",
+        "--include-task",
+        "TASK-998",
+        "--include-task",
+        "TASK-999",
+      ]);
+    } finally {
+      process.chdir(previousCwd);
+      console.log = originalLog;
+    }
+    expect(JSON.parse(writes.at(-1) ?? "{}").includedTaskIds).toEqual(["TASK-998", "TASK-999"]);
+  });
+
+  it("rejects a review whose inclusion list differs from the immutable snapshot", async () => {
+    const { recordPath } = await createApprovableSnapshotFixture(['node -e "process.exit(0)"']);
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.scope.includedTaskIds = ["TASK-999"];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.reasons[0]).toMatch(/Cannot recompute review scope: Snapshot .* different --include-task scope/);
+  });
+
+  it("validates include-task IDs before returning a snapshot scope", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    await expect(createJudgeScope(tmp, task.taskId, "HEAD", snapshot.candidate, ["NOT-A-TASK"])).rejects.toThrow(
+      "Invalid task ID: NOT-A-TASK",
+    );
+  });
+
   describe("CLI judge verify --approve-commands", () => {
     const runCli = async (args: string[]) => {
       const previousCwd = process.cwd();
@@ -4302,6 +4398,39 @@ describe("judge", () => {
     expect(catchUp.scope.changedFiles).toEqual(["app.ts", "new.ts"]);
     expect(loaded.metadata.parent?.scopeDigest).toBe(parent.scope.scopeDigest);
     expect(loaded.metadata.parent?.recordDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+  });
+
+  it("preserves explicit foreign task inclusion across catch-up snapshots", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [] });
+    const foreignPath = path.join(tmp, ".akrctx/tasks/TASK-999-other-work/task.md");
+    await mkdir(path.dirname(foreignPath), { recursive: true });
+    await writeFile(foreignPath, "foreign\n", "utf8");
+    const parent = await captureJudgeSnapshot(tmp, task.taskId, "HEAD", ["TASK-999"]);
+    const parentRecordPath = path.join(tmp, ".akrctx/local/judge/inclusive-parent-review.json");
+    await writeFile(
+      parentRecordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: parent.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+
+    const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true);
+
+    expect(catchUp.scope.includedTaskIds).toEqual(["TASK-999"]);
+    expect(catchUp.scope.base).toBe(parent.candidate);
   });
 
   it("rejects catch-up when the parent passing claim fails independent re-execution", async () => {

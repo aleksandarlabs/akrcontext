@@ -10,4 +10,6 @@
 - `_template`, el task solicitado y paths que solo se parecen no generan falsos positivos.
 - Tests cubren salida humana, JSON, múltiples tasks y cápsulas untracked.
 - La documentación explica que el resto del worktree sigue entrando completo.
+- `CHANGELOG.md` registra bajo `Unreleased` el rechazo fail-closed, el opt-in explícito,
+  la herencia en catch-up y el cambio incompatible del esquema judge a v3.
 - Las validaciones pasan y el checklist queda listo antes del handoff.
