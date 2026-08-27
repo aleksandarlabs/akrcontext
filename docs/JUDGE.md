@@ -174,6 +174,30 @@ The gate lives with the primary agent rather than the judge: the judge and the c
 
 A re-execution result is not transferable: a later agent that only runs plain `verify` learns the boundary is intact, not that validation was independently repeated. If you need that guarantee to survive the handoff, it has to come from CI or another trusted orchestrator, not from the record.
 
+### Validation receipts
+
+The default contract deliberately has no transferable local re-execution receipt. A
+record written by the primary agent, or a local JSON file containing hashes, can provide
+durable persistence and tamper-evident integrity, but it cannot authenticate its writer:
+the same actor can choose the claims and the hash. It must therefore be described as
+informational bookkeeping, never as proof that `--run-tests` executed.
+
+If a deployment needs a transferable claim, it must use an explicitly optional receipt
+issued by a trusted CI system or other configured orchestrator. The signed canonical
+envelope must bind at least the snapshot ID and scope digest, record digest, exact
+declared command list and order, exit statuses/results, CLI version, policy identity,
+lockfile identity, issuer identity, and execution timestamp/run ID. Verification must
+require a trust root configured outside the reviewed worktree and must invalidate the
+receipt when any bound input, issuer key, or trust configuration changes. Such a receipt
+attests only that the trusted issuer observed those exact commands passing for that exact
+boundary; it does not attest to local operator consent and does not upgrade the judge's
+`APPROVED` or `CURRENT` fields.
+
+Migration is additive: old records remain compatible but have no retroactive receipt,
+and a future receipt verifier must be a separate explicit path. No receipt may make
+operator consent reusable; each execution still needs approval for its exact command
+list.
+
 ### Withheld paths
 
 Files matching `blockedReadPatterns` in `policy.json` are excluded from the diff at the Git level and listed by path in `scope.excludedPaths`. Their contents are never fingerprinted, and blocked tracked paths are removed from the snapshot's reviewable worktree after checkout. The path list is itself part of the boundary, so a blocked file appearing or disappearing still invalidates a stale approval.

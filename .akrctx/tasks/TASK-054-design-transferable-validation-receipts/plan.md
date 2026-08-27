@@ -28,10 +28,16 @@ qué afirmación exacta puede hacer un agente receptor.
 - No modificar runtime hasta que el usuario confirme la alternativa.
 - Tras confirmación, actualizar esta cápsula a SDD+TDD antes de implementar.
 
+## Decision Outcome
+
+- El usuario confirmó el cierre como investigación y documentación, sin cambios runtime.
+- No se selecciona una alternativa de implementación ni se cambia a SDD+TDD.
+
 ## Steps
 
 1. Leer decisiones y documentación de judge relevantes.
 2. Modelar actores, amenazas y raíces de confianza.
 3. Comparar alternativas y recomendar una.
-4. Pedir confirmación del usuario.
-5. Solo entonces seleccionar workflow de implementación y añadir tests.
+4. Pedir confirmación del usuario. **Completado:** se confirmó cierre sin implementación.
+5. Solo entonces seleccionar workflow de implementación y añadir tests. **No aplica:**
+   no habrá implementación en TASK-054.

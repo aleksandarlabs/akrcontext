@@ -28,6 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Documented the validation-receipt design boundary: local records and hash-linked
+  files provide persistence/integrity but not authenticity, so re-execution remains
+  non-transferable by default. A future transferable claim must come from an optional
+  externally trusted CI/orchestrator receipt bound to the exact snapshot, record,
+  commands, results, CLI, policy, and lockfile; it must not reuse execution consent or
+  turn `valid`, `approved`, or `CURRENT` into proof of re-execution.
+
 - `akrctx upgrade` removes a resolved candidate only when durable provenance proves that
   akrctx created it, its current bytes still match the recorded SHA-256 hash, and those exact
   bytes have been applied to the destination. Pre-existing, foreign, legacy, or tampered

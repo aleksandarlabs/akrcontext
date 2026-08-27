@@ -4,9 +4,9 @@
 - [x] Workflow and reason are recorded.
 - [x] Alternatives and decision gate are defined.
 - [x] No implementation is authorized yet.
-- [ ] All alternatives are compared without overstating trust.
-- [ ] A concrete recommendation is documented.
-- [ ] Compatibility, revocation, and consent are addressed.
-- [ ] The user confirms the implementation direction.
-- [ ] The capsule switches to a concrete workflow before code changes.
-- [ ] The final research boundary is ready for independent review if requested.
+- [x] All alternatives are compared without overstating trust.
+- [x] A concrete recommendation is documented.
+- [x] Compatibility, revocation, and consent are addressed.
+- [x] The user confirms the implementation direction (closure without runtime changes).
+- [x] The capsule does not switch workflow because no code changes are authorized.
+- [x] The final research boundary is ready for independent review if requested.
