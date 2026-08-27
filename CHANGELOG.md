@@ -28,16 +28,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- `akrctx upgrade` removes the candidates it no longer writes. A candidate that is still
-  unresolved is rewritten by the same run, so only resolved ones are absent and no live
-  suggestion can be lost. Candidates used to stay on disk forever once resolved. Two limits
-  keep the removal safe: a run that does not cover every installed target removes nothing,
-  because the untouched targets' candidates would look resolved without being so, and
-  candidate directories of earlier versions are never scanned, because their contents cannot
-  be regenerated. `--dry-run` reports what it would remove and removes nothing. The removals
+- `akrctx upgrade` removes a resolved candidate only when durable provenance proves that
+  akrctx created it, its current bytes still match the recorded SHA-256 hash, and those exact
+  bytes have been applied to the destination. Pre-existing, foreign, legacy, or tampered
+  candidates are never adopted or deleted. The same rule covers managed files, root
+  instructions, and repair candidates for invalid manifest or policy files. Partial-target
+  runs and candidate directories from earlier versions remain non-destructive; `--dry-run`
+  reports the same classification without changing files or provenance. Confirmed removals
   appear in the CLI output and as `removed` in `UpgradeResult`.
 
+- The generated lead-agent instructions now honour the resolved implementer trigger instead
+  of treating every enabled implementer as `post-clarification`. `on-request` waits for the
+  user to request the handoff; `post-clarification` offers it only after the capsule is ready
+  and ambiguities are resolved. Every handoff still requires explicit human confirmation.
+  `akrctx impl status` exposes the canonical-or-legacy resolved `enabled` and `trigger`
+  values, and disabled implementers refuse both `impl start` and `impl log`.
+
+- Generated task checklists now finish with a pre-snapshot `ready for independent review`
+  condition. Lead-agent instructions prohibit adding a post-APPROVED completion checkbox:
+  the verified APPROVED record and `judge current` reporting `CURRENT` are the evidence that
+  review completed. Real later capsule edits remain part of `taskDigest` and still require a
+  catch-up review.
+
 ### Fixed
+
+- `akrctx upgrade` once again supports the complete declared Node `>=20` range. Candidate
+  cleanup now walks directories explicitly with the Node 20.0 `Dirent` surface instead of
+  relying on `Dirent.parentPath` or recursive `readdir`, which are unavailable in early Node
+  20 releases. The traversal remains deterministic, skips nested symlinks, and refuses a
+  symlink used as the candidate root.
 
 - Judge snapshots of akrctx now build their CLI artifact with a fixed internal `esbuild` API
   call (`src/index.ts` → `dist/index.js`) instead of executing any command from the captured
