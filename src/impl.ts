@@ -12,6 +12,7 @@ import { hasValidLocalIgnore, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
 import { pathExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
+import { findTaskDirectory } from "./task.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -37,6 +38,10 @@ export interface ValidationRun {
   status: "passed" | "failed" | "not-run";
   /** Verbatim result. A summarized result is not evidence. */
   output: string;
+  /** Explicit TDD phase; absent on legacy/non-TDD records. */
+  phase?: "red" | "green";
+  /** Text that must be present in the red output to identify the expected regression. */
+  expectedFailure?: string;
 }
 
 export interface RoundRecord {
@@ -71,6 +76,13 @@ export interface ImplStatusResult {
   /** Why the store will not run a round. Absent when it will. */
   blocked?: string;
   error?: string;
+  tddEvidence: TddEvidenceResult;
+}
+
+export interface TddEvidenceResult {
+  required: boolean;
+  status: "not-required" | "missing" | "invalid" | "complete";
+  reason?: string;
 }
 
 export interface ImplStartResult extends ImplStatusResult {
@@ -194,8 +206,17 @@ function validationArray(value: unknown): ValidationRun[] {
       command: requireString(run.command, `validation[${index}].command`),
       status: status as ValidationRun["status"],
       output: requireString(run.output, `validation[${index}].output`),
+      ...(run.phase === undefined ? {} : { phase: requirePhase(run.phase, `validation[${index}].phase`) }),
+      ...(run.expectedFailure === undefined
+        ? {}
+        : { expectedFailure: requireString(run.expectedFailure, `validation[${index}].expectedFailure`) }),
     };
   });
+}
+
+function requirePhase(value: unknown, field: string): "red" | "green" {
+  if (value !== "red" && value !== "green") throw new Error(`--record field "${field}" must be red or green.`);
+  return value;
 }
 
 function requireTimestamp(value: unknown): string {
@@ -226,6 +247,57 @@ async function readRecords(cwd: string, taskId: string): Promise<{ records: Roun
   }
 }
 
+async function taskRequiresTdd(cwd: string, taskId: string): Promise<boolean> {
+  const taskDir = await findTaskDirectory(cwd, taskId);
+  if (!taskDir) return false;
+  try {
+    const plan = await readFile(path.join(cwd, taskDir, "plan.md"), "utf8");
+    const workflow = /## Workflow\n\n-?\s*([^\n]+)/.exec(plan)?.[1]?.trim();
+    return workflow === "TDD" || workflow === "SDD+TDD" || workflow === "TDD+EDD";
+  } catch {
+    return false;
+  }
+}
+
+export function checkTddEvidence(required: boolean, record?: RoundRecord): TddEvidenceResult {
+  if (!required) return { required: false, status: "not-required" };
+  if (!record) return { required: true, status: "missing", reason: "No implementation round has been recorded yet." };
+  const red = record.validation.filter((run) => run.phase === "red");
+  const green = record.validation.filter((run) => run.phase === "green");
+  if (red.length !== 1 || green.length !== 1) {
+    return {
+      required: true,
+      status: "invalid",
+      reason: "A TDD round must contain exactly one red and one green validation.",
+    };
+  }
+  const redRun = red[0];
+  const greenRun = green[0];
+  if (record.validation.indexOf(redRun) > record.validation.indexOf(greenRun)) {
+    return { required: true, status: "invalid", reason: "TDD evidence must be ordered red→green." };
+  }
+  if (redRun.status !== "failed" || greenRun.status !== "passed") {
+    return { required: true, status: "invalid", reason: "TDD red evidence must fail and green evidence must pass." };
+  }
+  if (normalizeValidationCommand(redRun.command) !== normalizeValidationCommand(greenRun.command)) {
+    return {
+      required: true,
+      status: "invalid",
+      reason: "TDD red and green evidence must use the same normalized command.",
+    };
+  }
+  if (!redRun.expectedFailure || !redRun.output.includes(redRun.expectedFailure)) {
+    return { required: true, status: "invalid", reason: "TDD red output must include the declared expectedFailure." };
+  }
+  if (!greenRun.output)
+    return { required: true, status: "invalid", reason: "TDD green evidence must preserve its output." };
+  return { required: true, status: "complete" };
+}
+
+export function normalizeValidationCommand(command: string): string {
+  return command.trim().replace(/\s+/g, " ");
+}
+
 export async function runImplStatus(taskId: string, options: CommandOptions): Promise<ImplStatusResult> {
   const cwd = options.cwd ?? process.cwd();
   const config = await readConfig(cwd);
@@ -241,6 +313,7 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     attemptsRemaining: 0,
     maxAttempts: budget,
     stopped: true,
+    tddEvidence: { required: false, status: "not-required" } as TddEvidenceResult,
   } satisfies Partial<ImplStatusResult>;
 
   if (!(await hasValidLocalIgnore(cwd))) {
@@ -255,7 +328,12 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     return { ...unusable, readable: false, blocked, error };
   }
 
+  const tddEvidence = checkTddEvidence(await taskRequiresTdd(cwd, taskId), records[records.length - 1]);
+  const evidenceBlocked = records.length > 0 && tddEvidence.status !== "complete" && tddEvidence.required;
   const stopped = !resolved.enabled || records.length >= budget;
+  const budgetBlocked = stopped
+    ? `Attempt budget spent: ${records.length} of ${budget} rounds recorded. Hand the task back instead of starting another round.`
+    : undefined;
   return {
     taskId,
     logPath: implLogPath(taskId),
@@ -267,11 +345,12 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     stopped,
     lastBlocker: records.length ? records[records.length - 1].blocker : undefined,
     readable: true,
+    tddEvidence,
     blocked: !resolved.enabled
       ? "Implementer is disabled in the resolved configuration. Ask the user to enable it before delegating."
-      : stopped
-        ? `Attempt budget spent: ${records.length} of ${budget} rounds recorded. Hand the task back instead of starting another round.`
-        : undefined,
+      : evidenceBlocked
+        ? `TDD red→green evidence is incomplete: ${tddEvidence.reason}`
+        : budgetBlocked,
   };
 }
 
@@ -327,6 +406,12 @@ export async function runImplLog(
     ...(input.decisionNeeded ? { decisionNeeded: input.decisionNeeded } : {}),
   };
 
+  const tddEvidence = checkTddEvidence(await taskRequiresTdd(cwd, taskId), record);
+  if (tddEvidence.required && tddEvidence.status !== "complete") {
+    const reason = `TDD red→green evidence is incomplete: ${tddEvidence.reason}`;
+    return { ...status, tddEvidence, refused: true, reason, blocked: reason };
+  }
+
   const absolute = path.join(cwd, implLogPath(taskId));
   if (!options.dryRun) {
     await mkdir(path.dirname(absolute), { recursive: true });
@@ -339,14 +424,18 @@ export async function runImplLog(
   return {
     ...status,
     record,
+    tddEvidence,
     refused: false,
     attemptsUsed: used,
     attemptsRemaining: Math.max(0, status.maxAttempts - used),
     stopped,
     lastBlocker: record.blocker,
-    blocked: stopped
-      ? `Attempt budget spent: ${used} of ${status.maxAttempts} rounds recorded. No further rounds can be appended.`
-      : undefined,
+    blocked:
+      tddEvidence.required && tddEvidence.status !== "complete"
+        ? `TDD red→green evidence is incomplete: ${tddEvidence.reason}`
+        : stopped
+          ? `Attempt budget spent: ${used} of ${status.maxAttempts} rounds recorded. No further rounds can be appended.`
+          : undefined,
   };
 }
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import { buildProgram, main } from "../src/cli.js";
 import { runHook } from "../src/hook/index.js";
 import { runTraceEnable } from "../src/hook/install.js";
 import { runTraceReport } from "../src/hook/report.js";
+import { runImplEnable } from "../src/impl.js";
 import { runInit } from "../src/init.js";
 import { runTask } from "../src/task.js";
 
@@ -268,5 +269,32 @@ describe("CLI layer — main(argv)", () => {
     }
     expect(logs.find((line) => line.includes("First-mutation ordering unknown:"))).toContain("1");
     expect(logs.find((line) => line.includes("capsule bound first"))).toContain("1 (50% of 2 known)");
+  });
+
+  it("refuses invalid TDD evidence before persistence and reports a non-zero CLI result", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runImplEnable({ cwd: tmp, nonInteractive: true });
+    const task = await runTask("TDD evidence refusal", { cwd: tmp, workflow: "TDD", nonInteractive: true });
+    await writeFile(
+      path.join(tmp, "record.json"),
+      JSON.stringify({
+        criteria: ["AC-1"],
+        files: ["src/a.ts"],
+        validation: [{ command: "pnpm test", status: "passed", output: "ok", phase: "green" }],
+      }),
+      "utf8",
+    );
+
+    const { logs, restore } = captureLogs();
+    process.exitCode = 0;
+    try {
+      await main(["node", "akrctx", "impl", "log", task.taskId, "--record", "record.json"]);
+    } finally {
+      restore();
+    }
+    expect(process.exitCode).toBe(1);
+    expect(logs.join("\n")).toContain("refused");
+    expect(logs.join("\n")).not.toContain("round recorded");
+    process.exitCode = 0;
   });
 });

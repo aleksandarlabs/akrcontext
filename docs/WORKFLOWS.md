@@ -32,6 +32,14 @@ Use `SDD+EDD` for rule-heavy domains where examples and boundaries matter.
 
 Use `TDD+EDD` for bug fixes where examples clarify edge cases.
 
+For TDD workflows, the implementation log must preserve one ordered red→green pair in the
+same round. The red validation records `phase: "red"`, `status: "failed"`, and an
+`expectedFailure` whose text appears in its verbatim output; the green validation records
+`phase: "green"`, `status: "passed"`, and follows with the same command after whitespace
+normalization. A
+missing or mismatched pair blocks the implementer handoff. Older logs remain readable but do
+not receive invented evidence.
+
 Use `UI review` for tasks that require reviewing or validating UI quality. The agent discovers available tools (stylelint, eslint, storybook, playwright, chromatic, etc.) and runs them without modifying code. If the project defines its own UI review conventions, those take precedence.
 
 ## Agent-First Flow

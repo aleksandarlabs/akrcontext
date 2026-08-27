@@ -14,6 +14,10 @@ Cuando la cápsula declare TDD, SDD+TDD o TDD+EDD, el implementer debe registrar
 ronda el comando de regresión fallando por el motivo esperado y después pasando. Si no puede
 obtener el red correcto, debe devolver un bloqueo en vez de afirmar que siguió TDD.
 
+El workflow efectivo se lee de la sección `## Workflow` de `plan.md`; no se infiere de otro
+campo de la cápsula. La evidencia red y green usa el mismo comando después de normalizar
+espacios en blanco, y una ronda TDD inválida se rechaza antes de persistirse.
+
 ## Validation
 
 ```

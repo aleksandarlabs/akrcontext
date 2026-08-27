@@ -50,6 +50,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   review completed. Real later capsule edits remain part of `taskDigest` and still require a
   catch-up review.
 
+- Implementer logs now require an explicit, ordered red→green validation pair for `TDD`,
+  `SDD+TDD`, and `TDD+EDD` workflows. The red run records `phase: "red"`, a failing status,
+  verbatim output, and an `expectedFailure` found in that output; the green run records
+  `phase: "green"` and the same whitespace-normalized command passing. Invalid or incomplete
+  evidence is refused before the round is persisted and produces an actionable non-zero CLI
+  result. Non-TDD workflows and existing records remain compatible without invented evidence.
+
 ### Fixed
 
 - `akrctx upgrade` once again supports the complete declared Node `>=20` range. Candidate

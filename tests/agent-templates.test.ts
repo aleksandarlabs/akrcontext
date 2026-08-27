@@ -65,6 +65,19 @@ describe("agent template renderings", () => {
     });
   });
 
+  describe("implementer TDD evidence", () => {
+    it.each(Object.entries(implementerRenderers))(
+      "%s requires explicit ordered red-to-green evidence",
+      (_target, renderer) => {
+        const content = onlyContent(renderer());
+        expect(content).toContain('phase: "red"');
+        expect(content).toContain('phase: "green"');
+        expect(content).toContain("expectedFailure");
+        expect(content).toContain("red→green");
+      },
+    );
+  });
+
   describe("judge", () => {
     it.each(Object.entries(judgeRenderers))(
       "%s rendering keeps validation away from the canonical snapshot",

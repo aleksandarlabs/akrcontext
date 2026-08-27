@@ -75,10 +75,11 @@
       "hash": "sha256:4eae12c89a23f9a23b55366518c5fe66d5fcfab661ba9d2b40caa7ddba636a54"
     },
     ".claude/agents/akrctx-implementer.md": {
-      "hash": "sha256:b1355d945d55a0d73aab7891b0fc3927b1c9810c1932c188ec5fa05ea35799f5"
+      "hash": "sha256:0154e72e9afa395dfc49a0ce2b4d9aec02a3cf450ad5074781a2c192337afce9"
     },
     ".codex/agents/akrctx-implementer.toml": {
-      "hash": "sha256:1a7dce2693dc9247e62de49dd04bd945011b630ce5c9d35edad227eab9866337"
+      "hash": "sha256:99617289027b6eeb5c8d1bf7df38ca43bf6db8e01bac4bdc9c877dd478a5a3ac"
     }
-  }
+  },
+  "candidates": {}
 }

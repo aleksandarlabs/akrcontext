@@ -14,7 +14,7 @@
 
 - La evidencia red es un resultado esperado del workflow, no un test “fallido” de la entrega.
 - Debe conservar comando, status y salida suficiente para confirmar que falló por la regresión
-  buscada, seguido por el mismo comando o su equivalente focalizado en verde.
+  buscada, seguido por el mismo comando normalizado en verde.
 - El log sigue siendo evidencia operativa local, no una aprobación independiente.
 
 ## Blocked Reads

@@ -179,5 +179,9 @@ export function registerImpl(program: Command): void {
     log(`  ${dim(`Log: ${result.logPath}`)}`);
     log(`  ${dim(`Attempts remaining: ${result.attemptsRemaining}`)}`);
     if (result.lastBlocker) log(`  ${dim(`Last blocker: ${result.lastBlocker}`)}`);
+    if (result.blocked && result.attemptsUsed !== null && !result.stopped) {
+      log(`  ${warn()} ${result.blocked}`);
+      process.exitCode = 1;
+    }
   });
 }

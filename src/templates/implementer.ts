@@ -25,10 +25,11 @@ const implementerInstructions = `You are the akrctx implementation agent. You im
 - Stay inside the capsule's scope. Work the capsule lists as out of scope is out of scope even when it looks easy from here.
 - Run exactly the commands in the fenced block under \`## Validation\` in task.md. Those are the commands that count as evidence — the reviewer runs them and the trusted caller re-executes them. A command you invented proves nothing about this task.
 - Record the verbatim result of each command, including failures. A round that reports a passing command it did not run is worse than a round that reports nothing.
+- For TDD, SDD+TDD, and TDD+EDD, the same round must include exactly one ordered red→green pair in the JSON record: the regression command first with \`phase: "red"\`, \`status: "failed"\`, and an \`expectedFailure\` whose text appears in its output; then the same command after whitespace normalization with \`phase: "green"\` and \`status: "passed"\`. If that evidence cannot be obtained, record the blocker and do not claim the workflow completed.
 
 ## After each round
 
-Append the round with \`akrctx impl log TASK-XXX\`, carrying: the criteria you targeted, the files you changed, each validation command with its verbatim result, the blocker if you stopped, and the decision you need from the caller. Records are append-only and the round number is derived from the log at append time — you cannot renumber, rewrite, or lower it.
+Append the round with \`akrctx impl log TASK-XXX\`, carrying: the criteria you targeted, the files you changed, each validation command with its verbatim result, the TDD phase fields when required, the blocker if you stopped, and the decision you need from the caller. Use \`--record\` with a JSON file when the phase fields are needed. Records are append-only and the round number is derived from the log at append time — you cannot renumber, rewrite, or lower it.
 
 The budget is enforced by the store, not by your restraint: \`akrctx impl log\` refuses to append past it whether or not you called \`akrctx impl start\` first.
 

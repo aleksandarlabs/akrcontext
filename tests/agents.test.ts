@@ -579,6 +579,26 @@ const round = (overrides: Partial<Parameters<typeof runImplLog>[1]> = {}) => ({
   ...overrides,
 });
 
+const tddRound = (overrides: Partial<Parameters<typeof runImplLog>[1]> = {}) =>
+  round({
+    validation: [
+      {
+        command: "pnpm vitest run tests/regression.test.ts",
+        status: "failed" as const,
+        output: "expected 2 to be 3",
+        phase: "red" as const,
+        expectedFailure: "expected 2 to be 3",
+      },
+      {
+        command: "pnpm vitest run tests/regression.test.ts",
+        status: "passed" as const,
+        output: "1 passed",
+        phase: "green" as const,
+      },
+    ],
+    ...overrides,
+  });
+
 describe("akrctx impl", () => {
   beforeEach(async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
@@ -734,6 +754,67 @@ describe("akrctx impl", () => {
     expect(after.scopeDigest).toBe(before.scopeDigest);
     expect(after.changedFiles).not.toContain(implLogPath(task.taskId));
     expect(capsuleFiles).toHaveLength(5);
+  });
+
+  it.each(["TDD", "SDD+TDD", "TDD+EDD"] as const)(
+    "requires ordered red-to-green evidence from plan.md for %s",
+    async (workflow) => {
+      const task = await runTask("preserve tdd evidence", { cwd: tmp, workflow, nonInteractive: true });
+      await writeFile(path.join(tmp, task.taskDir, "task.md"), "# Task\n\n## Recommended Workflow\n\nSDD\n", "utf8");
+
+      const logged = await runImplLog(task.taskId, tddRound(), { cwd: tmp, nonInteractive: true });
+      expect(logged.tddEvidence).toMatchObject({ required: true, status: "complete" });
+      expect((await runImplStatus(task.taskId, { cwd: tmp, nonInteractive: true })).blocked).toBeUndefined();
+    },
+  );
+
+  it.each([
+    ["missing red", [{ command: "pnpm test", status: "passed", output: "ok", phase: "green" }]],
+    [
+      "wrong red reason",
+      [
+        { command: "pnpm test", status: "failed", output: "timeout", phase: "red", expectedFailure: "assertion" },
+        { command: "pnpm test", status: "passed", output: "ok", phase: "green" },
+      ],
+    ],
+    [
+      "missing green",
+      [{ command: "pnpm test", status: "failed", output: "assertion", phase: "red", expectedFailure: "assertion" }],
+    ],
+  ])("blocks a TDD round with %s evidence", async (_label, validation) => {
+    const task = await runTask("tdd evidence failure", { cwd: tmp, workflow: "TDD", nonInteractive: true });
+    const logged = await runImplLog(task.taskId, round({ validation: validation as never }), {
+      cwd: tmp,
+      nonInteractive: true,
+    });
+
+    expect(logged.tddEvidence).toMatchObject({ required: true, status: "invalid" });
+    expect(logged.blocked).toMatch(/TDD red→green evidence/);
+    expect(logged.refused).toBe(true);
+    expect(logged.record).toBeUndefined();
+    expect(await pathExists(path.join(tmp, implLogPath(task.taskId)))).toBe(false);
+  });
+
+  it("accepts the same command after whitespace normalization", async () => {
+    const task = await runTask("normalized tdd evidence", { cwd: tmp, workflow: "TDD", nonInteractive: true });
+    const evidence = tddRound().validation;
+    const logged = await runImplLog(
+      task.taskId,
+      tddRound({
+        validation: [evidence[0], { ...evidence[1], command: "  pnpm   vitest run tests/regression.test.ts  " }],
+      }),
+      { cwd: tmp, nonInteractive: true },
+    );
+    expect(logged.tddEvidence.status).toBe("complete");
+  });
+
+  it("does not invent evidence for legacy or non-TDD records", async () => {
+    const legacy = await runImplLog("TASK-LEGACY", round(), { cwd: tmp, nonInteractive: true });
+    expect(legacy.tddEvidence).toMatchObject({ required: false, status: "not-required" });
+
+    const task = await runTask("non tdd work", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+    const logged = await runImplLog(task.taskId, round(), { cwd: tmp, nonInteractive: true });
+    expect(logged.tddEvidence).toMatchObject({ required: false, status: "not-required" });
   });
 });
 
@@ -920,6 +1001,13 @@ describe("impl log record validation", () => {
   };
 
   it("accepts a well-formed record", () => {
+    expect(parseRecordInput(valid)).toMatchObject(valid);
+  });
+
+  it("accepts explicit TDD evidence fields while keeping them optional for legacy records", () => {
+    const parsed = parseRecordInput(tddRound());
+    expect(parsed.validation[0]).toMatchObject({ phase: "red", expectedFailure: "expected 2 to be 3" });
+    expect(parsed.validation[1]).toMatchObject({ phase: "green" });
     expect(parseRecordInput(valid)).toMatchObject(valid);
   });
 
