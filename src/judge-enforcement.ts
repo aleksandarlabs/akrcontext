@@ -4,10 +4,15 @@ import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { capsuleFiles } from "./harness-files.js";
+import {
+  type ValidationFailureEvidence,
+  captureValidationError,
+  sanitizeValidationCommand,
+} from "./validation-evidence.js";
 import { CLI_VERSION } from "./version.js";
 
-const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
+const execAsync = promisify(exec);
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
 export const JUDGE_SCHEMA_VERSION = 3;
@@ -47,7 +52,7 @@ export interface JudgeVerifyResult {
   reasons: string[];
   notices: string[];
   declaredCommands: string[];
-  reexecuted: Array<{ command: string; passed: boolean }>;
+  reexecuted: Array<{ command: string; passed: boolean; evidence?: ValidationFailureEvidence }>;
 }
 
 export async function createJudgeScope(
@@ -286,9 +291,17 @@ export async function verifyJudgeRecord(
         const validationCwd = validationWorkspace.worktreePath;
         cleanup = validationWorkspace.cleanup;
         for (const command of [...new Set(declaredAndPassing)]) {
-          const passed = await runValidationCommand(validationCwd, command);
-          reexecuted.push({ command, passed });
-          if (!passed) reasons.push(`Independent re-run of \`${command}\` failed; the record claims it passed.`);
+          const normalized = sanitizeValidationCommand(command);
+          try {
+            await execAsync(command, { cwd: validationCwd, timeout: 15 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+            reexecuted.push({ command: normalized, passed: true });
+          } catch (error) {
+            const evidence = captureValidationError(command, error);
+            reexecuted.push({ command: normalized, passed: false, evidence });
+            reasons.push(
+              `Independent re-run of \`${evidence.command}\` failed (exit code ${evidence.exitCode ?? "unknown"}); the record claims it passed.`,
+            );
+          }
         }
         if (reexecuted.length > 0) {
           const drifted = await snapshotValidationDrift(validationCwd, snapshot.metadata.sourceScope);
@@ -465,15 +478,6 @@ function sectionBullets(body: string | undefined): string[] {
  */
 const NONE_VARIANT_RE =
   /^(none|ninguna|ninguno|n\/a)(\s+(remaining|left|yet|recorded\s+yet|so\s+far|open|pending))?[\s.!]*$/i;
-
-async function runValidationCommand(cwd: string, command: string): Promise<boolean> {
-  try {
-    await execAsync(command, { cwd, timeout: 15 * 60_000, maxBuffer: 64 * 1024 * 1024 });
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 export function validateRecord(value: unknown): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["Review record must be a JSON object."];

@@ -48,6 +48,12 @@ import {
 } from "../src/templates.js";
 import { workflows } from "../src/types.js";
 import { collectRegularFiles, runUpgrade } from "../src/upgrade.js";
+import {
+  captureValidationError,
+  normalizeValidationCommand,
+  redactValidationOutput,
+  sanitizeValidationCommand,
+} from "../src/validation-evidence.js";
 import { CLI_VERSION } from "../src/version.js";
 import { lintWiki } from "../src/wiki-lint.js";
 
@@ -2650,6 +2656,73 @@ describe("comprehension gate", () => {
 });
 
 describe("judge", () => {
+  it("normalizes validation commands and preserves bounded redacted failure evidence", () => {
+    expect(normalizeValidationCommand("  pnpm   test\n --runInBand  ")).toBe("pnpm test --runInBand");
+    const output = redactValidationOutput(`token=super-secret\n${"x".repeat(20)}`, 32);
+    expect(output).toContain("token=[REDACTED]");
+    expect(output).not.toContain("super-secret");
+    expect(output).toContain("[truncated]");
+  });
+
+  it("keeps observations separate from optional inferred or confirmed causes", () => {
+    const evidence = captureValidationError("pnpm test", {
+      code: 137,
+      signal: null,
+      stdout: "stdout line",
+      stderr: "stderr line",
+    });
+
+    expect(evidence).toMatchObject({
+      command: "pnpm test",
+      status: "failed",
+      exitCode: 137,
+      signal: null,
+    });
+    expect(evidence.output).toContain("stderr line");
+
+    expect(captureValidationError("pnpm test", { signal: "SIGTERM" })).toMatchObject({
+      exitCode: null,
+      signal: "SIGTERM",
+      output: "[no diagnostic output]",
+    });
+  });
+
+  it("redacts and bounds the current failure evidence at capture time", () => {
+    const evidence = captureValidationError("pnpm test", {
+      code: 1,
+      stderr: `TOKEN=do-not-persist\n${"x".repeat(10_000)} https://private.example/secret`,
+    });
+    expect(evidence.output).toContain("TOKEN=[REDACTED]");
+    expect(evidence.output).not.toContain("do-not-persist");
+    expect(evidence.output).not.toContain("private.example");
+    expect(evidence.output).toContain("[truncated]");
+    expect(evidence).not.toHaveProperty("diagnosis");
+  });
+
+  it("redacts prefixed and compound secret variable names", () => {
+    const output = redactValidationOutput(
+      'NPM_TOKEN=npm-secret AWS_SECRET_ACCESS_KEY="aws secret" PRIVATE_KEY=private --api-key "cli secret"',
+    );
+    expect(output).toContain("NPM_TOKEN=[REDACTED]");
+    expect(output).toContain("AWS_SECRET_ACCESS_KEY=[REDACTED]");
+    expect(output).toContain("PRIVATE_KEY=[REDACTED]");
+    expect(output).toContain("--api-key [REDACTED]");
+    expect(output).not.toContain("npm-secret");
+    expect(output).not.toContain("aws secret");
+    expect(output).not.toContain("private");
+    expect(output).not.toContain("cli secret");
+  });
+
+  it("redacts credentials embedded in a reported validation command", () => {
+    const command = sanitizeValidationCommand(
+      '  NPM_TOKEN="npm secret"   pnpm test --api-key cli-secret https://private.example/run  ',
+    );
+    expect(command).toBe("NPM_TOKEN=[REDACTED] pnpm test --api-key [REDACTED] [URL REDACTED]");
+    expect(captureValidationError('AWS_SECRET_ACCESS_KEY="aws secret" pnpm test', { code: 1 }).command).toBe(
+      "AWS_SECRET_ACCESS_KEY=[REDACTED] pnpm test",
+    );
+  });
+
   async function createReviewFixture(
     options: { declares?: string[]; claims?: string[]; legacyCapsule?: boolean; checklist?: string } = {},
   ) {
@@ -2699,7 +2772,7 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath);
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       valid: true,
       approved: true,
       verdict: "APPROVED",
@@ -2998,8 +3071,11 @@ describe("judge", () => {
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(false);
-    expect(result.reexecuted).toEqual([{ command: failing, passed: false }]);
-    expect(result.reasons).toContain(`Independent re-run of \`${failing}\` failed; the record claims it passed.`);
+    expect(result.reexecuted).toHaveLength(1);
+    expect(result.reexecuted[0]).toMatchObject({ command: failing, passed: false });
+    expect(result.reexecuted[0].evidence).toMatchObject({ status: "failed", exitCode: 1 });
+    expect(result.reexecuted[0].evidence?.output).toContain("[no diagnostic output]");
+    expect(result.reasons[0]).toContain(`Independent re-run of \`${failing}\` failed`);
   });
 
   it("--run-tests confirms an approval whose declared command really passes", async () => {
@@ -3009,7 +3085,7 @@ describe("judge", () => {
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
-    expect(result.reexecuted).toEqual([{ command: passing, passed: true }]);
+    expect(result.reexecuted[0]).toMatchObject({ command: passing, passed: true });
   });
 
   it("--run-tests leaves the boundary intact for a non-mutating command", async () => {
@@ -3083,7 +3159,7 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
-    expect(result.reexecuted).toEqual([{ command, passed: true }]);
+    expect(result.reexecuted[0]).toMatchObject({ command, passed: true });
     expect(result.approved).toBe(true);
   });
 
@@ -3845,7 +3921,7 @@ describe("judge", () => {
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
     expect(result.approved).toBe(true);
-    expect(result.reexecuted).toEqual([{ command, passed: true }]);
+    expect(result.reexecuted[0]).toMatchObject({ command, passed: true });
     expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");
   });
 
@@ -4057,7 +4133,7 @@ describe("judge", () => {
     );
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
-    expect(result.reexecuted).toEqual([{ command, passed: true }]);
+    expect(result.reexecuted[0]).toMatchObject({ command, passed: true });
     expect(result.approved).toBe(true);
   });
 
@@ -4151,7 +4227,9 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
 
-    expect(result.reexecuted).toEqual([{ command, passed: false }]);
+    expect(result.reexecuted).toHaveLength(1);
+    expect(result.reexecuted[0]).toMatchObject({ command, passed: false });
+    expect(result.reexecuted[0].evidence).toMatchObject({ status: "failed" });
     expect(result.approved).toBe(false);
     expect(result.reasons.join("\n")).toContain("Independent re-run");
     expect(await readFile(path.join(snapshot.worktreePath, "app.ts"), "utf8")).toContain("value = 2");

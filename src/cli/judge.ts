@@ -316,6 +316,12 @@ export function registerJudge(program: Command): void {
         for (const notice of result.notices) log(`  ${yellow("!")} ${notice}`);
         for (const run of result.reexecuted) {
           log(`  ${run.passed ? plus() : minus()} ${dim("re-ran")} ${cmd(run.command)}`);
+          if (run.evidence) {
+            log(
+              `    ${dim(`observed failure: exit code ${run.evidence.exitCode ?? "unknown"}${run.evidence.signal ? `, signal ${run.evidence.signal}` : ""}`)}`,
+            );
+            for (const line of run.evidence.output.split("\n")) log(`    ${dim(line)}`);
+          }
         }
         if (result.reexecuted.length) {
           log(`  ${dim("Commands came from the capsule's task.md `## Validation` block.")}`);

@@ -34,7 +34,17 @@ pnpm akrctx doctor --json
 
 ## Clarifications
 
-- None.
+### Session 2026-08-27
+
+- Una aclaración anterior exploró un historial runtime local append-only y una secuencia entre
+  invocaciones; queda supersedida por la decisión de alcance que sigue y no forma parte del
+  contrato final.
+- La decisión más reciente reduce el alcance: se retira el historial JSONL y cualquier promesa de
+  secuencia entre invocaciones. Solo se registra la evidencia acotada y redactada del fallo de la
+  ejecución actual; la causalidad es opcional y solo puede tener certeza `inferred` o `confirmed`.
+- El usuario cerró TASK-055 sin más reintentos del Judge: dos revisiones independientes consecutivas
+  terminaron `BLOCKED` por la misma denegación de `mktemp` en el sandbox del subagente, no por un
+  defecto nuevo de la implementación. El conflicto del entorno se investigará fuera de esta tarea.
 
 ## Open Questions
 

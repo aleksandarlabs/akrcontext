@@ -23,6 +23,7 @@ import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { type Plugin, build as buildWithEsbuild } from "esbuild";
 import type { JudgeScope } from "./judge-enforcement.js";
+import { captureValidationError } from "./validation-evidence.js";
 
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
@@ -400,9 +401,9 @@ async function materialiseDependencies(worktreePath: string): Promise<void> {
       timeout: 15 * 60_000,
     });
   } catch (error) {
-    const stderr = (error as { stderr?: string }).stderr ?? "";
+    const evidence = captureValidationError(command.join(" "), error);
     throw new Error(
-      `Cannot materialise dependencies for independent re-execution (${command.join(" ")} failed): ${messageOf(error)}${stderr ? `\n${stderr}` : ""}`,
+      `Cannot materialise dependencies for independent re-execution (${evidence.command} failed): exit code ${evidence.exitCode ?? "unknown"}${evidence.signal ? `, signal ${evidence.signal}` : ""}\n${evidence.output}`,
     );
   }
 }

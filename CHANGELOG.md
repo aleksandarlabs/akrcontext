@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Judge validation now preserves bounded, redacted evidence for the current failed execution in
+  JSON and human output: normalized command, observed exit code or signal, and diagnostic extract.
+  Secret-bearing names include prefixed and compound environment variables; optional causal
+  diagnoses are separate from observations and limited to `inferred` or `confirmed`, with no
+  cross-invocation history retained.
+
 - Documented the validation-receipt design boundary: local records and hash-linked
   files provide persistence/integrity but not authenticity, so re-execution remains
   non-transferable by default. A future transferable claim must come from an optional

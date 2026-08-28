@@ -138,6 +138,13 @@ named reason and never falls back to the snapshot's copy. Verification also fail
 command fails or changes tracked reviewed content. Ignored build output is discarded with
 the disposable workspace and the immutable snapshot is never mutated by verification.
 
+When a declared command fails during re-execution, the current result preserves a bounded,
+redacted diagnostic under `reexecuted[].evidence` in JSON and prints it in human output. It
+includes the normalized command and observed exit code or signal. Observations are separate
+from optional causal diagnoses, whose certainty is only `inferred` or `confirmed`; missing
+process data and ambiguous sandbox/network output are not presented as confirmed causes. No
+history is carried between invocations.
+
 This is isolation for ordinary relative writes, not an operating-system sandbox. A
 malicious command can still use absolute paths or external programs, so read the capsule's
 validation block before executing work you did not supervise.
