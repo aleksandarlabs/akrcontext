@@ -31,7 +31,11 @@ pnpm akrctx doctor --json
 
 ## Clarifications
 
-- None.
+- ### Session 2026-08-28
+  - La reparación de `.akrctx/manifest.json` usa un ledger externo en
+    `.akrctx/local/upgrade-candidates.json`. El ledger es estado runtime-local, no un archivo
+    generado del harness, y solo se actualiza después de confirmar `kind === "create"`; así un
+    candidato extranjero no puede autoautorizarse.
 
 ## Open Questions
 

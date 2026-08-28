@@ -28,6 +28,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `akrctx upgrade` now centralizes candidate creation, public suggestion classification, and
+  SHA-256 provenance registration in one internal writer. Managed files, root instructions,
+  and invalid policy repairs use the manifest ledger; invalid manifest repairs use the external
+  runtime-local ledger, so neither path can adopt a pre-existing candidate while dry-run
+  preserves the same output without recording provenance.
+
 - Judge validation now preserves bounded, redacted evidence for the current failed execution in
   JSON and human output: normalized command, observed exit code or signal, and diagnostic extract.
   Secret-bearing names include prefixed and compound environment variables; optional causal
@@ -45,7 +51,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   akrctx created it, its current bytes still match the recorded SHA-256 hash, and those exact
   bytes have been applied to the destination. Pre-existing, foreign, legacy, or tampered
   candidates are never adopted or deleted. The same rule covers managed files, root
-  instructions, and repair candidates for invalid manifest or policy files. Partial-target
+  instructions, and repair candidates for invalid manifest or policy files; invalid manifest
+  candidates additionally require external ledger provenance. Partial-target
   runs and candidate directories from earlier versions remain non-destructive; `--dry-run`
   reports the same classification without changing files or provenance. Confirmed removals
   appear in the CLI output and as `removed` in `UpgradeResult`.

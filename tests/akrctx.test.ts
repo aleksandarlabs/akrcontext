@@ -1912,6 +1912,22 @@ describe("remove", () => {
     expect(await pathExists(path.join(tmp, ".akrctx/local"))).toBe(false);
   });
 
+  it("--all dry-run treats the upgrade ledger as removable runtime state", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/manifest.json"), "{ invalid manifest\n", "utf8");
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const ledgerPath = path.join(tmp, ".akrctx/local/upgrade-candidates.json");
+    expect(await pathExists(ledgerPath)).toBe(true);
+
+    const preview = await runRemove({ cwd: tmp, all: true, nonInteractive: true });
+    expect(await pathExists(ledgerPath)).toBe(true);
+    const actual = await runRemove({ cwd: tmp, all: true, force: true, nonInteractive: true });
+
+    expect(preview.planned.slice().sort()).toEqual(actual.planned.slice().sort());
+    expect(await pathExists(ledgerPath)).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx"))).toBe(false);
+  });
+
   it("removes the optional comprehension agent with its target adapter", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await runComprehensionEnable({ cwd: tmp, nonInteractive: true });
@@ -2042,6 +2058,46 @@ describe("upgrade", () => {
 
     expect(await readFile(path.join(tmp, "AGENTS.md"), "utf8")).toBe("# Custom instructions\n");
     expect(await pathExists(path.join(tmp, ".agents/skills/akrctx-workflow/SKILL.md"))).toBe(true);
+  });
+
+  it("records a created root-instruction candidate", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Custom instructions\n", "utf8");
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const candidateKey = path.posix.join(`.akrctx/upgrades/${CLI_VERSION}`, "AGENTS.md");
+    const manifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(manifest.candidates?.[candidateKey]).toMatchObject({
+      hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
+  });
+
+  it("does not adopt a preexisting root-instruction candidate", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const candidateKey = path.posix.join(`.akrctx/upgrades/${CLI_VERSION}`, "AGENTS.md");
+    const candidatePath = path.join(tmp, candidateKey);
+    await mkdir(path.dirname(candidatePath), { recursive: true });
+    await writeFile(candidatePath, "# Foreign candidate\n", "utf8");
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Custom instructions\n", "utf8");
+
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    const manifest = JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8"));
+    expect(manifest.candidates?.[candidateKey]).toBeUndefined();
+  });
+
+  it("does not record a root-instruction candidate during dry-run", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeFile(path.join(tmp, "AGENTS.md"), "# Custom instructions\n", "utf8");
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    const before = await readFile(manifestPath, "utf8");
+    const candidatePath = path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/AGENTS.md`);
+
+    await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+    expect(await readFile(manifestPath, "utf8")).toBe(before);
+    expect(await pathExists(candidatePath)).toBe(false);
   });
 
   it("preserves an edited skill and writes a versioned upgrade candidate", async () => {
@@ -2212,6 +2268,85 @@ describe("upgrade", () => {
     expect(result.completed).toBe(false);
     expect(result.conflicts).toContain(".akrctx/manifest.json");
     expect(await readFile(manifestPath, "utf8")).toBe("{ invalid manifest\n");
+  });
+
+  it("records and cleans an invalid manifest candidate in the external ledger", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    await writeFile(manifestPath, "{ invalid manifest\n", "utf8");
+
+    const first = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const candidateKey = path.posix.join(`.akrctx/upgrades/${CLI_VERSION}`, ".akrctx/manifest.json");
+    const candidatePath = path.join(tmp, candidateKey);
+    const ledgerPath = path.join(tmp, ".akrctx/local/upgrade-candidates.json");
+    const ledger = JSON.parse(await readFile(ledgerPath, "utf8"));
+    expect(first.completed).toBe(false);
+    expect(ledger.candidates?.[candidateKey]).toMatchObject({
+      hash: expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
+    });
+    expect(JSON.parse(await readFile(candidatePath, "utf8")).candidates?.[candidateKey]).toBeUndefined();
+
+    await writeFile(manifestPath, await readFile(candidatePath));
+    const resolved = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(resolved.removed).toContain(candidateKey);
+    expect(await pathExists(candidatePath)).toBe(false);
+    expect(await pathExists(ledgerPath)).toBe(false);
+  });
+
+  it("does not adopt a plausible foreign manifest candidate", async () => {
+    const foreign = await mkdtemp(path.join(os.tmpdir(), "akrctx-foreign-"));
+    await runInit({ cwd: foreign, target: "codex", nonInteractive: true });
+    await writeFile(path.join(foreign, ".akrctx/manifest.json"), "{ invalid manifest\n", "utf8");
+    await runUpgrade({ cwd: foreign, target: "codex", nonInteractive: true });
+
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const candidateKey = path.posix.join(`.akrctx/upgrades/${CLI_VERSION}`, ".akrctx/manifest.json");
+    const candidatePath = path.join(tmp, candidateKey);
+    await mkdir(path.dirname(candidatePath), { recursive: true });
+    await writeFile(candidatePath, await readFile(path.join(foreign, candidateKey)));
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    await writeFile(manifestPath, "{ invalid manifest\n", "utf8");
+
+    const first = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    expect(first.writes.find((write) => write.path === candidateKey)?.kind).toBe("preserve");
+    expect(await pathExists(path.join(tmp, ".akrctx/local/upgrade-candidates.json"))).toBe(false);
+
+    await writeFile(manifestPath, await readFile(candidatePath));
+    const resolved = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    expect(resolved.removed).not.toContain(candidateKey);
+    expect(await pathExists(candidatePath)).toBe(true);
+  });
+
+  it("does not create external manifest provenance during dry-run", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    await writeFile(manifestPath, "{ invalid manifest\n", "utf8");
+    const candidatePath = path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/.akrctx/manifest.json`);
+
+    await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+    expect(await readFile(manifestPath, "utf8")).toBe("{ invalid manifest\n");
+    expect(await pathExists(candidatePath)).toBe(false);
+    expect(await pathExists(path.join(tmp, ".akrctx/local/upgrade-candidates.json"))).toBe(false);
+  });
+
+  it("keeps a manifest candidate and external provenance after tampering", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const manifestPath = path.join(tmp, ".akrctx/manifest.json");
+    await writeFile(manifestPath, "{ invalid manifest\n", "utf8");
+    await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+    const candidateKey = path.posix.join(`.akrctx/upgrades/${CLI_VERSION}`, ".akrctx/manifest.json");
+    const candidatePath = path.join(tmp, candidateKey);
+    const tampered = `${await readFile(candidatePath, "utf8")}\n<!-- tampered -->\n`;
+    await writeFile(candidatePath, tampered, "utf8");
+    await writeFile(manifestPath, tampered, "utf8");
+
+    const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(result.removed).not.toContain(candidateKey);
+    expect(await pathExists(candidatePath)).toBe(true);
+    expect(await pathExists(path.join(tmp, ".akrctx/local/upgrade-candidates.json"))).toBe(true);
   });
 
   it("reports obsolete managed files without deleting them", async () => {

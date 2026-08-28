@@ -61,15 +61,23 @@ export async function runRemove(
   if (options.all) {
     const cfDir = path.join(cwd, ".akrctx");
     if (await pathExists(cfDir)) {
+      const upgradeCandidateLedger = path.join(cfDir, "local/upgrade-candidates.json");
+      const ledgerExists = await pathExists(upgradeCandidateLedger);
       const tasksDir = path.join(cfDir, "tasks");
       const hasTaskCapsules = !options.purgeTasks && (await hasAnyTaskCapsule(tasksDir));
-      const hasLocalRecords = !options.purgeLocal && (await hasAnyLocalRecord(path.join(cfDir, "local")));
+      const hasLocalRecords =
+        !options.purgeLocal &&
+        (await hasAnyLocalRecord(path.join(cfDir, "local"), ledgerExists ? ["upgrade-candidates.json"] : []));
       const preservedEntries = new Set<string>();
       if (hasTaskCapsules) preservedEntries.add("tasks");
       if (hasLocalRecords) preservedEntries.add("local");
 
       if (preservedEntries.size > 0) {
         // Preserve durable user records — remove everything else in .akrctx/.
+        if (hasLocalRecords && ledgerExists) {
+          planned.push(".akrctx/local/upgrade-candidates.json");
+          if (!dryRun) await rm(upgradeCandidateLedger, { force: true });
+        }
         const entries = await readdir(cfDir, { withFileTypes: true });
         for (const entry of entries) {
           if (preservedEntries.has(entry.name)) continue;
@@ -119,10 +127,10 @@ async function hasAnyTaskCapsule(tasksDir: string): Promise<boolean> {
   }
 }
 
-async function hasAnyLocalRecord(localDir: string): Promise<boolean> {
+async function hasAnyLocalRecord(localDir: string, ignoredEntries: string[] = []): Promise<boolean> {
   try {
     const entries = await readdir(localDir, { withFileTypes: true });
-    return entries.some((entry) => entry.name !== ".gitignore");
+    return entries.some((entry) => entry.name !== ".gitignore" && !ignoredEntries.includes(entry.name));
   } catch {
     return false;
   }
