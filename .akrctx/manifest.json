@@ -21,7 +21,7 @@
       "hash": "sha256:e11b9c7e0e6fa70911d72aa7be495d756372bee2fedacbe4f4176a108c0ae850"
     },
     ".akrctx/judge/schemas/review.schema.json": {
-      "hash": "sha256:3501d74d55b74b042eba6ee6b9f0dfcea1365d36800d3b463df32e649c2f9c33"
+      "hash": "sha256:8d35c9113704a1e60c782cda7ba7fbfa7386080c3f911ff87c970e29b0caf608"
     },
     ".claude/commands/akrctx-doctor.md": {
       "hash": "sha256:b8c7e206ec6ddb0eed5b6db0818ea1f08c937a9ff0c9bcfb7c0d3bb3ec1dcab1"
@@ -48,7 +48,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".claude/agents/akrctx-judge.md": {
-      "hash": "sha256:c56500c8a9f3d4d842f32048c7394ba85089e420500afd3f17140cb0ec6a9712"
+      "hash": "sha256:d4c0a8c12c6795f4abd26159e332cd50a1d69eb955353992342b09bb0a6448e3"
     },
     ".akrctx/targets/codex.md": {
       "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
@@ -72,7 +72,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
-      "hash": "sha256:12b61f3b85f2c0096eb731896f5eedfdebce6dc80eb5e7d3d75c008e0443c019"
+      "hash": "sha256:2724424971d988abf0c580dd969114e115ab459ac04c26c5b95affc10364e648"
     },
     ".claude/agents/akrctx-implementer.md": {
       "hash": "sha256:0154e72e9afa395dfc49a0ce2b4d9aec02a3cf450ad5074781a2c192337afce9"

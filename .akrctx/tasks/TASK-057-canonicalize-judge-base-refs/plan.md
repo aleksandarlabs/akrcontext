@@ -12,6 +12,8 @@ persistida. Requiere fijar compatibilidad y regresiones antes de cambiar la repr
 ## Behavior Contract
 
 - Toda base aceptada se resuelve a un hash completo durante la captura.
+- `scope.base` contiene el hash canonical; `scope.baseRef`, si existe, es solo metadata diagnóstica
+  y no participa en la identidad digest.
 - Scope, snapshot y reejecución usan el hash canonicalizado.
 - `verify --run-tests` funciona aunque la copia desechable no tenga branches ni refs remotas.
 - Una ref inexistente falla antes de publicar el snapshot.

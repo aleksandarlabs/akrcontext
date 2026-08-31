@@ -241,6 +241,7 @@ export function registerJudge(program: Command): void {
       log(`${bold("Judge scope:")} ${scope.taskId}`);
       ln();
       log(`  ${dim("base")}       ${scope.base} ${dim(`(${scope.baseCommit.slice(0, 12)})`)}`);
+      if (scope.baseRef) log(`  ${dim("requested")}  ${scope.baseRef}`);
       log(`  ${dim("candidate")}  ${scope.candidate} ${dim(`(${scope.candidateCommit.slice(0, 12)})`)}`);
       log(`  ${dim("akrctx")}     v${scope.cliVersion}`);
       log(`  ${dim("task")}       ${scope.taskDigest}`);

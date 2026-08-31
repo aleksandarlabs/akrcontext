@@ -28,7 +28,7 @@ import { captureValidationError } from "./validation-evidence.js";
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
 const SNAPSHOT_PREFIX = "SNAPSHOT:";
-const SNAPSHOT_VERSION = 4;
+const SNAPSHOT_VERSION = 5;
 const MAX_CAPTURE_ATTEMPTS = 3;
 const AKRCTX_PACKAGE_NAME = "akr-context";
 const AKRCTX_BUILD_ENTRY = "src/index.ts";
@@ -190,7 +190,7 @@ async function loadJudgeSnapshotInternal(
   }
   if (metadata.version !== SNAPSHOT_VERSION) {
     throw new Error(
-      "Snapshot integrity check failed: this snapshot was captured by an older akrctx that predates write detection and generated artifact integrity; capture a new snapshot.",
+      "Snapshot integrity check failed: this snapshot predates write detection and canonical Git base refs (legacy format); capture a new snapshot.",
     );
   }
   if (metadata.id !== id || metadata.scope.candidate !== candidate || metadata.taskId !== metadata.scope.taskId) {
@@ -519,13 +519,16 @@ async function capture(
             recordDigest: parent.recordDigest,
           }
         : undefined;
-      const id = snapshotId(taskId, sourceScope, snapshotContentDigest, artifactContentDigest, parentRecord);
+      // Equivalent refs may reuse one immutable snapshot. Do not persist the spelling from one
+      // invocation as metadata that could falsely describe a later invocation.
+      const { baseRef: _requestedBaseRef, ...persistedSourceScope } = sourceScope;
+      const id = snapshotId(taskId, persistedSourceScope, snapshotContentDigest, artifactContentDigest, parentRecord);
       const candidate = `${SNAPSHOT_PREFIX}${id}`;
       const changedFiles = parent ? changedManifestPaths(parent.manifest, manifest) : sourceScope.changedFiles;
       const changeDigest = parent ? deltaDigest(parent.manifest, manifest) : sourceScope.changeDigest;
       const core = {
-        ...sourceScope,
-        base: parent ? `${SNAPSHOT_PREFIX}${parent.snapshotId}` : sourceScope.baseCommit,
+        ...persistedSourceScope,
+        base: sourceScope.baseCommit,
         candidate,
         changedFiles,
         changeDigest,
@@ -539,7 +542,7 @@ async function capture(
         workspaceDigest: snapshotWorkspaceDigest,
         ...(artifactContentDigest ? { artifactContentDigest } : {}),
         ...(artifactIntegrityDigest ? { artifactIntegrityDigest } : {}),
-        sourceScope,
+        sourceScope: persistedSourceScope,
         scope,
         parent: parentRecord,
       };
@@ -927,14 +930,14 @@ function snapshotId(
   artifactContentDigest: string | undefined,
   parent?: JudgeSnapshotParent,
 ): string {
-  return hash([JSON.stringify({ taskId, sourceScope, contentDigest, artifactContentDigest, parent })]).slice(
-    "sha256:".length,
-    27,
-  );
+  const { baseRef: _diagnostic, ...canonicalSourceScope } = sourceScope;
+  return hash([
+    JSON.stringify({ taskId, sourceScope: canonicalSourceScope, contentDigest, artifactContentDigest, parent }),
+  ]).slice("sha256:".length, 27);
 }
 
 function scopeDigest(scope: Omit<JudgeScope, "scopeDigest"> | JudgeScope): string {
-  const { scopeDigest: _ignored, ...core } = scope as JudgeScope;
+  const { scopeDigest: _ignored, baseRef: _diagnostic, ...core } = scope as JudgeScope;
   return hash([JSON.stringify(core)]);
 }
 

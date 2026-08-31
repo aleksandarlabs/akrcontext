@@ -15,13 +15,15 @@ const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
-export const JUDGE_SCHEMA_VERSION = 3;
+export const JUDGE_SCHEMA_VERSION = 4;
 
 export interface JudgeScope {
   schemaVersion: typeof JUDGE_SCHEMA_VERSION;
   cliVersion: string;
   taskId: string;
   base: string;
+  /** The operator-supplied spelling, retained for diagnostics only. */
+  baseRef?: string;
   candidate: string;
   baseCommit: string;
   candidateCommit: string;
@@ -149,7 +151,8 @@ export async function createJudgeScope(
     schemaVersion: JUDGE_SCHEMA_VERSION as typeof JUDGE_SCHEMA_VERSION,
     cliVersion: CLI_VERSION,
     taskId,
-    base,
+    base: baseCommit,
+    ...(base !== baseCommit ? { baseRef: base } : {}),
     candidate: worktree ? "WORKTREE" : candidate,
     baseCommit,
     candidateCommit,
@@ -159,7 +162,7 @@ export async function createJudgeScope(
     taskDigest,
     changeDigest,
   };
-  const scopeDigest = digest([JSON.stringify(scopeCore)]);
+  const scopeDigest = digest([JSON.stringify(identityScope(scopeCore))]);
   return { ...scopeCore, scopeDigest };
 }
 
@@ -219,7 +222,7 @@ export async function verifyJudgeRecord(
     current = await createJudgeScope(
       cwd,
       record.taskId,
-      record.scope.base,
+      record.scope.baseCommit,
       record.scope.candidate,
       record.scope.includedTaskIds,
     );
@@ -509,6 +512,7 @@ function isScope(value: unknown): value is JudgeScope {
     "cliVersion",
     "taskId",
     "base",
+    "baseRef",
     "candidate",
     "baseCommit",
     "candidateCommit",
@@ -519,9 +523,11 @@ function isScope(value: unknown): value is JudgeScope {
     "changeDigest",
     "scopeDigest",
   ];
-  if (Object.keys(scope).some((key) => !keys.includes(key)) || keys.some((key) => !(key in scope))) return false;
+  const requiredKeys = keys.filter((key) => key !== "baseRef");
+  if (Object.keys(scope).some((key) => !keys.includes(key)) || requiredKeys.some((key) => !(key in scope)))
+    return false;
   const digestPattern = /^sha256:[0-9a-f]{64}$/;
-  const commitPattern = /^[0-9a-f]{40,64}$/;
+  const commitPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
   return (
     scope.schemaVersion === JUDGE_SCHEMA_VERSION &&
     typeof scope.cliVersion === "string" &&
@@ -529,7 +535,8 @@ function isScope(value: unknown): value is JudgeScope {
     typeof scope.taskId === "string" &&
     /^TASK-[0-9]+$/.test(scope.taskId) &&
     typeof scope.base === "string" &&
-    scope.base.length > 0 &&
+    commitPattern.test(scope.base) &&
+    (scope.baseRef === undefined || (typeof scope.baseRef === "string" && scope.baseRef.length > 0)) &&
     typeof scope.candidate === "string" &&
     scope.candidate.length > 0 &&
     typeof scope.baseCommit === "string" &&
@@ -617,6 +624,13 @@ function digest(parts: Array<string | Buffer>): string {
   const hash = createHash("sha256");
   for (const part of parts) hash.update(part);
   return `sha256:${hash.digest("hex")}`;
+}
+
+function identityScope(
+  scope: Omit<JudgeScope, "scopeDigest"> | JudgeScope,
+): Omit<JudgeScope, "scopeDigest" | "baseRef"> {
+  const { scopeDigest: _ignored, baseRef: _diagnostic, ...identity } = scope as JudgeScope;
+  return identity;
 }
 
 function requireTaskId(taskId: string): void {

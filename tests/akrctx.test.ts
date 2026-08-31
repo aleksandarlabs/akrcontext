@@ -23,6 +23,7 @@ import {
   JUDGE_SCHEMA_VERSION,
   createJudgeScope,
   readClarificationState,
+  validateRecord,
   verifyJudgeRecord,
 } from "../src/judge-enforcement.js";
 import {
@@ -2919,6 +2920,22 @@ describe("judge", () => {
     });
   });
 
+  it("rejects a symbolic base in the review record contract", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.scope.base = "origin/main";
+
+    expect(validateRecord(record)).toContain("scope does not match the judge scope contract.");
+  });
+
+  it("rejects an incomplete hexadecimal base hash", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.scope.base = `${record.scope.base}a`;
+
+    expect(validateRecord(record)).toContain("scope does not match the judge scope contract.");
+  });
+
   it("accepts a checklist finalized before capture without a post-judge administrative write", async () => {
     const checklist = "# Review Checklist\n\n- [x] The capsule is ready for independent review.\n";
     const { recordPath } = await createReviewFixture({ checklist });
@@ -3716,6 +3733,80 @@ describe("judge", () => {
     expect(await pathExists(path.join(snapshot.worktreePath, "obsolete.ts"))).toBe(false);
     expect(await readFile(path.join(snapshot.worktreePath, "untracked.ts"), "utf8")).toContain("untracked = true");
     await execFileAsync("git", ["check-ignore", "-q", path.relative(tmp, snapshot.metadataPath)], { cwd: tmp });
+  });
+
+  it("canonicalizes remote refs, local branches, tags, and hashes to one base identity", async () => {
+    const { task } = await createReviewFixture({ declares: ['node -e "process.exit(0)"'] });
+    const baseCommit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tmp })).stdout.trim();
+    await execFileAsync("git", ["update-ref", "refs/remotes/origin/main", baseCommit], { cwd: tmp });
+    await execFileAsync("git", ["branch", "task-057-base", baseCommit], { cwd: tmp });
+    await execFileAsync("git", ["tag", "task-057-tag", baseCommit], { cwd: tmp });
+
+    const scopes = await Promise.all(
+      ["origin/main", "task-057-base", "task-057-tag", baseCommit].map((base) =>
+        createJudgeScope(tmp, task.taskId, base, "WORKTREE"),
+      ),
+    );
+
+    for (const scope of scopes) expect(scope.base).toBe(baseCommit);
+    expect(scopes[0].baseRef).toBe("origin/main");
+    expect(scopes[1].baseRef).toBe("task-057-base");
+    expect(scopes[2].baseRef).toBe("task-057-tag");
+    expect(scopes[3].baseRef).toBeUndefined();
+    expect(new Set(scopes.map((scope) => scope.scopeDigest)).size).toBe(1);
+  });
+
+  it("verifies a snapshot after its symbolic remote base ref is absent", async () => {
+    const command = 'node -e "process.exit(0)"';
+    const { task } = await createReviewFixture({ declares: [command], claims: [command] });
+    const baseCommit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tmp })).stdout.trim();
+    await execFileAsync("git", ["update-ref", "refs/remotes/origin/main", baseCommit], { cwd: tmp });
+    await execFileAsync("git", ["tag", "task-057-tag", baseCommit], { cwd: tmp });
+    const first = await captureJudgeSnapshot(tmp, task.taskId, "origin/main");
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "task-057-tag");
+    const persisted = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    expect(first.id).toBe(snapshot.id);
+    expect(first.scope.base).toBe(baseCommit);
+    expect(snapshot.scope.base).toBe(baseCommit);
+    expect(first.scope.baseRef).toBeUndefined();
+    expect(snapshot.scope.baseRef).toBeUndefined();
+    expect(persisted.sourceScope.baseRef).toBeUndefined();
+    expect(persisted.scope.baseRef).toBeUndefined();
+    const recordPath = path.join(tmp, ".akrctx/local/judge/origin-review.json");
+    await writeFile(
+      recordPath,
+      `${JSON.stringify(
+        {
+          schemaVersion: JUDGE_SCHEMA_VERSION,
+          taskId: task.taskId,
+          scope: snapshot.scope,
+          verdict: "APPROVED",
+          tests: [{ command, status: "passed" }],
+          issues: [],
+          reviewedAt: new Date().toISOString(),
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    await execFileAsync("git", ["update-ref", "-d", "refs/remotes/origin/main"], { cwd: tmp });
+
+    const result = await verifyJudgeRecord(tmp, recordPath, { runTests: true, approve: async () => true });
+
+    expect(result).toMatchObject({ valid: true, approved: true, reasons: [], reexecuted: [{ command, passed: true }] });
+    expect(snapshot.scope.base).toBe(baseCommit);
+    await execFileAsync("git", ["tag", "-d", "task-057-tag"], { cwd: tmp });
+    expect(await execFileAsync("git", ["remote"], { cwd: snapshot.worktreePath })).toMatchObject({ stdout: "" });
+  });
+
+  it("rejects an unresolved base before publishing a snapshot", async () => {
+    const { task } = await createReviewFixture();
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "origin/does-not-exist")).rejects.toThrow(
+      "Cannot resolve Git commit: origin/does-not-exist",
+    );
+    expect(await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => [])).toEqual([]);
   });
 
   it("builds a snapshot's own CLI artifacts instead of relying on ignored live output", async () => {
@@ -4528,6 +4619,18 @@ describe("judge", () => {
     await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("predates write detection");
   });
 
+  it("fails legacy snapshots without canonical base metadata with an explicit diagnostic", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.version = 4;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow(
+      "predates write detection and canonical Git base refs (legacy format)",
+    );
+  });
+
   it("loads deterministically: repeated loads of the same snapshot all succeed", async () => {
     // Guards against any per-call nondeterministic field in the fingerprint (a random, a clock,
     // or an inode number re-read on every load). The inode number was removed for exactly this
@@ -4607,7 +4710,7 @@ describe("judge", () => {
     const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true);
     const loaded = await loadJudgeSnapshot(tmp, catchUp.candidate);
 
-    expect(catchUp.scope.base).toBe(parent.candidate);
+    expect(catchUp.scope.base).toBe(parent.scope.base);
     expect(catchUp.scope.changedFiles).toEqual(["app.ts", "new.ts"]);
     expect(loaded.metadata.parent?.scopeDigest).toBe(parent.scope.scopeDigest);
     expect(loaded.metadata.parent?.recordDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
@@ -4643,7 +4746,7 @@ describe("judge", () => {
     const catchUp = await captureJudgeCatchUpSnapshot(tmp, task.taskId, parentRecordPath, async () => true);
 
     expect(catchUp.scope.includedTaskIds).toEqual(["TASK-999"]);
-    expect(catchUp.scope.base).toBe(parent.candidate);
+    expect(catchUp.scope.base).toBe(parent.scope.base);
   });
 
   it("rejects catch-up when the parent passing claim fails independent re-execution", async () => {

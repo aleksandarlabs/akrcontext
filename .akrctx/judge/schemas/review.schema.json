@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "akrctx-judge-review-v3",
+  "$id": "akrctx-judge-review-v4",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,7 +14,7 @@
   ],
   "properties": {
     "schemaVersion": {
-      "const": 3
+      "const": 4
     },
     "taskId": {
       "type": "string",
@@ -40,7 +40,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": 3
+          "const": 4
         },
         "cliVersion": {
           "type": "string",
@@ -52,6 +52,10 @@
         },
         "base": {
           "type": "string",
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
+        },
+        "baseRef": {
+          "type": "string",
           "minLength": 1
         },
         "candidate": {
@@ -60,11 +64,11 @@
         },
         "baseCommit": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40,64}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "candidateCommit": {
           "type": "string",
-          "pattern": "^[0-9a-f]{40,64}$"
+          "pattern": "^(?:[0-9a-f]{40}|[0-9a-f]{64})$"
         },
         "changedFiles": {
           "type": "array",

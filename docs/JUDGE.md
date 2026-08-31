@@ -56,6 +56,14 @@ The scope contains SHA-256 digests of the five task-capsule documents and exact 
 boundary. The judge copies it unchanged into the final JSON record. Commit and strict
 `WORKTREE` candidates remain supported for compatibility.
 
+`--base` is resolved exactly once in the live workspace. The scope's `base` is always the full
+Git commit SHA (40 characters for SHA-1 or 64 for SHA-256) used for the diff, snapshot, digests, and later verification. If the
+operator supplied a branch, tag, or remote ref, its spelling is retained only as optional
+diagnostic metadata in `baseRef`; it is never resolved in the disposable validation workspace.
+Equivalent refs therefore produce the same canonical scope identity. A missing ref fails before
+the snapshot's final directory is published. Snapshots from the pre-canonical format are rejected
+with an explicit legacy-format diagnostic and must be recaptured.
+
 If a `SNAPSHOT:<id>` cannot be captured, the judge falls back to the `WORKTREE` candidate and
 records which boundary it reviewed in `scope.candidate`. A missing snapshot is not by itself a
 reason to report `BLOCKED`; `BLOCKED` is for an unclear or unreviewable boundary. The snapshot is
