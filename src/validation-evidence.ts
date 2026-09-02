@@ -3,6 +3,7 @@ const DEFAULT_MAX_COMMAND = 1024;
 const SECRET_NAME = String.raw`(?:[A-Za-z0-9]+[_-])*(?:token|password|passwd|secret|api[_-]?key|authorization|private[_-]?key|access[_-]?key|credential)(?:[_-][A-Za-z0-9]+)*`;
 const SECRET_VALUE = String.raw`(?:"[^"\r\n]*"|'[^'\r\n]*'|[^\s]+)`;
 const SECRET_ASSIGNMENT_RE = new RegExp(String.raw`(\b${SECRET_NAME}\s*[=:]\s*)${SECRET_VALUE}`, "gi");
+const SECRET_QUOTED_KEY_RE = new RegExp(String.raw`((["'])${SECRET_NAME}\2\s*:\s*)${SECRET_VALUE}`, "gi");
 const SECRET_FLAG_RE = new RegExp(String.raw`(--${SECRET_NAME}\s+)${SECRET_VALUE}`, "gi");
 
 export type ValidationCauseCertainty = "inferred" | "confirmed";
@@ -34,6 +35,7 @@ export function sanitizeValidationCommand(command: string): string {
 /** Redact common secret-bearing assignments and cap process output before persistence/reporting. */
 export function redactValidationOutput(output: string, maxLength = DEFAULT_MAX_OUTPUT): string {
   const redacted = output
+    .replace(SECRET_QUOTED_KEY_RE, "$1[REDACTED]")
     .replace(SECRET_ASSIGNMENT_RE, "$1[REDACTED]")
     .replace(SECRET_FLAG_RE, "$1[REDACTED]")
     .replace(/(Bearer\s+)[A-Za-z0-9._~+/=-]+/gi, "$1[REDACTED]")

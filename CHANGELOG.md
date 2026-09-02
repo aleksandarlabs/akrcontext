@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-09-02
 
 ### Added
 
@@ -45,9 +45,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Judge validation now preserves bounded, redacted evidence for the current failed execution in
   JSON and human output: normalized command, observed exit code or signal, and diagnostic extract.
-  Secret-bearing names include prefixed and compound environment variables; optional causal
-  diagnoses are separate from observations and limited to `inferred` or `confirmed`, with no
-  cross-invocation history retained.
+  Secret-bearing names include prefixed and compound environment variables plus quoted JSON/YAML
+  keys; optional causal diagnoses are separate from observations and limited to `inferred` or
+  `confirmed`, with no cross-invocation history retained.
 
 - Documented the validation-receipt design boundary: local records and hash-linked
   files provide persistence/integrity but not authenticity, so re-execution remains
@@ -84,9 +84,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verbatim output, and an `expectedFailure` found in that output; the green run records
   `phase: "green"` and the same whitespace-normalized command passing. Invalid or incomplete
   evidence is refused before the round is persisted and produces an actionable non-zero CLI
-  result. Non-TDD workflows and existing records remain compatible without invented evidence.
+  result. Non-TDD workflows and existing records remain compatible without invented evidence:
+  a phase-less legacy round is reported as missing evidence but does not prevent appending a new,
+  compliant red→green round.
 
 ### Fixed
+
+- Release builds now clean `dist` before compiling, so `npm pack` cannot include historical
+  hashed chunks left by earlier builds in a long-lived worktree.
 
 - `akrctx upgrade` once again supports the complete declared Node `>=20` range. Candidate
   cleanup now walks directories explicitly with the Node 20.0 `Dirent` surface instead of
@@ -135,8 +140,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   require a repeatable `--include-task TASK-YYY` opt-in; every accepted ID remains visible in
   `includedTaskIds`, is bound to `scopeDigest`, and is inherited unchanged by catch-up snapshots.
   Snapshot candidates validate that a supplied inclusion list matches the list captured in the
-  immutable scope, while all other changed worktree files remain inside the digest. This changes
-  the judge review contract to schema v3, so records written against v2 must be regenerated.
+  immutable scope, while all other changed worktree files remain inside the digest. Together with
+  the later canonical-base and empty-boundary changes in this release, the final judge review
+  contract is schema v5 and the snapshot format is v6. Records created by 0.5.0 (schema v2), or
+  by intermediate v3/v4 builds, must be regenerated; snapshots from 0.5.0 or intermediate
+  formats must be recaptured.
 
 ## [0.5.0] - 2026-08-08
 

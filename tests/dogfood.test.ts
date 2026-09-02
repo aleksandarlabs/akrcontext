@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
@@ -15,6 +16,14 @@ async function gitTrackedFiles(): Promise<Set<string>> {
 }
 
 describe("dogfooded install reproducibility", () => {
+  it("cleans stale dist artifacts before every release build", async () => {
+    const packageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8")) as {
+      scripts?: { build?: string };
+    };
+
+    expect(packageJson.scripts?.build).toMatch(/(?:^|\s)--clean(?:\s|$)/);
+  });
+
   it("tracks every agent file required by .akrctx/config.json", async () => {
     const config = await readConfig(repoRoot);
     if (!config) throw new Error("akrctx is not installed in the source repo");

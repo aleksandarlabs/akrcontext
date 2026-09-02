@@ -816,6 +816,25 @@ describe("akrctx impl", () => {
     const logged = await runImplLog(task.taskId, round(), { cwd: tmp, nonInteractive: true });
     expect(logged.tddEvidence).toMatchObject({ required: false, status: "not-required" });
   });
+
+  it("lets a TDD task with a legacy phase-less record advance with a compliant round", async () => {
+    const task = await runTask("legacy tdd continuation", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+    const legacy = await runImplLog(task.taskId, round(), { cwd: tmp, nonInteractive: true });
+    expect(legacy.refused).toBe(false);
+
+    const planPath = path.join(tmp, task.taskDir, "plan.md");
+    const plan = await readFile(planPath, "utf8");
+    await writeFile(planPath, plan.replace(/(## Workflow\n\n)-?\s*[^\n]+/, "$1- TDD"), "utf8");
+
+    const status = await runImplStatus(task.taskId, { cwd: tmp, nonInteractive: true });
+    expect(status.tddEvidence).toMatchObject({ required: true, status: "missing" });
+    expect(status.blocked).toBeUndefined();
+
+    const current = await runImplLog(task.taskId, tddRound(), { cwd: tmp, nonInteractive: true });
+    expect(current.refused).toBe(false);
+    expect(current.record?.round).toBe(2);
+    expect(current.tddEvidence).toMatchObject({ required: true, status: "complete" });
+  });
 });
 
 describe("implementer agent files", () => {

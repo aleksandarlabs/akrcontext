@@ -262,6 +262,14 @@ async function taskRequiresTdd(cwd: string, taskId: string): Promise<boolean> {
 export function checkTddEvidence(required: boolean, record?: RoundRecord): TddEvidenceResult {
   if (!required) return { required: false, status: "not-required" };
   if (!record) return { required: true, status: "missing", reason: "No implementation round has been recorded yet." };
+  const legacy = record.validation.every((run) => run.phase === undefined && run.expectedFailure === undefined);
+  if (legacy) {
+    return {
+      required: true,
+      status: "missing",
+      reason: "The latest implementation round predates explicit TDD phase evidence.",
+    };
+  }
   const red = record.validation.filter((run) => run.phase === "red");
   const green = record.validation.filter((run) => run.phase === "green");
   if (red.length !== 1 || green.length !== 1) {
@@ -329,7 +337,10 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
   }
 
   const tddEvidence = checkTddEvidence(await taskRequiresTdd(cwd, taskId), records[records.length - 1]);
-  const evidenceBlocked = records.length > 0 && tddEvidence.status !== "complete" && tddEvidence.required;
+  // Phase-less persisted records predate this contract. Keep them visible as missing evidence,
+  // but allow a new compliant round to advance the append-only log. Records carrying partial
+  // phase metadata are current-contract records and remain blocking when invalid.
+  const evidenceBlocked = records.length > 0 && tddEvidence.status === "invalid" && tddEvidence.required;
   const stopped = !resolved.enabled || records.length >= budget;
   const budgetBlocked = stopped
     ? `Attempt budget spent: ${records.length} of ${budget} rounds recorded. Hand the task back instead of starting another round.`

@@ -1,13 +1,13 @@
 {
   "name": "akr-context",
-  "version": "0.5.0",
+  "version": "0.6.0",
   "description": "Local CLI that installs akrctx agentic workflow harnesses into repositories.",
   "type": "module",
   "bin": {
     "akrctx": "dist/index.js"
   },
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts --sourcemap",
+    "build": "tsup src/index.ts --format esm --dts --sourcemap --clean",
     "test": "vitest run",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

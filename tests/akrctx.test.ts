@@ -2849,6 +2849,19 @@ describe("judge", () => {
     expect(output).not.toContain("cli secret");
   });
 
+  it("redacts quoted secret-bearing keys in structured diagnostic output", () => {
+    const output = redactValidationOutput(
+      `{"AWS_SECRET_ACCESS_KEY":"json secret"}\n'api-key': 'yaml secret'\n"password" : unquoted-secret`,
+    );
+
+    expect(output).toContain('"AWS_SECRET_ACCESS_KEY":[REDACTED]');
+    expect(output).toContain("'api-key': [REDACTED]");
+    expect(output).toContain('"password" : [REDACTED]');
+    expect(output).not.toContain("json secret");
+    expect(output).not.toContain("yaml secret");
+    expect(output).not.toContain("unquoted-secret");
+  });
+
   it("redacts credentials embedded in a reported validation command", () => {
     const command = sanitizeValidationCommand(
       '  NPM_TOKEN="npm secret"   pnpm test --api-key cli-secret https://private.example/run  ',
