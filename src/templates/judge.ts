@@ -20,6 +20,7 @@ export const judgeExampleRecord = JSON.stringify(
       baseCommit: zeroCommit,
       candidateCommit: zeroCommit,
       changedFiles: ["src/example.ts"],
+      emptyBoundaryAuthorized: false,
       excludedPaths: [],
       includedTaskIds: [],
       taskDigest: zeroDigest,

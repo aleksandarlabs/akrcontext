@@ -127,39 +127,63 @@ export function registerJudge(program: Command): void {
     )
     .option("--from-review <file>", "capture only changes since a verified approved snapshot review")
     .option(
+      "--allow-empty",
+      "explicitly authorize an empty boundary; records the authorization in snapshot metadata",
+      false,
+    )
+    .option(
       "--approve-commands <cmd>",
       "approve one of the parent review's declared commands; repeat once per command, in declared order",
       (value: string, previous: string[]) => [...previous, value],
       [] as string[],
     )
     .option("--json", "emit snapshot metadata for automation", false)
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Output names the immutable capture as SNAPSHOT:<id>.",
+        "A later <review.json> is the separate judge verdict record; these are not interchangeable.",
+      ].join("\n"),
+    )
     .action(async (taskId: string, raw: Record<string, unknown>) => {
       const options = normalizeOptions(raw);
       const cwd = options.cwd ?? process.cwd();
       const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
       const snapshot = raw.fromReview
-        ? await captureJudgeCatchUpSnapshot(cwd, taskId, String(raw.fromReview), (commands) =>
-            approveCommands(commands, approved),
+        ? await captureJudgeCatchUpSnapshot(
+            cwd,
+            taskId,
+            String(raw.fromReview),
+            (commands) => approveCommands(commands, approved),
+            Boolean(raw.allowEmpty),
           )
         : await captureJudgeSnapshot(
             cwd,
             taskId,
             String(raw.base),
             Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
+            Boolean(raw.allowEmpty),
           );
       if (options.json) {
-        console.log(JSON.stringify(snapshot, null, 2));
+        console.log(
+          JSON.stringify({ ...snapshot, emptyBoundaryAuthorized: snapshot.emptyBoundaryAuthorized }, null, 2),
+        );
         return;
       }
       log(`${bold("Judge snapshot:")} ${taskId}@${snapshot.id}`);
       log(`  ${dim("candidate")} ${snapshot.candidate}`);
       log(`  ${dim("changed")}   ${snapshot.scope.changedFiles.length} file(s)`);
+      if (snapshot.emptyBoundaryAuthorized) log(`  ${yellow("empty")}     authorized by --allow-empty`);
       if (snapshot.scope.includedTaskIds.length) {
         log(`  ${dim("included")}  ${snapshot.scope.includedTaskIds.join(", ")}`);
       }
       if (snapshot.parent) log(`  ${dim("catch-up")}  from ${snapshot.parent.snapshotId}`);
       ln();
       log(`  ${green("✓")} ${dim("Captured without changing branch, index, stash, refs, or live files.")}`);
+      log(
+        `  ${dim(`SNAPSHOT:${snapshot.id} is the immutable capture ID; a later <review.json> is the judge verdict record.`)}`,
+      );
       log(`  ${dim("You can keep working while the judge reviews this snapshot.")}`);
     });
 

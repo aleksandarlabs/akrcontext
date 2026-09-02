@@ -28,7 +28,7 @@ import { captureValidationError } from "./validation-evidence.js";
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
 const SNAPSHOT_PREFIX = "SNAPSHOT:";
-const SNAPSHOT_VERSION = 5;
+const SNAPSHOT_VERSION = 6;
 const MAX_CAPTURE_ATTEMPTS = 3;
 const AKRCTX_PACKAGE_NAME = "akr-context";
 const AKRCTX_BUILD_ENTRY = "src/index.ts";
@@ -52,6 +52,7 @@ export interface JudgeSnapshotMetadata {
   artifactIntegrityDigest?: string;
   sourceScope: JudgeScope;
   scope: JudgeScope;
+  emptyBoundaryAuthorized: boolean;
   parent?: JudgeSnapshotParent;
 }
 
@@ -62,6 +63,7 @@ export interface JudgeSnapshot {
   metadataPath: string;
   worktreePath: string;
   parent?: JudgeSnapshotParent;
+  emptyBoundaryAuthorized: boolean;
 }
 
 /**
@@ -116,8 +118,9 @@ export async function captureJudgeSnapshot(
   taskId: string,
   base: string,
   includedTaskIds: string[] = [],
+  allowEmpty = false,
 ): Promise<JudgeSnapshot> {
-  return capture(cwd, taskId, base, undefined, includedTaskIds);
+  return capture(cwd, taskId, base, undefined, includedTaskIds, allowEmpty);
 }
 
 export async function captureJudgeCatchUpSnapshot(
@@ -125,6 +128,7 @@ export async function captureJudgeCatchUpSnapshot(
   taskId: string,
   parentRecordPath: string,
   approve?: (commands: string[]) => Promise<boolean>,
+  allowEmpty = false,
 ): Promise<JudgeSnapshot> {
   const absoluteRecord = path.resolve(cwd, parentRecordPath);
   const relativeRecord = path.relative(cwd, absoluteRecord).split(path.sep).join("/");
@@ -163,6 +167,7 @@ export async function captureJudgeCatchUpSnapshot(
     loaded.metadata.sourceScope.baseCommit,
     parent,
     loaded.metadata.sourceScope.includedTaskIds,
+    allowEmpty,
   );
 }
 
@@ -189,11 +194,22 @@ async function loadJudgeSnapshotInternal(
     throw new Error(`Snapshot integrity check failed: ${messageOf(error)}`);
   }
   if (metadata.version !== SNAPSHOT_VERSION) {
+    if (metadata.version === 5) {
+      throw new Error(
+        "Snapshot integrity check failed: this snapshot predates the empty-boundary authorization contract (v5); capture a new snapshot with the current CLI.",
+      );
+    }
     throw new Error(
       "Snapshot integrity check failed: this snapshot predates write detection and canonical Git base refs (legacy format); capture a new snapshot.",
     );
   }
-  if (metadata.id !== id || metadata.scope.candidate !== candidate || metadata.taskId !== metadata.scope.taskId) {
+  if (
+    metadata.id !== id ||
+    metadata.scope.candidate !== candidate ||
+    metadata.taskId !== metadata.scope.taskId ||
+    metadata.emptyBoundaryAuthorized !== metadata.scope.emptyBoundaryAuthorized ||
+    metadata.emptyBoundaryAuthorized !== (metadata.scope.changedFiles.length === 0)
+  ) {
     throw new Error("Snapshot integrity check failed: metadata shape or identity is invalid.");
   }
   let workspace: Map<string, PathFingerprint>;
@@ -275,6 +291,7 @@ async function loadJudgeSnapshotInternal(
     metadataPath,
     worktreePath,
     parent: metadata.parent,
+    emptyBoundaryAuthorized: metadata.emptyBoundaryAuthorized,
     metadata,
     manifest: workspace,
   };
@@ -462,6 +479,7 @@ async function capture(
   base: string,
   parent?: CaptureParent,
   includedTaskIds: string[] = [],
+  allowEmpty = false,
 ): Promise<JudgeSnapshot> {
   const snapshotsRoot = path.join(cwd, SNAPSHOT_ROOT);
   await mkdir(snapshotsRoot, { recursive: true });
@@ -469,6 +487,11 @@ async function capture(
 
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt += 1) {
     const sourceScope = await createJudgeScope(cwd, taskId, base, "WORKTREE", includedTaskIds);
+    if (!parent && sourceScope.changedFiles.length === 0 && !allowEmpty) {
+      throw new Error(
+        `Cannot capture an empty judge boundary for ${taskId}: changedFiles is empty. HEAD as the base does not include commits already made on this branch. Select a base that contains the delta, for example: akrctx judge snapshot ${taskId} --base origin/main. Use --allow-empty only for an intentional empty capture.`,
+      );
+    }
     const temporaryRoot = await mkdtemp(path.join(snapshotsRoot, ".capture-"));
     const worktreePath = path.join(temporaryRoot, "worktree");
     let finalRoot = "";
@@ -521,10 +544,18 @@ async function capture(
         : undefined;
       // Equivalent refs may reuse one immutable snapshot. Do not persist the spelling from one
       // invocation as metadata that could falsely describe a later invocation.
-      const { baseRef: _requestedBaseRef, ...persistedSourceScope } = sourceScope;
+      const changedFiles = parent ? changedManifestPaths(parent.manifest, manifest) : sourceScope.changedFiles;
+      if (changedFiles.length === 0 && !allowEmpty) {
+        throw new Error(
+          `Cannot capture an empty judge boundary for ${taskId}: changedFiles is empty. HEAD as the base does not include commits already made on this branch. Select a base that contains the delta, for example: akrctx judge snapshot ${taskId} --base origin/main. Use --allow-empty only for an intentional empty capture.`,
+        );
+      }
+      const { baseRef: _requestedBaseRef, ...persistedSourceScope } = {
+        ...sourceScope,
+        emptyBoundaryAuthorized: allowEmpty && changedFiles.length === 0,
+      };
       const id = snapshotId(taskId, persistedSourceScope, snapshotContentDigest, artifactContentDigest, parentRecord);
       const candidate = `${SNAPSHOT_PREFIX}${id}`;
-      const changedFiles = parent ? changedManifestPaths(parent.manifest, manifest) : sourceScope.changedFiles;
       const changeDigest = parent ? deltaDigest(parent.manifest, manifest) : sourceScope.changeDigest;
       const core = {
         ...persistedSourceScope,
@@ -545,6 +576,7 @@ async function capture(
         sourceScope: persistedSourceScope,
         scope,
         parent: parentRecord,
+        emptyBoundaryAuthorized: persistedSourceScope.emptyBoundaryAuthorized,
       };
       await writeFile(path.join(temporaryRoot, "snapshot.json"), `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
       finalRoot = path.join(snapshotsRoot, id);
@@ -568,6 +600,7 @@ async function capture(
         metadataPath: loaded.metadataPath,
         worktreePath: loaded.worktreePath,
         parent: loaded.parent,
+        emptyBoundaryAuthorized: loaded.emptyBoundaryAuthorized,
       };
     } catch (error) {
       // If the self-verifying load below failed after the rename landed, the snapshot directory

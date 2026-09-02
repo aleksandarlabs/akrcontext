@@ -15,7 +15,7 @@ const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
-export const JUDGE_SCHEMA_VERSION = 4;
+export const JUDGE_SCHEMA_VERSION = 5;
 
 export interface JudgeScope {
   schemaVersion: typeof JUDGE_SCHEMA_VERSION;
@@ -28,6 +28,8 @@ export interface JudgeScope {
   baseCommit: string;
   candidateCommit: string;
   changedFiles: string[];
+  /** True only when an intentionally empty snapshot was captured with --allow-empty. */
+  emptyBoundaryAuthorized: boolean;
   excludedPaths: string[];
   includedTaskIds: string[];
   taskDigest: string;
@@ -157,6 +159,7 @@ export async function createJudgeScope(
     baseCommit,
     candidateCommit,
     changedFiles: uniqueChangedFiles,
+    emptyBoundaryAuthorized: false,
     excludedPaths: uniqueExcludedPaths,
     includedTaskIds: requestedTaskIds,
     taskDigest,
@@ -517,6 +520,7 @@ function isScope(value: unknown): value is JudgeScope {
     "baseCommit",
     "candidateCommit",
     "changedFiles",
+    "emptyBoundaryAuthorized",
     "excludedPaths",
     "includedTaskIds",
     "taskDigest",
@@ -546,6 +550,7 @@ function isScope(value: unknown): value is JudgeScope {
     Array.isArray(scope.changedFiles) &&
     scope.changedFiles.every((item) => typeof item === "string") &&
     new Set(scope.changedFiles).size === scope.changedFiles.length &&
+    typeof scope.emptyBoundaryAuthorized === "boolean" &&
     Array.isArray(scope.excludedPaths) &&
     scope.excludedPaths.every((item) => typeof item === "string") &&
     new Set(scope.excludedPaths).size === scope.excludedPaths.length &&

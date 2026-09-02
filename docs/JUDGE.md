@@ -56,13 +56,32 @@ The scope contains SHA-256 digests of the five task-capsule documents and exact 
 boundary. The judge copies it unchanged into the final JSON record. Commit and strict
 `WORKTREE` candidates remain supported for compatibility.
 
+An empty boundary (`changedFiles: []`) is rejected by `judge snapshot` by default, including
+when `HEAD` is used as the base. `HEAD` does not include commits already made on the current
+branch, so select a base that contains the delta, for example:
+
+```bash
+akrctx judge snapshot TASK-001 --base origin/main
+```
+
+For a deliberately empty review boundary, pass `--allow-empty`. The resulting snapshot records
+`emptyBoundaryAuthorized: true` in both metadata and scope, binds that fact into its identity,
+and prints it in human and JSON output. The flag applies only to that capture; ordinary snapshots
+remain unchanged. A rejected capture publishes neither a final snapshot directory nor a
+`.capture-*` temporary directory.
+
+The human `SNAPSHOT:<id>` value is the immutable capture identifier. A later `<review.json>` is
+the separate judge verdict record; they are not interchangeable.
+
 `--base` is resolved exactly once in the live workspace. The scope's `base` is always the full
 Git commit SHA (40 characters for SHA-1 or 64 for SHA-256) used for the diff, snapshot, digests, and later verification. If the
 operator supplied a branch, tag, or remote ref, its spelling is retained only as optional
 diagnostic metadata in `baseRef`; it is never resolved in the disposable validation workspace.
 Equivalent refs therefore produce the same canonical scope identity. A missing ref fails before
-the snapshot's final directory is published. Snapshots from the pre-canonical format are rejected
-with an explicit legacy-format diagnostic and must be recaptured.
+the snapshot's final directory is published. Version 5 snapshots already contain canonical Git
+base refs; they are rejected only because they predate the empty-boundary authorization contract.
+Older snapshot formats may predate other contracts, including write detection and canonical base
+refs where applicable, and are rejected with an explicit legacy-format diagnostic.
 
 If a `SNAPSHOT:<id>` cannot be captured, the judge falls back to the `WORKTREE` candidate and
 records which boundary it reviewed in `scope.candidate`. A missing snapshot is not by itself a

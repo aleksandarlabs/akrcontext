@@ -18,10 +18,10 @@
       "hash": "sha256:0065770ba2cfe89904f668cbef440f012f9ed185a65619e1db063113738a186f"
     },
     ".akrctx/judge/README.md": {
-      "hash": "sha256:e11b9c7e0e6fa70911d72aa7be495d756372bee2fedacbe4f4176a108c0ae850"
+      "hash": "sha256:77803b3ff839748a9787335158b92712885fbb7a0cef2c2d4cd7f1d10cc140f0"
     },
     ".akrctx/judge/schemas/review.schema.json": {
-      "hash": "sha256:8d35c9113704a1e60c782cda7ba7fbfa7386080c3f911ff87c970e29b0caf608"
+      "hash": "sha256:f4900859b841281da9f4ef8b19b26a38cafa82477ee002a00a1a38136d76b8bd"
     },
     ".claude/commands/akrctx-doctor.md": {
       "hash": "sha256:b8c7e206ec6ddb0eed5b6db0818ea1f08c937a9ff0c9bcfb7c0d3bb3ec1dcab1"
@@ -48,7 +48,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".claude/agents/akrctx-judge.md": {
-      "hash": "sha256:d4c0a8c12c6795f4abd26159e332cd50a1d69eb955353992342b09bb0a6448e3"
+      "hash": "sha256:ef3800158a57a0566515d3c8bbafecb8db40a40f0eebb41e5cffe61983a71135"
     },
     ".akrctx/targets/codex.md": {
       "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
@@ -72,7 +72,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
-      "hash": "sha256:2724424971d988abf0c580dd969114e115ab459ac04c26c5b95affc10364e648"
+      "hash": "sha256:f998e29d96e3f805133d8bbb73b4049296c48c8a87b64e69cb5370481a00b928"
     },
     ".claude/agents/akrctx-implementer.md": {
       "hash": "sha256:0154e72e9afa395dfc49a0ce2b4d9aec02a3cf450ad5074781a2c192337afce9"

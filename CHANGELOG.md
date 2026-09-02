@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- `akrctx judge snapshot` now rejects empty boundaries by default, explains why `HEAD` may omit
+  committed branch changes, and supports the explicit, digest-bound `--allow-empty` opt-in with
+  visible human and JSON metadata.
+
 - Judge snapshots now resolve `--base` once to a full commit SHA and use that canonical identity
   for scope, digests, snapshot capture, currency checks, and independent verification. The
   requested branch, tag, or remote ref is optional diagnostic metadata only; legacy snapshots

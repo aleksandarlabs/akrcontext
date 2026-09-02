@@ -74,10 +74,10 @@ Finish with exactly one JSON object. Do not wrap it in Markdown. This is the com
 
 '''json
 {
-  "schemaVersion": 4,
+  "schemaVersion": 5,
   "taskId": "TASK-001",
   "scope": {
-    "schemaVersion": 4,
+    "schemaVersion": 5,
     "cliVersion": "0.0.0",
     "taskId": "TASK-001",
     "base": "0000000000000000000000000000000000000000",
@@ -88,6 +88,7 @@ Finish with exactly one JSON object. Do not wrap it in Markdown. This is the com
     "changedFiles": [
       "src/example.ts"
     ],
+    "emptyBoundaryAuthorized": false,
     "excludedPaths": [],
     "includedTaskIds": [],
     "taskDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",

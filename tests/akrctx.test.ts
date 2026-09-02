@@ -3735,6 +3735,39 @@ describe("judge", () => {
     await execFileAsync("git", ["check-ignore", "-q", path.relative(tmp, snapshot.metadataPath)], { cwd: tmp });
   });
 
+  it("rejects an accidentally empty committed boundary before publishing anything", async () => {
+    const { task } = await createReviewFixture();
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "implementation"], { cwd: tmp });
+
+    await expect(captureJudgeSnapshot(tmp, task.taskId, "HEAD")).rejects.toThrow(
+      /empty judge boundary.*HEAD as the base does not include commits.*--base origin\/main/i,
+    );
+    expect(await readdir(path.join(tmp, ".akrctx/local/judge/snapshots")).catch(() => [])).toEqual([]);
+    expect(
+      (await readdir(path.join(tmp, ".akrctx/local/judge")).catch(() => [])).filter((entry) =>
+        entry.startsWith(".capture-"),
+      ),
+    ).toEqual([]);
+  });
+
+  it("allows and integrity-binds an explicitly authorized empty snapshot", async () => {
+    const { task } = await createReviewFixture();
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "implementation"], { cwd: tmp });
+
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD", [], true);
+    expect(snapshot.emptyBoundaryAuthorized).toBe(true);
+    expect(snapshot.scope.changedFiles).toEqual([]);
+    expect(snapshot.scope.emptyBoundaryAuthorized).toBe(true);
+    expect((await loadJudgeSnapshot(tmp, snapshot.candidate)).metadata.emptyBoundaryAuthorized).toBe(true);
+
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.emptyBoundaryAuthorized = false;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow(/metadata shape or identity is invalid/);
+  });
+
   it("canonicalizes remote refs, local branches, tags, and hashes to one base identity", async () => {
     const { task } = await createReviewFixture({ declares: ['node -e "process.exit(0)"'] });
     const baseCommit = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: tmp })).stdout.trim();
@@ -4631,6 +4664,19 @@ describe("judge", () => {
     );
   });
 
+  it("distinguishes v5 snapshots from older legacy contracts", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.version = 5;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+    const error = await loadJudgeSnapshot(tmp, snapshot.candidate).catch((value: unknown) => value as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("predates the empty-boundary authorization contract");
+    expect((error as Error).message).not.toContain("canonical Git base refs");
+  });
+
   it("loads deterministically: repeated loads of the same snapshot all succeed", async () => {
     // Guards against any per-call nondeterministic field in the fingerprint (a random, a clock,
     // or an inode number re-read on every load). The inode number was removed for exactly this
@@ -4883,9 +4929,12 @@ describe("judge", () => {
     const json = JSON.parse(await capture(["judge", "snapshot", task.taskId, "--json"]));
 
     expect(human).toContain("You can keep working");
+    expect(human).toContain("SNAPSHOT:");
+    expect(human).toContain("<review.json>");
     expect(human).not.toContain("scopeDigest");
     expect(json.candidate).toMatch(/^SNAPSHOT:[0-9a-f]{20}$/);
     expect(json.scope.scopeDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(json.emptyBoundaryAuthorized).toBe(false);
     expect(json.worktreePath).toContain(".akrctx/local/judge/snapshots/");
 
     const recordPath = path.join(tmp, ".akrctx/local/judge/cli-review.json");
@@ -4919,6 +4968,33 @@ describe("judge", () => {
     const pruneApplied = JSON.parse(await capture(["judge", "prune", "--keep", "1", "--force", "--json"]));
     expect(pruneApplied.dryRun).toBe(false);
     expect(pruneApplied.removed).toHaveLength(1);
+  });
+
+  it("CLI judge snapshot makes --allow-empty visible in human and JSON output", async () => {
+    const { task } = await createReviewFixture();
+    await execFileAsync("git", ["add", "."], { cwd: tmp });
+    await execFileAsync("git", ["commit", "-m", "implementation"], { cwd: tmp });
+    const previousCwd = process.cwd();
+    const originalLog = console.log;
+    const capture = async (args: string[]) => {
+      const writes: string[] = [];
+      console.log = (message?: unknown) => writes.push(String(message));
+      try {
+        process.chdir(tmp);
+        await main(["node", "akrctx", ...args]);
+      } finally {
+        process.chdir(previousCwd);
+        console.log = originalLog;
+      }
+      return writes.join("\n");
+    };
+
+    const human = await capture(["judge", "snapshot", task.taskId, "--allow-empty"]);
+    const json = JSON.parse(await capture(["judge", "snapshot", task.taskId, "--allow-empty", "--json"]));
+    expect(human).toContain("authorized by --allow-empty");
+    expect(human).toContain("SNAPSHOT:");
+    expect(json.emptyBoundaryAuthorized).toBe(true);
+    expect(json.scope.emptyBoundaryAuthorized).toBe(true);
   });
 
   it("enable generates agent files for installed targets and sets enabled in config", async () => {

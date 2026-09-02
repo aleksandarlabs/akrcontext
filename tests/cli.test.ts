@@ -89,6 +89,13 @@ describe("CLI help snapshots", () => {
   it.each(subcommands)("%s --help matches snapshot", (subcommand) => {
     expect(captureHelp([subcommand, "--help"])).toMatchSnapshot();
   });
+
+  it("judge snapshot help distinguishes the immutable snapshot ID from the review record", () => {
+    const help = captureHelp(["judge", "snapshot", "--help"]);
+    expect(help).toContain("--allow-empty");
+    expect(help).toContain("SNAPSHOT:<id>");
+    expect(help).toContain("<review.json>");
+  });
 });
 
 describe("CLI layer — main(argv)", () => {

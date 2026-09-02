@@ -4,6 +4,8 @@ The trusted caller normally captures `akrctx judge snapshot TASK-XXX --base <ref
 
 Scope and snapshot capture fail closed when changed files include a different task capsule under `.akrctx/tasks/TASK-YYY-*`. The error lists every foreign task ID and path; isolate the worktree or explicitly repeat `--include-task TASK-YYY` on `judge scope` or `judge snapshot`. Explicit inclusions are recorded in `scope.includedTaskIds` and bound to `scopeDigest`; catch-up snapshots preserve the parent's decision. Other changed files remain in the boundary — akrctx does not infer or silently omit source files.
 
+An empty boundary is rejected by `judge snapshot` unless the caller passes `--allow-empty`. That explicit authorization is recorded as `emptyBoundaryAuthorized: true` in the snapshot metadata and scope and is part of the snapshot identity; ordinary snapshots keep it false. The human `SNAPSHOT:<id>` is the immutable capture ID, while a later `<review.json>` is the separate judge verdict record.
+
 Before using an approval, run `akrctx judge verify <review.json> --run-tests`. Verification checks the record shape and recomputes SHA-256 digests for the task capsule and exact code boundary. A snapshot approval remains valid when the live workspace moves; tampering with the snapshot or any catch-up ancestor invalidates it. `akrctx judge current <review.json>` first rejects an invalid or non-approved record, then reports whether live content is `CURRENT`, has `NEWER_CHANGES`, or `DIVERGED`. This binds a verdict to evidence; it does not cryptographically prove which model produced the verdict.
 
 An `APPROVED` verdict additionally requires evidence and coherence:
