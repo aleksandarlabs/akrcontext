@@ -49,6 +49,7 @@ akrctx upgrade                         # update harness files to current CLI ver
 akrctx config show
 akrctx config set defaultWorkflow SDD+TDD
 akrctx task "Define invoice API examples" --workflow SDD+EDD
+akrctx task search "exact literal text"
 akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
 akrctx judge status
@@ -103,6 +104,10 @@ The CLI task command remains available for headless or scripted use:
 ```bash
 akrctx task "Define invoice API examples" --workflow SDD+EDD
 ```
+
+### Search task capsules
+
+Use `akrctx task search <query>` to locate literal, case-insensitive text in the five canonical files of existing task capsules. Results cite the task, repository-relative file, line, and text; `--json` returns the same records as an array. Search is read-only: it does not scan exports or logs, follow symbolic links, build an index, infer whether a result remains current, or use a network service, regex, embeddings, or an LLM.
 
 ## Project Defaults
 

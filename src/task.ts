@@ -1,8 +1,9 @@
-import { rm } from "node:fs/promises";
+import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { normalizeWorkflow as normalizeConfigWorkflow, readConfig } from "./config.js";
 import { listDirs, pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import { type CapsuleContent, capsuleFiles } from "./harness-files.js";
+import { matchesBlockedPattern, readBlockedPatterns } from "./judge-enforcement.js";
 import type { CommandOptions, TaskWorkflow, Workflow, akrctxConfig } from "./types.js";
 import { workflows } from "./types.js";
 
@@ -31,6 +32,14 @@ export interface TaskRemoveResult {
   taskId: string;
   taskDir: string;
   removed: boolean;
+}
+
+export interface TaskSearchResult {
+  taskId: string;
+  taskDir: string;
+  file: string;
+  line: number;
+  text: string;
 }
 
 export interface WorkflowSelection {
@@ -343,6 +352,94 @@ export async function listTasks(cwd: string): Promise<TaskSummary[]> {
     });
   }
   return summaries.sort((a, b) => taskNumber(a.taskId) - taskNumber(b.taskId));
+}
+
+/**
+ * Find literal, case-insensitive text in the canonical files of task capsules.
+ *
+ * This deliberately does not use `listTasks`: search must skip links before reading,
+ * apply the blocked-read policy to each candidate file, and preserve the canonical
+ * `capsuleFiles` order rather than the arbitrary directory-entry order from the OS.
+ */
+export async function searchTaskCapsules(cwd: string, query: string): Promise<TaskSearchResult[]> {
+  if (!query.trim()) throw new Error("Search query must be non-empty.");
+
+  await rejectSymbolicLink(path.join(cwd, ".akrctx"), ".akrctx");
+  const patterns = await readBlockedPatterns(cwd);
+  const needle = query.toLowerCase();
+  const tasksRoot = path.join(cwd, ".akrctx/tasks");
+  const entries = await listRealTaskDirectories(tasksRoot);
+  const matches: TaskSearchResult[] = [];
+
+  for (const entry of entries) {
+    const taskDir = path.posix.join(".akrctx/tasks", entry);
+    const absoluteTaskDir = path.join(cwd, taskDir);
+    // Recheck after listing so a directory replaced with a symlink is never followed.
+    if (!(await isRealDirectory(absoluteTaskDir))) continue;
+
+    for (const name of capsuleFiles) {
+      const file = path.posix.join(taskDir, name);
+      if (patterns.some((pattern) => matchesBlockedPattern(file, pattern))) continue;
+      const content = await readRegularTextIfPresent(path.join(cwd, file), file);
+      if (content === undefined) continue;
+
+      for (const [index, text] of content.split(/\r?\n/).entries()) {
+        if (!text.toLowerCase().includes(needle)) continue;
+        matches.push({ taskId: parseTaskId(entry), taskDir, file, line: index + 1, text });
+      }
+    }
+  }
+
+  return matches;
+}
+
+async function listRealTaskDirectories(tasksRoot: string): Promise<string[]> {
+  if (!(await isRealDirectory(tasksRoot))) return [];
+  const entries = await readdir(tasksRoot, { withFileTypes: true });
+  return entries
+    .filter((entry) => entry.isDirectory() && entry.name !== "_template")
+    .map((entry) => entry.name)
+    .sort((left, right) => taskNumber(left) - taskNumber(right) || left.localeCompare(right));
+}
+
+async function isRealDirectory(absolutePath: string): Promise<boolean> {
+  try {
+    return (await lstat(absolutePath)).isDirectory();
+  } catch (error) {
+    if (isMissing(error)) return false;
+    throw error;
+  }
+}
+
+async function rejectSymbolicLink(absolutePath: string, relativePath: string): Promise<void> {
+  const info = await lstat(absolutePath).catch((error: unknown) => {
+    if (isMissing(error)) return undefined;
+    throw new Error(`Cannot inspect ${relativePath}: ${messageOf(error)}`);
+  });
+  if (info?.isSymbolicLink()) throw new Error(`Cannot search task capsules through symbolic link: ${relativePath}.`);
+}
+
+async function readRegularTextIfPresent(absolutePath: string, relativePath: string): Promise<string | undefined> {
+  const info = await lstat(absolutePath).catch((error: unknown) => {
+    if (isMissing(error)) return undefined;
+    throw new Error(`Cannot read task capsule file ${relativePath}: ${messageOf(error)}`);
+  });
+  if (!info) return undefined;
+  if (info.isSymbolicLink()) return undefined;
+  if (!info.isFile()) throw new Error(`Cannot read task capsule file ${relativePath}: not a regular file.`);
+  try {
+    return await readFile(absolutePath, "utf8");
+  } catch (error) {
+    throw new Error(`Cannot read task capsule file ${relativePath}: ${messageOf(error)}`);
+  }
+}
+
+function isMissing(error: unknown): boolean {
+  return (error as { code?: unknown } | undefined)?.code === "ENOENT";
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 export async function showTask(cwd: string, taskId: string): Promise<TaskShowResult> {

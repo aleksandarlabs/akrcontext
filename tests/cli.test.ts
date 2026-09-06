@@ -163,6 +163,45 @@ describe("CLI layer — main(argv)", () => {
     expect(parsed.taskId).toBe("TASK-001");
   });
 
+  it("task search prints citables matches and an exact JSON array", async () => {
+    await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
+    await runTask("Search fixture", { cwd: tmp, nonInteractive: true });
+    await writeFile(path.join(tmp, ".akrctx/tasks/TASK-001-search-fixture/task.md"), "hallazgo\n", "utf8");
+
+    const human = captureLogs();
+    try {
+      await main(["node", "akrctx", "task", "search", "hallazgo"]);
+    } finally {
+      human.restore();
+    }
+    expect(human.logs.join("\n")).toContain(".akrctx/tasks/TASK-001-search-fixture/task.md:1");
+    expect(human.logs.join("\n")).toContain("hallazgo");
+
+    const json = captureLogs();
+    try {
+      await main(["node", "akrctx", "task", "search", "hallazgo", "--json"]);
+    } finally {
+      json.restore();
+    }
+    expect(JSON.parse(json.logs.join("\n"))).toEqual([
+      {
+        taskId: "TASK-001",
+        taskDir: ".akrctx/tasks/TASK-001-search-fixture",
+        file: ".akrctx/tasks/TASK-001-search-fixture/task.md",
+        line: 1,
+        text: "hallazgo",
+      },
+    ]);
+
+    const empty = captureLogs();
+    try {
+      await main(["node", "akrctx", "task", "search", "ausente", "--json"]);
+    } finally {
+      empty.restore();
+    }
+    expect(JSON.parse(empty.logs.join("\n"))).toEqual([]);
+  });
+
   it("compile ... --json compiles a brief", async () => {
     await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
     await main(["node", "akrctx", "task", "create", "Fix auth bug", "--json"]);

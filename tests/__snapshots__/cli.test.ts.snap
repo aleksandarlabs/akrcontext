@@ -321,6 +321,8 @@ Commands:
                                   description.
   list [options]                  List existing akrctx task capsules.
   show [options] <taskId>         Show the contents of a task capsule.
+  search [options] <query>        Search literal text in canonical task capsule
+                                  files.
   rm [options] <taskId>           Remove a task capsule.
   help [command]                  display help for command
 
@@ -328,6 +330,7 @@ Subcommands:
   akrctx task <description>        create a new task capsule
   akrctx task list                 list existing task capsules
   akrctx task show TASK-001        show a task capsule's files
+  akrctx task search <query>       find literal text in capsule files
   akrctx task rm TASK-001          remove a task capsule
 
 The create command is a HEADLESS FALLBACK for scripting and CI.

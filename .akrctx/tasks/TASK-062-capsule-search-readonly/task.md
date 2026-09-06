@@ -6,7 +6,7 @@ Buscar texto en las cápsulas existentes con resultados citables.
 
 ## Status
 
-LISTA PARA IMPLEMENTACIÓN ACOTADA. Este estado es documentación de planificación, no un campo reconocido por el CLI.
+IMPLEMENTACIÓN COMPLETADA; revisión independiente pendiente. Este estado es documentación de planificación, no un campo reconocido por el CLI.
 
 ## Recommended Workflow
 

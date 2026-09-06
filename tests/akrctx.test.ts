@@ -37,7 +37,16 @@ import {
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
-import { listTasks, recommendWorkflow, removeTask, runTask, showTask, slugify, taskNumber } from "../src/task.js";
+import {
+  listTasks,
+  recommendWorkflow,
+  removeTask,
+  runTask,
+  searchTaskCapsules,
+  showTask,
+  slugify,
+  taskNumber,
+} from "../src/task.js";
 import { runTemplateApply, runTemplateStatus } from "../src/template-apply.js";
 import {
   claudeSkills,
@@ -886,6 +895,12 @@ describe("wiki-lint", () => {
 // ── task and compile ─────────────────────────────────────────────────────────
 
 describe("task and compile", () => {
+  async function writeSearchFixture(taskDirectory: string, filename: string, content: string): Promise<void> {
+    const filePath = path.join(tmp, ".akrctx/tasks", taskDirectory, filename);
+    await mkdir(path.dirname(filePath), { recursive: true });
+    await writeFile(filePath, content, "utf8");
+  }
+
   it("creates a task capsule and compiles a codex brief", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     // "fix" and "regression" unambiguously trigger TDD.
@@ -1049,6 +1064,130 @@ describe("task and compile", () => {
     const tasks = await listTasks(tmp);
 
     expect(tasks.map((t) => t.taskId)).toEqual(["TASK-002", "TASK-010", "TASK-1000"]);
+  });
+
+  it("searches canonical capsule files literally in deterministic order", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await writeSearchFixture("TASK-002-legacy", "task.md", "orden legacy\n");
+    await writeSearchFixture("TASK-010-acentos", "task.md", "Éclair [a-z]\nÉclair Éclair\n");
+    await writeSearchFixture("TASK-010-acentos", "context.md", "orden contexto\n");
+    await writeSearchFixture("TASK-010-acentos", "acceptance-criteria.md", "ÉCLAIR criterio\n");
+    await writeSearchFixture("TASK-010-acentos", "exports/result.md", "ÉCLAIR exportado\n");
+    await writeSearchFixture("TASK-010-acentos", "log.md", "ÉCLAIR en log\n");
+    await writeSearchFixture("TASK-1000-final", "task.md", "orden final\n");
+
+    await expect(searchTaskCapsules(tmp, "   ")).rejects.toThrow("non-empty");
+    expect(await searchTaskCapsules(tmp, "orden")).toEqual([
+      {
+        taskId: "TASK-002",
+        taskDir: ".akrctx/tasks/TASK-002-legacy",
+        file: ".akrctx/tasks/TASK-002-legacy/task.md",
+        line: 1,
+        text: "orden legacy",
+      },
+      {
+        taskId: "TASK-010",
+        taskDir: ".akrctx/tasks/TASK-010-acentos",
+        file: ".akrctx/tasks/TASK-010-acentos/context.md",
+        line: 1,
+        text: "orden contexto",
+      },
+      {
+        taskId: "TASK-1000",
+        taskDir: ".akrctx/tasks/TASK-1000-final",
+        file: ".akrctx/tasks/TASK-1000-final/task.md",
+        line: 1,
+        text: "orden final",
+      },
+    ]);
+    expect(await searchTaskCapsules(tmp, "éClAiR")).toEqual([
+      {
+        taskId: "TASK-010",
+        taskDir: ".akrctx/tasks/TASK-010-acentos",
+        file: ".akrctx/tasks/TASK-010-acentos/task.md",
+        line: 1,
+        text: "Éclair [a-z]",
+      },
+      {
+        taskId: "TASK-010",
+        taskDir: ".akrctx/tasks/TASK-010-acentos",
+        file: ".akrctx/tasks/TASK-010-acentos/task.md",
+        line: 2,
+        text: "Éclair Éclair",
+      },
+      {
+        taskId: "TASK-010",
+        taskDir: ".akrctx/tasks/TASK-010-acentos",
+        file: ".akrctx/tasks/TASK-010-acentos/acceptance-criteria.md",
+        line: 1,
+        text: "ÉCLAIR criterio",
+      },
+    ]);
+    expect(await searchTaskCapsules(tmp, "[a-z]")).toHaveLength(1);
+    expect(await searchTaskCapsules(tmp, "eclair")).toEqual([]);
+    expect(await searchTaskCapsules(tmp, "sin coincidencias")).toEqual([]);
+  });
+
+  it("applies blocked-read policy before searching and rejects an absent policy", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await mkdir(path.join(tmp, ".akrctx/tasks/TASK-002-private/task.md"), { recursive: true });
+    await writeFile(
+      path.join(tmp, ".akrctx/policy.json"),
+      JSON.stringify({ blockedReadPatterns: ["task.md"] }),
+      "utf8",
+    );
+
+    expect(await searchTaskCapsules(tmp, "dato bloqueado")).toEqual([]);
+
+    await rm(path.join(tmp, ".akrctx/policy.json"));
+    await expect(searchTaskCapsules(tmp, "dato bloqueado")).rejects.toThrow(
+      "Cannot apply policy.json blockedReadPatterns",
+    );
+
+    await writeFile(path.join(tmp, ".akrctx/policy.json"), "not valid JSON", "utf8");
+    await expect(searchTaskCapsules(tmp, "dato bloqueado")).rejects.toThrow(
+      "Cannot apply policy.json blockedReadPatterns",
+    );
+  });
+
+  it("rejects a symbolic .akrctx root before reading its policy or capsules", async () => {
+    const externalRoot = path.join(tmp, "external-akrctx");
+    await mkdir(path.join(externalRoot, "tasks/TASK-002-external"), { recursive: true });
+    await writeFile(path.join(externalRoot, "policy.json"), JSON.stringify({ blockedReadPatterns: [] }), "utf8");
+    await writeFile(path.join(externalRoot, "tasks/TASK-002-external/task.md"), "contenido externo\n", "utf8");
+    await symlink(externalRoot, path.join(tmp, ".akrctx"), "dir");
+
+    await expect(searchTaskCapsules(tmp, "contenido externo")).rejects.toThrow(
+      "Cannot search task capsules through symbolic link: .akrctx.",
+    );
+  });
+
+  it("skips missing canonical files and every symbolic link, but reports other read errors", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const externalDirectory = path.join(tmp, "external-capsule");
+    await mkdir(externalDirectory);
+    await writeFile(path.join(externalDirectory, "task.md"), "outside directory\n", "utf8");
+    await symlink(externalDirectory, path.join(tmp, ".akrctx/tasks/TASK-002-external"), "dir");
+
+    const externalFile = path.join(tmp, "external.md");
+    await writeFile(externalFile, "outside file\n", "utf8");
+    await mkdir(path.join(tmp, ".akrctx/tasks/TASK-003-file-link"), { recursive: true });
+    await symlink(externalFile, path.join(tmp, ".akrctx/tasks/TASK-003-file-link/task.md"), "file");
+    await writeSearchFixture("TASK-004-missing", "context.md", "legacy sin task.md\n");
+
+    expect(await searchTaskCapsules(tmp, "outside")).toEqual([]);
+    expect(await searchTaskCapsules(tmp, "legacy")).toEqual([
+      {
+        taskId: "TASK-004",
+        taskDir: ".akrctx/tasks/TASK-004-missing",
+        file: ".akrctx/tasks/TASK-004-missing/context.md",
+        line: 1,
+        text: "legacy sin task.md",
+      },
+    ]);
+
+    await mkdir(path.join(tmp, ".akrctx/tasks/TASK-005-unreadable", "task.md"), { recursive: true });
+    await expect(searchTaskCapsules(tmp, "anything")).rejects.toThrow(/task\.md/);
   });
 
   it("taskNumber extracts the numeric id", () => {

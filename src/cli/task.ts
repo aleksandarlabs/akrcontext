@@ -1,6 +1,6 @@
 import type { Command } from "commander";
 import { bold, cmd, dim, file, gray, minus, warn, yellow } from "../format.js";
-import { listTasks, removeTask, runTask, showTask } from "../task.js";
+import { listTasks, removeTask, runTask, searchTaskCapsules, showTask } from "../task.js";
 import { addCommon, ln, log, normalizeOptions, plus } from "./shared.js";
 
 export function registerTask(program: Command): void {
@@ -15,6 +15,7 @@ export function registerTask(program: Command): void {
         "  akrctx task <description>        create a new task capsule",
         "  akrctx task list                 list existing task capsules",
         "  akrctx task show TASK-001        show a task capsule's files",
+        "  akrctx task search <query>       find literal text in capsule files",
         "  akrctx task rm TASK-001          remove a task capsule",
         "",
         "The create command is a HEADLESS FALLBACK for scripting and CI.",
@@ -90,6 +91,23 @@ export function registerTask(program: Command): void {
       }
     },
   );
+
+  addCommon(
+    taskCmd.command("search <query>").description("Search literal text in canonical task capsule files."),
+    false,
+  ).action(async (query: string, raw) => {
+    const options = normalizeOptions(raw);
+    const matches = await searchTaskCapsules(options.cwd ?? process.cwd(), query);
+    if (options.json) {
+      console.log(JSON.stringify(matches, null, 2));
+      return;
+    }
+    if (!matches.length) {
+      log(dim("No matching capsule lines."));
+      return;
+    }
+    for (const match of matches) log(`${file(match.file)}:${match.line}  ${match.text}`);
+  });
 
   addCommon(taskCmd.command("rm <taskId>").description("Remove a task capsule."), false).action(
     async (taskId: string, raw) => {
