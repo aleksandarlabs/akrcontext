@@ -1,7 +1,7 @@
 # Acceptance Criteria
 
 - AC1: Entregar design.md con contrato actual/propuesto y tabla de migración, sin cambiar runtime.
-- AC2: Resolver comandos obligatorios/opcionales, not-run, cero comandos, fallos y compatibilidad; comparar todos obligatorios versus declaración explícita por comando. La verificación completa requiere que todas las validaciones obligatorias pasen para la revisión actual de la cápsula y la versión concreta del código; no llamar completa a la verificación de un subconjunto.
+- AC2: Resolver comandos obligatorios/opcionales, not-run, cero comandos, fallos y compatibilidad; comparar todos obligatorios versus declaración explícita por comando. La verificación completa requiere que todas las validaciones obligatorias pasen para la revisión actual de la cápsula y la identidad de contenido concreta del código, no sólo su commit; no llamar completa a la verificación de un subconjunto.
 - AC3: Distinguir integridad, vigencia, independencia declarada y autenticidad. Definir consecuencias de independent:false y ausencia legacy sin elevar garantías; conservar los veredictos históricos y mostrar por separado lo aprobado entonces y lo verificado ahora.
 - AC4: Proponer proceso proporcional según riesgo y reversibilidad, conservando el modo manual y el traspaso a implementador. Comparar cápsula breve con cinco documentos, sin imponer una migración todavía.
 - AC5: Definir matriz UI: create settings screen, review settings screen, fix screen regression, componente sin verbo, petición española y workflow explícito. Separar intención de construir/revisar; decidir fallback antes de implementar.

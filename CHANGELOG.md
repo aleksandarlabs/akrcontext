@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `akrctx task search <query>`. It searches literal text, case-insensitive, across the five
+  canonical files of existing task capsules. Each result cites the task, the file path relative
+  to the repository, the line number, and the matched text. `--json` returns the same records as
+  an array. The search is read-only: it does not scan exports or logs, does not follow symbolic
+  links, does not build an index, does not infer whether a result is still current, and uses no
+  network access, regular expressions, embeddings, or LLM.
+
+- `akrctx task continuation TASK-ID [--json]`. It reads a task capsule's optional
+  `continuation.json` sidecar through a narrow, read-only query. A missing sidecar reports
+  `unknown`, not "never started". A valid sidecar reports only the execution state the producer
+  declared. Malformed JSON or a mismatched schema version exits with code 1. The reader preserves
+  the portable attempt counts, returns a SHA-256 digest of the sidecar's original bytes, and reads
+  at most 64 KiB plus one byte. `permission` and `verification` always read `not-evaluated`: the
+  reader authorizes no execution, validates no snapshots, migrates no legacy capsules, and never
+  creates the sidecar. `docs/CONTINUATION.md` documents the v1 schema. Known limitation: until
+  TASK-067, the current judge still includes `continuation.json` in its change digest, so updating
+  the sidecar can invalidate a standing approval.
+
 ## [0.6.0] - 2026-09-02
 
 ### Added

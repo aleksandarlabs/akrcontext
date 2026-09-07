@@ -1,4 +1,5 @@
 import type { Command } from "commander";
+import { readTaskContinuation } from "../continuation.js";
 import { bold, cmd, dim, file, gray, minus, warn, yellow } from "../format.js";
 import { listTasks, removeTask, runTask, searchTaskCapsules, showTask } from "../task.js";
 import { addCommon, ln, log, normalizeOptions, plus } from "./shared.js";
@@ -6,7 +7,7 @@ import { addCommon, ln, log, normalizeOptions, plus } from "./shared.js";
 export function registerTask(program: Command): void {
   const taskCmd = program
     .command("task")
-    .description("Create, list, show, or remove akrctx task capsules.")
+    .description("Create, list, show, read, or remove akrctx task capsules.")
     .addHelpText(
       "after",
       [
@@ -15,6 +16,7 @@ export function registerTask(program: Command): void {
         "  akrctx task <description>        create a new task capsule",
         "  akrctx task list                 list existing task capsules",
         "  akrctx task show TASK-001        show a task capsule's files",
+        "  akrctx task continuation TASK-001 read portable execution state",
         "  akrctx task search <query>       find literal text in capsule files",
         "  akrctx task rm TASK-001          remove a task capsule",
         "",
@@ -91,6 +93,28 @@ export function registerTask(program: Command): void {
       }
     },
   );
+
+  addCommon(
+    taskCmd.command("continuation <taskId>").description("Read the optional portable execution continuation sidecar."),
+    false,
+  ).action(async (taskId: string, raw) => {
+    const options = normalizeOptions(raw);
+    const result = await readTaskContinuation(options.cwd ?? process.cwd(), taskId);
+    process.exitCode = result.status === "invalid" || result.status === "unsupported" ? 1 : 0;
+    if (options.json) {
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+    log(`${bold("Continuation:")} ${file(result.path)}`);
+    log(`${bold("Status:      ")} ${result.status}`);
+    log(`${bold("Execution:   ")} ${result.executionState}`);
+    log(`${bold("Permissions:  ")} ${result.permission}`);
+    log(`${bold("Verification: ")} ${result.verification}`);
+    if (result.reasons.length > 0) {
+      log(`${bold("Reasons:")}`);
+      for (const reason of result.reasons) log(`  - ${reason}`);
+    }
+  });
 
   addCommon(
     taskCmd.command("search <query>").description("Search literal text in canonical task capsule files."),

@@ -242,7 +242,7 @@ Commands:
   status [options]            Print a quick summary of the installation —
                               targets, tasks, and config defaults.
   config                      Show or update akrctx project defaults.
-  task                        Create, list, show, or remove akrctx task
+  task                        Create, list, show, read, or remove akrctx task
                               capsules.
   compile [options] <taskId>  Compile a task capsule into a ready-to-paste agent
                               brief.
@@ -311,25 +311,28 @@ Options:
 exports[`CLI help snapshots > task --help matches snapshot 1`] = `
 "Usage: akrctx task [options] [command]
 
-Create, list, show, or remove akrctx task capsules.
+Create, list, show, read, or remove akrctx task capsules.
 
 Options:
-  -h, --help                      display help for command
+  -h, --help                       display help for command
 
 Commands:
-  create [options] [description]  Create a akrctx task capsule for the given
-                                  description.
-  list [options]                  List existing akrctx task capsules.
-  show [options] <taskId>         Show the contents of a task capsule.
-  search [options] <query>        Search literal text in canonical task capsule
-                                  files.
-  rm [options] <taskId>           Remove a task capsule.
-  help [command]                  display help for command
+  create [options] [description]   Create a akrctx task capsule for the given
+                                   description.
+  list [options]                   List existing akrctx task capsules.
+  show [options] <taskId>          Show the contents of a task capsule.
+  continuation [options] <taskId>  Read the optional portable execution
+                                   continuation sidecar.
+  search [options] <query>         Search literal text in canonical task capsule
+                                   files.
+  rm [options] <taskId>            Remove a task capsule.
+  help [command]                   display help for command
 
 Subcommands:
   akrctx task <description>        create a new task capsule
   akrctx task list                 list existing task capsules
   akrctx task show TASK-001        show a task capsule's files
+  akrctx task continuation TASK-001 read portable execution state
   akrctx task search <query>       find literal text in capsule files
   akrctx task rm TASK-001          remove a task capsule
 

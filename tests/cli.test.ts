@@ -202,6 +202,45 @@ describe("CLI layer — main(argv)", () => {
     expect(JSON.parse(empty.logs.join("\n"))).toEqual([]);
   });
 
+  it("task continuation reports legacy missing state and invalid JSON with exit code 1", async () => {
+    await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
+    await runTask("Continuation fixture", { cwd: tmp, nonInteractive: true });
+    const previousExitCode = process.exitCode;
+    process.exitCode = undefined;
+    try {
+      const missing = captureLogs();
+      try {
+        await main(["node", "akrctx", "task", "continuation", "TASK-001", "--json"]);
+      } finally {
+        missing.restore();
+      }
+      expect(process.exitCode).toBe(0);
+      expect(JSON.parse(missing.logs.join("\n"))).toMatchObject({
+        taskId: "TASK-001",
+        status: "missing",
+        executionState: "unknown",
+        permission: "not-evaluated",
+        verification: "not-evaluated",
+      });
+
+      await writeFile(
+        path.join(tmp, ".akrctx/tasks/TASK-001-continuation-fixture/continuation.json"),
+        "not json",
+        "utf8",
+      );
+      const invalid = captureLogs();
+      try {
+        await main(["node", "akrctx", "task", "continuation", "TASK-001", "--json"]);
+      } finally {
+        invalid.restore();
+      }
+      expect(process.exitCode).toBe(1);
+      expect(JSON.parse(invalid.logs.join("\n"))).toMatchObject({ status: "invalid", record: null });
+    } finally {
+      process.exitCode = previousExitCode;
+    }
+  });
+
   it("compile ... --json compiles a brief", async () => {
     await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
     await main(["node", "akrctx", "task", "create", "Fix auth bug", "--json"]);

@@ -6,7 +6,7 @@ Diseñar identidad de ejecución, estado y traspaso recuperable.
 
 ## Status
 
-LISTA PARA INVESTIGACIÓN; NO PARA IMPLEMENTAR RUNTIME. Este estado es documentación de planificación, no un campo reconocido por el CLI.
+DISEÑO ENTREGADO; PENDIENTE DE REVISIÓN INDEPENDIENTE. No implementar runtime desde esta cápsula. Este estado es documentación de planificación, no un campo reconocido por el CLI.
 
 ## Recommended Workflow
 
@@ -58,6 +58,14 @@ pnpm akrctx doctor --json
 - Logs completos, conversaciones, snapshots, procesos, reservas, credenciales y permisos permanecen locales. Al reanudar se comprobarán las referencias y la vigencia del estado.
 - La autorización pertenece a una ejecución explícitamente autorizada, que puede abarcar varios agentes o sesiones gestionados por un orquestador. Un traspaso manual o una copia del repositorio no transmite autorizaciones; el orquestador debe comprobar su alcance antes de continuar.
 - No se heredan automáticamente aprobaciones ni autorizaciones de ejecución. Las acciones fuera del alcance autorizado requieren confirmación; las acciones expresamente autorizadas, incluida red o publicación, no la requieren de nuevo. Un comando nuevo de validación exige ampliar el plan y obtener autorización antes de ejecutarlo.
+
+### Revisión documental 2026-09-06
+
+- `continuation.json` se modela como la única `executionMetadata` reconocida, con digest y actualidad propios; no altera la frontera de código, pero nunca queda excluida de toda observación.
+- Commit es sólo referencia auxiliar: reanudación y verificación comparan la identidad de revisión versionada derivada del snapshot y bloquean cuando no está disponible.
+- Un resumen portable válido conserva consumo aunque falten logs locales; ausencia de ambas fuentes es desconocida, y divergencia exige reconciliación. Un nuevo `runId` no reinicia la cuenta de presupuesto sin extensión explícita.
+- Estado persistido y permiso efectivo se separan: el grant permanece local; `superseded` y recuperación tras caída quedan en la tabla de transiciones.
+- `reviewContentDigest` es la identidad portable; `reviewWorkspaceDigest` sólo verifica la propia captura local. Alta/baja o `rename` del sidecar activo actualiza metadata, no el snapshot; si se altera dentro del snapshot, falla su integridad y recapturar no transfiere aprobación.
 
 ## Open Questions
 

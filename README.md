@@ -49,6 +49,7 @@ akrctx upgrade                         # update harness files to current CLI ver
 akrctx config show
 akrctx config set defaultWorkflow SDD+TDD
 akrctx task "Define invoice API examples" --workflow SDD+EDD
+akrctx task continuation TASK-001 --json
 akrctx task search "exact literal text"
 akrctx compile TASK-001 --target codex
 akrctx judge enable                    # install optional judge subagent
@@ -108,6 +109,10 @@ akrctx task "Define invoice API examples" --workflow SDD+EDD
 ### Search task capsules
 
 Use `akrctx task search <query>` to locate literal, case-insensitive text in the five canonical files of existing task capsules. Results cite the task, repository-relative file, line, and text; `--json` returns the same records as an array. Search is read-only: it does not scan exports or logs, follow symbolic links, build an index, infer whether a result remains current, or use a network service, regex, embeddings, or an LLM.
+
+### Portable execution continuation
+
+`akrctx task continuation TASK-001` reads the optional `.akrctx/tasks/TASK-001-<slug>/continuation.json` sidecar. It is a bounded, read-only query: a missing sidecar reports `unknown`, a valid sidecar reports only its declared execution state, and malformed or unsupported JSON exits with status 1. The reader preserves portable attempt counts and returns a SHA-256 digest of the original sidecar bytes. Permissions and verification are always reported as `not-evaluated`; the reader does not authorize execution, validate snapshots, migrate legacy capsules, or create the sidecar. Use `--json` for the complete structured result. See [the continuation contract](docs/CONTINUATION.md) for the v1 schema and declared-state limits. Until TASK-067, the current judge still includes `continuation.json` in its change digest; P02 does not install an exclusion.
 
 ## Project Defaults
 
