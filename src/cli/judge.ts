@@ -226,6 +226,10 @@ export function registerJudge(program: Command): void {
       }
       const label = result.status === "CURRENT" ? green(result.status) : yellow(result.status);
       log(`${bold("Judge snapshot:")} ${label}`);
+      const boundaryLabel =
+        result.reviewBoundary === "CURRENT" ? green(result.reviewBoundary) : yellow(result.reviewBoundary);
+      log(`  ${dim("reviewBoundary")}      ${boundaryLabel}`);
+      log(`  ${dim("executionMetadata")}   ${result.executionMetadata}`);
       if (result.status === "CURRENT") {
         log(`  ${dim("The workspace still matches the approved snapshot.")}`);
       } else if (result.status === "NEWER_CHANGES") {
@@ -338,6 +342,12 @@ export function registerJudge(program: Command): void {
           log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
           for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
         }
+        const verifiedNowLabel =
+          result.verifiedNow.value === "complete" ? green(result.verifiedNow.value) : yellow(result.verifiedNow.value);
+        log(
+          `  ${dim("historicalVerdict")} ${result.historicalVerdict.value ?? "unknown"} ${dim(`(${result.historicalVerdict.independence})`)}`,
+        );
+        log(`  ${dim("verifiedNow")}       ${verifiedNowLabel} ${dim(`— ${result.verifiedNow.reason}`)}`);
         for (const notice of result.notices) log(`  ${yellow("!")} ${notice}`);
         for (const run of result.reexecuted) {
           log(`  ${run.passed ? plus() : minus()} ${dim("re-ran")} ${cmd(run.command)}`);

@@ -106,7 +106,7 @@ An \`APPROVED\` verdict additionally requires evidence and coherence:
 
 A \`failed\` entry in \`tests\` invalidates the record under any verdict. If validation cannot run at all, the correct verdict is \`BLOCKED\`, not \`APPROVED\`.
 
-When the capsule's \`task.md\` declares commands in a fenced block under \`## Validation\`, at least one of them must be the command that passed. A judge cannot satisfy the evidence rule with a command it invented. If the section exists but its block is empty or malformed, the capsule is unfinished and \`APPROVED\` is rejected; only capsules with no \`## Validation\` section at all fall back to the weaker rule.
+When the capsule's \`task.md\` declares commands in a fenced block under \`## Validation\`, every required command — any non-empty line not starting with \`#\` and not suffixed \`# optional\` — must pass for \`APPROVED\`. A line suffixed \`# optional\` may fail; that is reported as a warning and does not block approval. At least one declared command must still be the passing entry in \`tests\`; a judge cannot satisfy the evidence rule with a command it invented, even when every declared command is optional. A single \`no-runtime-validation: <reason>\` line inside the fence declares no runtime validation; it requires a non-empty reason and zero commands, and does not claim any code was verified. A capsule with no \`## Validation\` section is legacy: verification reports \`verifiedNow: unknown\`, but the record's historical \`approved\` verdict can still stand.
 
 ## Independent re-execution
 

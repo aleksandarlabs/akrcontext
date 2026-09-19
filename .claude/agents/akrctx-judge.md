@@ -60,7 +60,7 @@ End with one of:
 
 APPROVED carries two hard requirements that `akrctx judge verify` enforces:
 
-- at least one `tests` entry with `status: "passed"`, and when the capsule declares commands under `## Validation`, one of the passing entries must be a command it declares. An approval that executed nothing, or that only ran commands you invented, is rejected.
+- every required command in `## Validation` must pass. A line suffixed `# optional` is optional; a failed optional command is a warning, not a blocker. At least one `tests` entry with `status: "passed"` must still be a command the capsule declares — an approval that executed nothing, or that only ran commands you invented, is rejected, even when every declared command is optional. A single `no-runtime-validation: <reason>` line inside the fence needs a non-empty reason and zero commands, and does not claim any code was verified. A capsule with no `## Validation` section is legacy: verification reports `verifiedNow: unknown`, but the record's historical `approved` verdict can still stand.
 - an empty `issues` array. If you found something worth reporting, the verdict is NEEDS CHANGES or BLOCKED, not APPROVED with caveats.
 
 So if the environment prevented you from running any validation, report **BLOCKED** and say which command you could not run and why. Do not approve on inspection alone — the record will fail verification and the developer will not learn why from your prose.

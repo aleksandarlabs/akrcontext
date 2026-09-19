@@ -22,3 +22,13 @@ Cambios previos del usuario en diseños 061/063 y borradores se preservan. No se
 | `pnpm akrctx doctor --json` | sin entradas missing ni conflicts |
 
 La entrega P02 cubre los criterios AC1 a AC8. El módulo `src/continuation.ts`, el subcomando `akrctx task continuation`, `docs/CONTINUATION.md` y la sección del README están completos. No se creó ningún sidecar `continuation.json`; los cinco documentos canónicos de cápsula no cambiaron. El juez actual todavía incluye `continuation.json` en su digest de cambios hasta TASK-067.
+
+## Revisión independiente
+
+Veredicto del juez: APPROVED, sin issues. Frontera `SNAPSHOT:a6428147a44235091554` sobre la base
+`aada480`, con `scopeDigest sha256:123d9926…` y 8 cápsulas incluidas por autorización explícita.
+El registro vive en `.akrctx/local/judge/TASK-064-review.json`, fuera de los cinco documentos.
+
+`akrctx judge verify --run-tests` informó APPROVED and current. El llamador de confianza
+re-ejecutó las seis órdenes declaradas en una copia desechable. La aprobación no descansa en la
+declaración del juez. El juez confirmó además que ninguna orden crea el sidecar `continuation.json`.

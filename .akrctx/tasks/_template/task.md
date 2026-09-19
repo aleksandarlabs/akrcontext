@@ -6,10 +6,13 @@ Describe the requested change.
 
 ## Validation
 
-Commands that prove this task works. The judge must run at least one of these to
-approve, and `akrctx judge verify --run-tests` re-runs the ones the review claims
-passed. Nothing outside this list is ever executed.
+Commands that prove this task works. Every command is required unless its line ends
+with `# optional`. The judge must run every required command to approve, and
+`akrctx judge verify --run-tests` re-runs the ones the review claims passed. Nothing
+outside this list is ever executed.
 
+```
+```
 
 ## Out Of Scope
 

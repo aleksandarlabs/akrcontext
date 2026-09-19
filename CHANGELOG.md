@@ -23,9 +23,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the portable attempt counts, returns a SHA-256 digest of the sidecar's original bytes, and reads
   at most 64 KiB plus one byte. `permission` and `verification` always read `not-evaluated`: the
   reader authorizes no execution, validates no snapshots, migrates no legacy capsules, and never
-  creates the sidecar. `docs/CONTINUATION.md` documents the v1 schema. Known limitation: until
-  TASK-067, the current judge still includes `continuation.json` in its change digest, so updating
-  the sidecar can invalidate a standing approval.
+  creates the sidecar. `docs/CONTINUATION.md` documents the v1 schema. The judge now excludes a
+  valid `continuation.json` sidecar from its change digest, so updating the sidecar no longer
+  invalidates a standing approval.
+
+### Changed
+
+- `akrctx judge verify` now checks each command declared in a capsule's `## Validation` block.
+  A line that ends in `# optional` is optional. Every other non-empty line that does not start
+  with `#` is required. `akrctx judge verify` now rejects the record unless every required
+  command appears with status `passed`; the rejection reason names the missing commands. A
+  failed optional command produces a warning, not a rejection. A single `no-runtime-validation:
+  <reason>` line declares that the capsule has no runtime validation. A capsule with no
+  `## Validation` section is legacy: verification reports `verifiedNow: unknown`, while the
+  record's historical `approved` verdict can still stand. The two axes are separate.
+  This is a behavior change: an older judge record that declared several commands but logged
+  only one as passed now reports as incomplete. `akrctx judge verify` keeps the historical
+  verdict and shows it apart from the current, re-checked result.
+
+- Judge snapshot metadata now carries `reviewContentDigest` and `reviewWorkspaceDigest`. Both
+  digests exclude the `continuation.json` sidecar when it is a regular, valid file. The snapshot
+  schema version moves from 6 to 7; a v6 capture now fails to load with an explicit diagnostic.
+  `akrctx judge current` now reports two independent axes: `reviewBoundary` (`CURRENT`,
+  `NEWER_CHANGES`, or `DIVERGED`) and `executionMetadata` (`ABSENT`, `UNCHANGED`, `CREATED`,
+  `REMOVED`, or `ADVANCED`). Creating, deleting, or updating the sidecar alone keeps
+  `reviewBoundary` at `CURRENT` and moves only the `executionMetadata` axis. `akrctx judge
+  verify` now separates `historicalVerdict` from `verifiedNow`; a record with no `independent`
+  field reads as `unknown`, never `true`.
 
 ## [0.6.0] - 2026-09-02
 

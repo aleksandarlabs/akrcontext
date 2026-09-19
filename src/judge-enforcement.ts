@@ -57,6 +57,31 @@ export interface JudgeVerifyResult {
   notices: string[];
   declaredCommands: string[];
   reexecuted: Array<{ command: string; passed: boolean; evidence?: ValidationFailureEvidence }>;
+  /** What the judge declared at review time. Never re-derived, only reported. */
+  historicalVerdict: {
+    value: JudgeReviewRecord["verdict"] | null;
+    independence: "declared-true" | "declared-false" | "unknown";
+    scopeDigest: string | null;
+    codeReviewContentDigest: string | null;
+  };
+  /** Whether the declared validation is verified against the current boundary, as of this call. */
+  verifiedNow: {
+    value: "complete" | "incomplete" | "unknown" | "not-applicable-to-runtime";
+    reason: string;
+    reviewBoundary: "CURRENT" | "NEWER_CHANGES" | "DIVERGED" | null;
+    executionMetadata: "ABSENT" | "UNCHANGED" | "CREATED" | "REMOVED" | "ADVANCED" | null;
+  };
+}
+
+const emptyHistoricalVerdict: JudgeVerifyResult["historicalVerdict"] = {
+  value: null,
+  independence: "unknown",
+  scopeDigest: null,
+  codeReviewContentDigest: null,
+};
+
+function unknownVerifiedNow(reason: string): JudgeVerifyResult["verifiedNow"] {
+  return { value: "unknown", reason, reviewBoundary: null, executionMetadata: null };
 }
 
 export async function createJudgeScope(
@@ -207,15 +232,37 @@ export async function verifyJudgeRecord(
   try {
     raw = JSON.parse(await readFile(path.resolve(cwd, recordPath), "utf8"));
   } catch (error) {
-    return { valid: false, approved: false, reasons: [`Cannot read valid review JSON: ${messageOf(error)}`], ...empty };
+    const reason = `Cannot read valid review JSON: ${messageOf(error)}`;
+    return {
+      valid: false,
+      approved: false,
+      reasons: [reason],
+      ...empty,
+      historicalVerdict: emptyHistoricalVerdict,
+      verifiedNow: unknownVerifiedNow(reason),
+    };
   }
 
   const shapeReasons = validateRecord(raw);
-  if (shapeReasons.length > 0) return { valid: false, approved: false, reasons: shapeReasons, ...empty };
+  if (shapeReasons.length > 0) {
+    return {
+      valid: false,
+      approved: false,
+      reasons: shapeReasons,
+      ...empty,
+      historicalVerdict: emptyHistoricalVerdict,
+      verifiedNow: unknownVerifiedNow(shapeReasons[0]),
+    };
+  }
   const record = raw as JudgeReviewRecord;
-  const { createJudgeSnapshotValidationWorkspace, isSnapshotCandidate, loadJudgeSnapshot } = await import(
-    "./judge-snapshot.js"
-  );
+  const recordIndependence: JudgeVerifyResult["historicalVerdict"]["independence"] =
+    record.independent === true ? "declared-true" : record.independent === false ? "declared-false" : "unknown";
+  const {
+    createJudgeSnapshotValidationWorkspace,
+    checkJudgeSnapshotCurrentState,
+    isSnapshotCandidate,
+    loadJudgeSnapshot,
+  } = await import("./judge-snapshot.js");
   const snapshot = isSnapshotCandidate(record.scope.candidate)
     ? await loadJudgeSnapshot(cwd, record.scope.candidate).catch(() => undefined)
     : undefined;
@@ -230,17 +277,38 @@ export async function verifyJudgeRecord(
       record.scope.includedTaskIds,
     );
   } catch (error) {
+    const reason = `Cannot recompute review scope: ${messageOf(error)}`;
     return {
       valid: false,
       approved: false,
       verdict: record.verdict,
       scopeDigest: record.scope.scopeDigest,
-      reasons: [`Cannot recompute review scope: ${messageOf(error)}`],
+      reasons: [reason],
       ...empty,
+      historicalVerdict: {
+        value: record.verdict,
+        independence: recordIndependence,
+        scopeDigest: record.scope.scopeDigest,
+        codeReviewContentDigest: snapshot?.metadata.reviewContentDigest ?? null,
+      },
+      verifiedNow: unknownVerifiedNow(reason),
     };
   }
 
+  let reviewBoundary: JudgeVerifyResult["verifiedNow"]["reviewBoundary"] = null;
+  let executionMetadata: JudgeVerifyResult["verifiedNow"]["executionMetadata"] = null;
+  if (isSnapshotCandidate(record.scope.candidate)) {
+    try {
+      const state = await checkJudgeSnapshotCurrentState(cwd, record.scope.candidate);
+      reviewBoundary = state.reviewBoundary;
+      executionMetadata = state.executionMetadata;
+    } catch {
+      // Leave both null; a load failure here is already reflected upstream in `current`'s recompute.
+    }
+  }
+
   const reasons: string[] = [];
+  const notices: string[] = [];
   if (record.taskId !== record.scope.taskId) reasons.push("record.taskId does not match scope.taskId.");
   if (record.scope.cliVersion !== current.cliVersion) {
     const drift = `akrctx v${record.scope.cliVersion}; this CLI is v${current.cliVersion}`;
@@ -258,25 +326,57 @@ export async function verifyJudgeRecord(
     reasons.push("scope.includedTaskIds no longer matches the reviewed snapshot.");
   }
   if (record.verdict !== "APPROVED") reasons.push(`Judge verdict is ${record.verdict}, not APPROVED.`);
-  if (record.tests.some((test) => test.status === "failed")) {
-    reasons.push("Judge record contains failed validation.");
-  }
 
   const declaration = await readValidationDeclaration(reviewCwd, record.taskId);
   const declaredCommands = declaration.commands;
+  const requiredCommands = declaration.checks.filter((check) => check.required).map((check) => check.command);
+  const optionalCommands = declaration.checks.filter((check) => !check.required).map((check) => check.command);
   const claimedPassing = record.tests.filter((test) => test.status === "passed").map((test) => test.command);
   const declaredAndPassing = claimedPassing.filter((command) => declaredCommands.includes(command));
 
+  // A failed optional command is a notice, not a reason; every other failure still blocks, declared
+  // required or not — the conservative default does not relax for an undeclared command.
+  const blockingFailures: string[] = [];
+  for (const test of record.tests) {
+    if (test.status !== "failed") continue;
+    if (optionalCommands.includes(test.command)) {
+      notices.push(`Optional command \`${test.command}\` failed; it does not block approval.`);
+    } else {
+      blockingFailures.push(test.command);
+    }
+  }
+  if (blockingFailures.length > 0) {
+    reasons.push(`Judge record contains failed validation: ${blockingFailures.join(", ")}.`);
+  }
+
   if (record.verdict === "APPROVED") {
-    if (claimedPassing.length === 0) {
-      reasons.push("APPROVED requires at least one validation command that passed.");
-    } else if (declaredCommands.length > 0 && declaredAndPassing.length === 0) {
-      const declared = declaredCommands.join(", ");
-      reasons.push(`APPROVED requires a passing run of a command the task capsule declares: ${declared}.`);
-    } else if (declaration.sectionPresent && declaredCommands.length === 0) {
-      // The capsule was generated with a `## Validation` section, so the commands were meant to be
-      // filled in. An empty or malformed block is an unfinished capsule, not a legacy one.
-      reasons.push("The task capsule has an empty or malformed `## Validation` block; declare the commands.");
+    if (declaration.kind === "documentation") {
+      // Zero commands with a non-empty reason: no runtime claim to verify.
+    } else {
+      if (claimedPassing.length === 0) {
+        reasons.push("APPROVED requires at least one validation command that passed.");
+      }
+      // Named even when nothing passed at all, so the reader sees which commands are outstanding
+      // rather than only that the set was empty.
+      const missing = requiredCommands.filter((command) => !claimedPassing.includes(command));
+      // Every command optional still leaves the evidence rule: an invented command is not evidence
+      // that any declared command ran. When a required command is already named as missing, that
+      // reason carries the same fact.
+      if (missing.length === 0 && declaredCommands.length > 0 && declaredAndPassing.length === 0) {
+        reasons.push(
+          `APPROVED requires a passing run of a command the task capsule declares: ${declaredCommands.join(", ")}.`,
+        );
+      }
+      if (missing.length > 0) {
+        reasons.push(
+          `APPROVED requires every command the task capsule declares as required to pass; these did not: ${missing.join(", ")}.`,
+        );
+      }
+      if (declaration.sectionPresent && declaredCommands.length === 0) {
+        // The capsule was generated with a `## Validation` section, so the commands were meant to be
+        // filled in. An empty or malformed block is an unfinished capsule, not a legacy one.
+        reasons.push("The task capsule has an empty or malformed `## Validation` block; declare the commands.");
+      }
     }
     if (record.issues.length > 0) reasons.push("APPROVED records must not list unresolved issues.");
   }
@@ -326,7 +426,6 @@ export async function verifyJudgeRecord(
   }
 
   // Reported, never enforced: see the `notices` field on JudgeVerifyResult.
-  const notices: string[] = [];
   if (record.independent === false) {
     notices.push(
       "Review was marked non-independent (independent: false). The verdict is verification-only: " +
@@ -344,6 +443,24 @@ export async function verifyJudgeRecord(
     );
   }
 
+  let verifiedNowValue: JudgeVerifyResult["verifiedNow"]["value"];
+  let verifiedNowReason: string;
+  if (declaration.kind === "documentation") {
+    verifiedNowValue = "not-applicable-to-runtime";
+    verifiedNowReason = declaration.reason ?? "The task capsule declares no-runtime-validation.";
+  } else if (!declaration.sectionPresent) {
+    verifiedNowValue = "unknown";
+    verifiedNowReason = "The task capsule predates the `## Validation` section.";
+  } else if (reasons.length === 0 && (reviewBoundary === null || reviewBoundary === "CURRENT")) {
+    verifiedNowValue = "complete";
+    verifiedNowReason = "Every required validation command passed and the review still matches the current boundary.";
+  } else {
+    verifiedNowValue = "incomplete";
+    verifiedNowReason =
+      reasons[0] ??
+      `The current workspace no longer matches the reviewed boundary (reviewBoundary: ${reviewBoundary}).`;
+  }
+
   return {
     valid: reasons.length === 0,
     approved: reasons.length === 0 && record.verdict === "APPROVED",
@@ -353,6 +470,18 @@ export async function verifyJudgeRecord(
     notices,
     declaredCommands,
     reexecuted,
+    historicalVerdict: {
+      value: record.verdict,
+      independence: recordIndependence,
+      scopeDigest: record.scope.scopeDigest,
+      codeReviewContentDigest: snapshot?.metadata.reviewContentDigest ?? null,
+    },
+    verifiedNow: {
+      value: verifiedNowValue,
+      reason: verifiedNowReason,
+      reviewBoundary,
+      executionMetadata,
+    },
   };
 }
 
@@ -380,8 +509,15 @@ function scopeDrift(before: JudgeScope, after: JudgeScope): string[] {
 export interface ValidationDeclaration {
   /** Whether the capsule has a `## Validation` section at all. Absent means a pre-v2 capsule. */
   sectionPresent: boolean;
+  /** All declared commands, required and optional, in order and deduplicated. */
   commands: string[];
+  checks: Array<{ command: string; required: boolean }>;
+  kind: "runtime" | "documentation";
+  reason: string | null;
 }
+
+const OPTIONAL_SUFFIX = /\s+#\s*optional\s*$/i;
+const NO_RUNTIME_VALIDATION = /^no-runtime-validation:\s*(.*)$/;
 
 /**
  * Commands listed in the fenced block under `## Validation` in the capsule's task.md.
@@ -391,7 +527,13 @@ export interface ValidationDeclaration {
  * malformed — that one is an unfinished capsule and must not silently weaken the gate.
  */
 export async function readValidationDeclaration(cwd: string, taskId: string): Promise<ValidationDeclaration> {
-  const absent = { sectionPresent: false, commands: [] };
+  const absent: ValidationDeclaration = {
+    sectionPresent: false,
+    commands: [],
+    checks: [],
+    kind: "runtime",
+    reason: null,
+  };
   let taskMarkdown: string;
   try {
     taskMarkdown = await readFile(path.join(await resolveTaskRoot(cwd, taskId), "task.md"), "utf8");
@@ -401,16 +543,38 @@ export async function readValidationDeclaration(cwd: string, taskId: string): Pr
   const section = /\n##\s+Validation\s*\n([\s\S]*?)(?=\n##\s|$)/.exec(taskMarkdown);
   if (!section) return absent;
   const fence = /```[^\n]*\n([\s\S]*?)```/.exec(section[1]);
-  if (!fence) return { sectionPresent: true, commands: [] };
-  const commands = [
-    ...new Set(
-      fence[1]
-        .split("\n")
-        .map((line) => line.trim())
-        .filter((line) => line.length > 0 && !line.startsWith("#")),
-    ),
-  ];
-  return { sectionPresent: true, commands };
+  if (!fence) return { sectionPresent: true, commands: [], checks: [], kind: "runtime", reason: null };
+
+  const rawLines = fence[1]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0 && !line.startsWith("#"));
+
+  if (rawLines.length === 1) {
+    const noRuntime = NO_RUNTIME_VALIDATION.exec(rawLines[0]);
+    const reason = noRuntime?.[1].trim();
+    if (reason) {
+      return {
+        sectionPresent: true,
+        commands: [],
+        checks: [],
+        kind: "documentation",
+        reason,
+      };
+    }
+  }
+
+  // A Map preserves first-seen order and drops later duplicates, matching the pre-existing
+  // dedup behaviour of `commands` while also carrying the required flag of the first occurrence.
+  const seen = new Map<string, boolean>();
+  for (const line of rawLines) {
+    const optional = OPTIONAL_SUFFIX.test(line);
+    const command = optional ? line.replace(OPTIONAL_SUFFIX, "") : line;
+    if (!seen.has(command)) seen.set(command, !optional);
+  }
+  const checks = [...seen.entries()].map(([command, required]) => ({ command, required }));
+  const commands = checks.map((check) => check.command);
+  return { sectionPresent: true, commands, checks, kind: "runtime", reason: null };
 }
 
 export interface ClarificationState {

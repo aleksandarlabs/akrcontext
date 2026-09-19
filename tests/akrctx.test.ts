@@ -1,6 +1,18 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, mkdtemp, readFile, readdir, readlink, rm, stat, symlink, writeFile } from "node:fs/promises";
+import {
+  lstat,
+  mkdir,
+  mkdtemp,
+  readFile,
+  readdir,
+  readlink,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -14,6 +26,7 @@ import {
   runComprehensionStatus,
 } from "../src/comprehension.js";
 import { normalizeWorkflow, readConfig, setConfigValue } from "../src/config.js";
+import { CONTINUATION_SCHEMA_VERSION, type ContinuationRecord } from "../src/continuation.js";
 import { detectTargets } from "../src/detect.js";
 import { runDoctor } from "../src/doctor.js";
 import { pathExists } from "../src/fs-utils.js";
@@ -23,6 +36,7 @@ import {
   JUDGE_SCHEMA_VERSION,
   createJudgeScope,
   readClarificationState,
+  readValidationDeclaration,
   validateRecord,
   verifyJudgeRecord,
 } from "../src/judge-enforcement.js";
@@ -3055,6 +3069,119 @@ describe("judge", () => {
     return { task, scope, recordPath };
   }
 
+  function validContinuationRecord(task: { taskId: string; taskDir: string }): ContinuationRecord {
+    return {
+      schemaVersion: CONTINUATION_SCHEMA_VERSION,
+      task: {
+        taskId: task.taskId,
+        capsulePath: task.taskDir,
+        capsuleDigest: `sha256:${"a".repeat(64)}`,
+        capsuleRevision: { gitCommit: null },
+      },
+      latestExecution: null,
+      history: [],
+    };
+  }
+
+  async function writeContinuationSidecar(task: { taskId: string; taskDir: string }, body: string): Promise<void> {
+    await writeFile(path.join(tmp, task.taskDir, "continuation.json"), body, "utf8");
+  }
+
+  async function declareValidation(fenceBody: string) {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Parse validation declarations", { cwd: tmp, nonInteractive: true });
+    const taskFile = path.join(tmp, task.taskDir, "task.md");
+    const original = await readFile(taskFile, "utf8");
+    const filled = original.replace("```\n```", `\`\`\`\n${fenceBody}\n\`\`\``);
+    expect(filled).not.toBe(original);
+    await writeFile(taskFile, filled, "utf8");
+    return task;
+  }
+
+  describe("readValidationDeclaration", () => {
+    it("recognizes a `# optional` suffix and strips it from the command", async () => {
+      const task = await declareValidation("pnpm test\npnpm lint # optional");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.checks).toEqual([
+        { command: "pnpm test", required: true },
+        { command: "pnpm lint", required: false },
+      ]);
+      expect(declaration.commands).toEqual(["pnpm test", "pnpm lint"]);
+    });
+
+    it("recognizes optional-marker spacing and casing variants", async () => {
+      const task = await declareValidation("pnpm a #optional\npnpm b # OPTIONAL\npnpm c #   Optional");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.checks).toEqual([
+        { command: "pnpm a", required: false },
+        { command: "pnpm b", required: false },
+        { command: "pnpm c", required: false },
+      ]);
+    });
+
+    it("keeps the literal text of a line ending in an unrelated trailing comment", async () => {
+      const task = await declareValidation("pnpm test # this checks the build");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.checks).toEqual([{ command: "pnpm test # this checks the build", required: true }]);
+    });
+
+    it("reports `unknown` when the capsule predates the Validation section", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const task = await runTask("Legacy capsule", { cwd: tmp, nonInteractive: true });
+      const taskFile = path.join(tmp, task.taskDir, "task.md");
+      const original = await readFile(taskFile, "utf8");
+      await writeFile(taskFile, original.replace(/\n## Validation\n[\s\S]*?(?=\n## )/, "\n"), "utf8");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.sectionPresent).toBe(false);
+    });
+
+    it("keeps an empty or malformed fence as an unfinished capsule, not documentation", async () => {
+      const task = await declareValidation("");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.sectionPresent).toBe(true);
+      expect(declaration.kind).toBe("runtime");
+      expect(declaration.checks).toEqual([]);
+    });
+
+    it("parses a lone `no-runtime-validation:` line as documentation", async () => {
+      const task = await declareValidation("no-runtime-validation: investigation only, no code changed");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.kind).toBe("documentation");
+      expect(declaration.reason).toBe("investigation only, no code changed");
+      expect(declaration.checks).toEqual([]);
+      expect(declaration.commands).toEqual([]);
+    });
+
+    it("does not accept `no-runtime-validation:` without a reason", async () => {
+      const task = await declareValidation("no-runtime-validation:");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.kind).toBe("runtime");
+    });
+
+    it("does not accept `no-runtime-validation:` accompanied by other lines", async () => {
+      const task = await declareValidation("no-runtime-validation: investigation only\npnpm test");
+
+      const declaration = await readValidationDeclaration(tmp, task.taskId);
+
+      expect(declaration.kind).toBe("runtime");
+      expect(declaration.commands).toContain("pnpm test");
+    });
+  });
+
   it("cryptographically binds an approved review to its task and working-tree boundary", async () => {
     const { scope, recordPath } = await createReviewFixture();
 
@@ -3110,6 +3237,16 @@ describe("judge", () => {
     expect(result.approved).toBe(true);
     expect(result.reasons).toEqual([]);
     expect(result.notices.some((n) => n.includes("non-independent") && n.includes("verification-only"))).toBe(true);
+    expect(result.historicalVerdict.independence).toBe("declared-false");
+  });
+
+  it("reports historicalVerdict.independence as unknown when independent is absent", async () => {
+    const { recordPath } = await createReviewFixture();
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.historicalVerdict.independence).toBe("unknown");
+    expect(result.historicalVerdict.value).toBe("APPROVED");
   });
 
   it("rejects a non-boolean independent field", async () => {
@@ -3293,7 +3430,21 @@ describe("judge", () => {
     const result = await verifyJudgeRecord(tmp, recordPath);
 
     expect(result.approved).toBe(false);
-    expect(result.reasons).toContain("Judge record contains failed validation.");
+    expect(result.reasons.some((reason) => reason.startsWith("Judge record contains failed validation:"))).toBe(true);
+  });
+
+  it("names every blocking failure in one reason instead of repeating a command-less line", async () => {
+    const { recordPath } = await createReviewFixture({ declares: ["pnpm test"], claims: ["pnpm test"] });
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests.push({ command: "echo a", status: "failed" }, { command: "echo b", status: "failed" });
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.filter((reason) => reason.startsWith("Judge record contains failed validation"))).toEqual([
+      "Judge record contains failed validation: echo a, echo b.",
+    ]);
   });
 
   it("rejects APPROVED when no validation command was executed", async () => {
@@ -3331,11 +3482,25 @@ describe("judge", () => {
     expect(result.approved).toBe(false);
     expect(result.declaredCommands).toEqual(["pnpm test", "pnpm lint"]);
     expect(result.reasons).toContain(
+      "APPROVED requires every command the task capsule declares as required to pass; these did not: pnpm test, pnpm lint.",
+    );
+  });
+
+  it("rejects APPROVED backed only by an invented command when every declared command is optional", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test # optional", "pnpm lint # optional"],
+      claims: ["echo unrelated"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
       "APPROVED requires a passing run of a command the task capsule declares: pnpm test, pnpm lint.",
     );
   });
 
-  it("accepts APPROVED backed by a command the task capsule declares", async () => {
+  it("rejects APPROVED when a required declared command was not claimed as passing", async () => {
     const { recordPath } = await createReviewFixture({
       declares: ["pnpm test", "pnpm lint"],
       claims: ["pnpm lint", "echo extra-context"],
@@ -3343,8 +3508,79 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath);
 
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
+      "APPROVED requires every command the task capsule declares as required to pass; these did not: pnpm test.",
+    );
+  });
+
+  it("accepts APPROVED when every required declared command passed", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint"],
+      claims: ["pnpm test", "pnpm lint", "echo extra-context"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
     expect(result.reasons).toEqual([]);
     expect(result.approved).toBe(true);
+  });
+
+  it("names every missing required command when several are absent from tests", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint", "pnpm build"],
+      claims: ["pnpm build"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain(
+      "APPROVED requires every command the task capsule declares as required to pass; these did not: pnpm test, pnpm lint.",
+    );
+  });
+
+  it("treats a `# optional` suffixed command as non-blocking when it never passed", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint # optional"],
+      claims: ["pnpm test"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.reasons).toEqual([]);
+    expect(result.approved).toBe(true);
+  });
+
+  it("reports a failed optional command as a notice, not a reason, and stays approved", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint # optional"],
+      claims: ["pnpm test"],
+    });
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests.push({ command: "pnpm lint", status: "failed" });
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(true);
+    expect(result.reasons).toEqual([]);
+    expect(result.notices).toContain("Optional command `pnpm lint` failed; it does not block approval.");
+  });
+
+  it("still rejects a failed command that was never declared", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test"],
+      claims: ["pnpm test"],
+    });
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.tests.push({ command: "pnpm lint", status: "failed" });
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons).toContain("Judge record contains failed validation: pnpm lint.");
   });
 
   it("leaves the declared-command rule dormant for a capsule predating the Validation section", async () => {
@@ -3354,6 +3590,44 @@ describe("judge", () => {
 
     expect(result.declaredCommands).toEqual([]);
     expect(result.approved).toBe(true);
+    expect(result.verifiedNow.value).toBe("unknown");
+  });
+
+  it("reports verifiedNow as not-applicable-to-runtime for a documentation-only capsule", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["no-runtime-validation: investigation only, no code changed"],
+      claims: [],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(true);
+    expect(result.verifiedNow.value).toBe("not-applicable-to-runtime");
+  });
+
+  it("reports verifiedNow as complete when every required command passed and the boundary is current", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test"],
+      claims: ["pnpm test"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.verifiedNow.value).toBe("complete");
+    expect(result.verifiedNow.reviewBoundary).toBeNull();
+    expect(result.verifiedNow.executionMetadata).toBeNull();
+  });
+
+  it("reports verifiedNow as incomplete when a required command did not pass", async () => {
+    const { recordPath } = await createReviewFixture({
+      declares: ["pnpm test", "pnpm lint"],
+      claims: ["pnpm lint"],
+    });
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.verifiedNow.value).toBe("incomplete");
+    expect(result.verifiedNow.reason.length).toBeGreaterThan(0);
   });
 
   it("rejects APPROVED when a current capsule left its Validation block empty", async () => {
@@ -4829,6 +5103,122 @@ describe("judge", () => {
     expect((error as Error).message).not.toContain("canonical Git base refs");
   });
 
+  it("computes reviewContentDigest without ctime and reviewWorkspaceDigest with it, across two captures of the same content", async () => {
+    const { task } = await createReviewFixture();
+    const first = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const firstMetadata = JSON.parse(await readFile(first.metadataPath, "utf8"));
+    await rm(path.join(tmp, ".akrctx/local/judge/snapshots", first.id), { recursive: true, force: true });
+    const second = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const secondMetadata = JSON.parse(await readFile(second.metadataPath, "utf8"));
+
+    expect(second.id).toBe(first.id);
+    expect(secondMetadata.contentDigest).toBe(firstMetadata.contentDigest);
+    expect(secondMetadata.reviewContentDigest).toBe(firstMetadata.reviewContentDigest);
+    expect(secondMetadata.workspaceDigest).not.toBe(firstMetadata.workspaceDigest);
+    expect(secondMetadata.reviewWorkspaceDigest).not.toBe(firstMetadata.reviewWorkspaceDigest);
+  });
+
+  it("excludes a valid continuation sidecar from reviewContentDigest but not from contentDigest", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const withSidecar = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const withSidecarMetadata = JSON.parse(await readFile(withSidecar.metadataPath, "utf8"));
+
+    expect(withSidecarMetadata.reviewContentDigest).not.toBe(withSidecarMetadata.contentDigest);
+
+    await rm(path.join(tmp, task.taskDir, "continuation.json"), { force: true });
+    const bare = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const bareMetadata = JSON.parse(await readFile(bare.metadataPath, "utf8"));
+
+    // Same app content, no sidecar: the review manifest and the full manifest are identical.
+    expect(bareMetadata.reviewContentDigest).toBe(bareMetadata.contentDigest);
+    // Excluding the valid sidecar makes the review identity of the two captures agree even though
+    // one carried an extra tracked file.
+    expect(withSidecarMetadata.reviewContentDigest).toBe(bareMetadata.reviewContentDigest);
+  });
+
+  it("keeps reviewWorkspaceDigest distinct from workspaceDigest when a valid sidecar is present", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+
+    expect(metadata.reviewWorkspaceDigest).not.toBe(metadata.workspaceDigest);
+  });
+
+  it("keeps reviewContentDigest stable when only a valid sidecar's body changes", async () => {
+    const { task } = await createReviewFixture();
+    const recordA = validContinuationRecord(task);
+    await writeContinuationSidecar(task, `${JSON.stringify(recordA, null, 2)}\n`);
+    const snapshotA = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadataA = JSON.parse(await readFile(snapshotA.metadataPath, "utf8"));
+
+    const recordB: ContinuationRecord = {
+      ...recordA,
+      task: { ...recordA.task, capsuleDigest: `sha256:${"b".repeat(64)}` },
+    };
+    await writeContinuationSidecar(task, `${JSON.stringify(recordB, null, 2)}\n`);
+    const snapshotB = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadataB = JSON.parse(await readFile(snapshotB.metadataPath, "utf8"));
+
+    expect(metadataA.contentDigest).not.toBe(metadataB.contentDigest);
+    expect(metadataA.reviewContentDigest).toBe(metadataB.reviewContentDigest);
+  });
+
+  it("keeps an invalid continuation sidecar inside reviewContentDigest", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, "not json\n");
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+
+    expect(metadata.reviewContentDigest).toBe(metadata.contentDigest);
+  });
+
+  it("keeps an unsupported-schema continuation sidecar inside reviewContentDigest", async () => {
+    const { task } = await createReviewFixture();
+    const record = { ...validContinuationRecord(task), schemaVersion: 2 };
+    await writeContinuationSidecar(task, `${JSON.stringify(record, null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+
+    expect(metadata.reviewContentDigest).toBe(metadata.contentDigest);
+  });
+
+  it("keeps an irregular continuation sidecar (symlink) inside reviewContentDigest", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, task.taskDir, "elsewhere.json"), "{}\n", "utf8");
+    await symlink("elsewhere.json", path.join(tmp, task.taskDir, "continuation.json"));
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+
+    expect(metadata.reviewContentDigest).toBe(metadata.contentDigest);
+  });
+
+  it("fails integrity when the immutable capture's sidecar is altered after capture", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const sidecar = path.join(snapshot.worktreePath, task.taskDir, "continuation.json");
+    const tampered: ContinuationRecord = {
+      ...validContinuationRecord(task),
+      task: { ...validContinuationRecord(task).task, capsuleDigest: `sha256:${"c".repeat(64)}` },
+    };
+    await writeFile(sidecar, `${JSON.stringify(tampered, null, 2)}\n`, "utf8");
+    await expect(loadJudgeSnapshot(tmp, snapshot.candidate)).rejects.toThrow("Snapshot integrity check failed");
+  });
+
+  it("refuses to load a snapshot captured before the review content identity contract", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+    const metadata = JSON.parse(await readFile(snapshot.metadataPath, "utf8"));
+    metadata.version = 6;
+    await writeFile(snapshot.metadataPath, `${JSON.stringify(metadata, null, 2)}\n`, "utf8");
+
+    const error = await loadJudgeSnapshot(tmp, snapshot.candidate).catch((value: unknown) => value as Error);
+    expect(error).toBeInstanceOf(Error);
+    expect((error as Error).message).toContain("predates the review content identity contract");
+  });
+
   it("loads deterministically: repeated loads of the same snapshot all succeed", async () => {
     // Guards against any per-call nondeterministic field in the fingerprint (a random, a clock,
     // or an inode number re-read on every load). The inode number was removed for exactly this
@@ -4853,6 +5243,87 @@ describe("judge", () => {
 
     await execFileAsync("git", ["checkout", "--orphan", "other-lineage"], { cwd: tmp });
     expect((await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate)).status).toBe("DIVERGED");
+  });
+
+  it("keeps reviewBoundary CURRENT when a continuation sidecar is created live, and reports it CREATED", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(state.reviewBoundary).toBe("CURRENT");
+    expect(state.executionMetadata).toBe("CREATED");
+  });
+
+  it("keeps reviewBoundary CURRENT when a captured continuation sidecar is deleted live, and reports it REMOVED", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    await rm(path.join(tmp, task.taskDir, "continuation.json"), { force: true });
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(state.reviewBoundary).toBe("CURRENT");
+    expect(state.executionMetadata).toBe("REMOVED");
+  });
+
+  it("keeps reviewBoundary CURRENT when a continuation sidecar is edited live, and reports it ADVANCED", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    const advanced: ContinuationRecord = {
+      ...validContinuationRecord(task),
+      task: { ...validContinuationRecord(task).task, capsuleDigest: `sha256:${"d".repeat(64)}` },
+    };
+    await writeContinuationSidecar(task, `${JSON.stringify(advanced, null, 2)}\n`);
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(state.reviewBoundary).toBe("CURRENT");
+    expect(state.executionMetadata).toBe("ADVANCED");
+  });
+
+  it("reports ADVANCED for a continuation sidecar replaced with rename, not CREATED plus REMOVED", async () => {
+    const { task } = await createReviewFixture();
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    const replacement: ContinuationRecord = {
+      ...validContinuationRecord(task),
+      task: { ...validContinuationRecord(task).task, capsuleDigest: `sha256:${"e".repeat(64)}` },
+    };
+    const staged = path.join(tmp, task.taskDir, "continuation.json.next");
+    await writeFile(staged, `${JSON.stringify(replacement, null, 2)}\n`, "utf8");
+    await rename(staged, path.join(tmp, task.taskDir, "continuation.json"));
+
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(state.reviewBoundary).toBe("CURRENT");
+    expect(state.executionMetadata).toBe("ADVANCED");
+  });
+
+  it("does not exclude an irregular continuation sidecar; editing it moves reviewBoundary off CURRENT", async () => {
+    const { task } = await createReviewFixture();
+    await writeFile(path.join(tmp, task.taskDir, "elsewhere.json"), "{}\n", "utf8");
+    await symlink("elsewhere.json", path.join(tmp, task.taskDir, "continuation.json"));
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    await writeFile(path.join(tmp, task.taskDir, "elsewhere.json"), '{"changed":true}\n', "utf8");
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(state.reviewBoundary).not.toBe("CURRENT");
+  });
+
+  it("moves reviewBoundary off CURRENT when real code changes accompany a sidecar change", async () => {
+    const { task } = await createReviewFixture();
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD");
+
+    await writeContinuationSidecar(task, `${JSON.stringify(validContinuationRecord(task), null, 2)}\n`);
+    await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+    const state = await checkJudgeSnapshotCurrentState(tmp, snapshot.candidate);
+
+    expect(["NEWER_CHANGES", "DIVERGED"]).toContain(state.reviewBoundary);
   });
 
   it("rejects current-state claims from non-approved snapshot records", async () => {
@@ -5107,11 +5578,16 @@ describe("judge", () => {
       )}\n`,
       "utf8",
     );
-    expect(await capture(["judge", "current", recordPath])).toContain("CURRENT");
+    const currentHuman = await capture(["judge", "current", recordPath]);
+    expect(currentHuman).toContain("CURRENT");
+    expect(currentHuman).toContain("reviewBoundary");
+    expect(currentHuman).toContain("executionMetadata");
     await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
     const currentJson = JSON.parse(await capture(["judge", "current", recordPath, "--json"]));
     expect(currentJson.status).toBe("NEWER_CHANGES");
     expect(currentJson.changedFiles).toContain("app.ts");
+    expect(currentJson.reviewBoundary).toBe("NEWER_CHANGES");
+    expect(currentJson.executionMetadata).toBe("ABSENT");
 
     await capture(["judge", "snapshot", task.taskId]);
     const prunePreview = JSON.parse(await capture(["judge", "prune", "--keep", "1", "--json"]));

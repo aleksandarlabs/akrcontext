@@ -22,13 +22,14 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { promisify } from "node:util";
 import { type Plugin, build as buildWithEsbuild } from "esbuild";
+import { readTaskContinuation } from "./continuation.js";
 import type { JudgeScope } from "./judge-enforcement.js";
 import { captureValidationError } from "./validation-evidence.js";
 
 const execFileAsync = promisify(execFile);
 const SNAPSHOT_ROOT = path.join(".akrctx", "local", "judge", "snapshots");
 const SNAPSHOT_PREFIX = "SNAPSHOT:";
-const SNAPSHOT_VERSION = 6;
+const SNAPSHOT_VERSION = 7;
 const MAX_CAPTURE_ATTEMPTS = 3;
 const AKRCTX_PACKAGE_NAME = "akr-context";
 const AKRCTX_BUILD_ENTRY = "src/index.ts";
@@ -48,6 +49,8 @@ export interface JudgeSnapshotMetadata {
   taskId: string;
   contentDigest: string;
   workspaceDigest: string;
+  reviewContentDigest: string;
+  reviewWorkspaceDigest: string;
   artifactContentDigest?: string;
   artifactIntegrityDigest?: string;
   sourceScope: JudgeScope;
@@ -90,6 +93,9 @@ export interface JudgeSnapshotCurrentState {
   snapshotId: string;
   status: "CURRENT" | "NEWER_CHANGES" | "DIVERGED";
   changedFiles: string[];
+  /** Same computation as `status`, but ignoring a valid continuation sidecar on both sides. */
+  reviewBoundary: "CURRENT" | "NEWER_CHANGES" | "DIVERGED";
+  executionMetadata: "ABSENT" | "UNCHANGED" | "CREATED" | "REMOVED" | "ADVANCED";
 }
 
 export interface JudgeSnapshotPruneResult {
@@ -194,6 +200,11 @@ async function loadJudgeSnapshotInternal(
     throw new Error(`Snapshot integrity check failed: ${messageOf(error)}`);
   }
   if (metadata.version !== SNAPSHOT_VERSION) {
+    if (metadata.version === 6) {
+      throw new Error(
+        "Snapshot integrity check failed: this snapshot predates the review content identity contract (v6); capture a new snapshot with the current CLI.",
+      );
+    }
     if (metadata.version === 5) {
       throw new Error(
         "Snapshot integrity check failed: this snapshot predates the empty-boundary authorization contract (v5); capture a new snapshot with the current CLI.",
@@ -235,6 +246,15 @@ async function loadJudgeSnapshotInternal(
   if (currentWorkspaceDigest !== metadata.workspaceDigest) {
     throw new Error(
       "Snapshot integrity check failed: workspace was modified after capture (a file was changed and restored, or a file was created and deleted). Capture a new snapshot.",
+    );
+  }
+  const currentReviewDigests = await reviewDigests(worktreePath, metadata.taskId, workspace);
+  if (currentReviewDigests.reviewContentDigest !== metadata.reviewContentDigest) {
+    throw new Error("Snapshot integrity check failed: reviewable content no longer matches its capture.");
+  }
+  if (currentReviewDigests.reviewWorkspaceDigest !== metadata.reviewWorkspaceDigest) {
+    throw new Error(
+      "Snapshot integrity check failed: reviewable workspace was modified after capture. Capture a new snapshot.",
     );
   }
   if (metadata.artifactContentDigest !== undefined || metadata.artifactIntegrityDigest !== undefined) {
@@ -314,8 +334,29 @@ export async function checkJudgeSnapshotCurrentState(
     const blockedPatterns = await readBlockedPatterns(snapshot.worktreePath);
     const liveManifest = await workspaceManifest(cwd, blockedPatterns);
     const changedFiles = changedManifestPaths(snapshot.manifest, liveManifest);
-    if (sameLiveBoundary(current, snapshot.metadata.sourceScope) && changedFiles.length === 0) {
-      return { snapshotId: snapshot.id, status: "CURRENT", changedFiles: [] };
+    const isCurrent = sameLiveBoundary(current, snapshot.metadata.sourceScope) && changedFiles.length === 0;
+
+    const capturedSidecar = await reviewSidecarExclusion(snapshot.worktreePath, snapshot.metadata.taskId);
+    const liveSidecar = await reviewSidecarExclusion(cwd, snapshot.metadata.taskId);
+    const reviewChangedFiles = changedManifestPaths(
+      excludeSidecar(snapshot.manifest, capturedSidecar),
+      excludeSidecar(liveManifest, liveSidecar),
+    );
+    const reviewBoundaryMatches =
+      current.candidateCommit === snapshot.metadata.sourceScope.candidateCommit &&
+      current.taskDigest === snapshot.metadata.sourceScope.taskDigest &&
+      JSON.stringify(current.excludedPaths) === JSON.stringify(snapshot.metadata.sourceScope.excludedPaths) &&
+      reviewChangedFiles.length === 0;
+    const executionMetadata = sidecarExecutionMetadata(snapshot.manifest, liveManifest, capturedSidecar, liveSidecar);
+
+    if (isCurrent) {
+      return {
+        snapshotId: snapshot.id,
+        status: "CURRENT",
+        changedFiles: [],
+        reviewBoundary: "CURRENT",
+        executionMetadata,
+      };
     }
     const ancestor = await gitExitZero(cwd, [
       "merge-base",
@@ -323,14 +364,47 @@ export async function checkJudgeSnapshotCurrentState(
       snapshot.metadata.sourceScope.candidateCommit,
       "HEAD",
     ]);
+    const label: "NEWER_CHANGES" | "DIVERGED" = ancestor ? "NEWER_CHANGES" : "DIVERGED";
     return {
       snapshotId: snapshot.id,
-      status: ancestor ? "NEWER_CHANGES" : "DIVERGED",
+      status: label,
       changedFiles,
+      reviewBoundary: reviewBoundaryMatches ? "CURRENT" : label,
+      executionMetadata,
     };
   } catch {
-    return { snapshotId: snapshot.id, status: "DIVERGED", changedFiles: [] };
+    return {
+      snapshotId: snapshot.id,
+      status: "DIVERGED",
+      changedFiles: [],
+      reviewBoundary: "DIVERGED",
+      executionMetadata: "ABSENT",
+    };
   }
+}
+
+function excludeSidecar(
+  manifest: Map<string, PathFingerprint>,
+  sidecarPath: string | null,
+): Map<string, PathFingerprint> {
+  if (sidecarPath === null || !manifest.has(sidecarPath)) return manifest;
+  const filtered = new Map(manifest);
+  filtered.delete(sidecarPath);
+  return filtered;
+}
+
+function sidecarExecutionMetadata(
+  capturedManifest: Map<string, PathFingerprint>,
+  liveManifest: Map<string, PathFingerprint>,
+  capturedSidecar: string | null,
+  liveSidecar: string | null,
+): JudgeSnapshotCurrentState["executionMetadata"] {
+  if (capturedSidecar === null && liveSidecar === null) return "ABSENT";
+  if (capturedSidecar === null) return "CREATED";
+  if (liveSidecar === null) return "REMOVED";
+  const capturedFingerprint = capturedManifest.get(capturedSidecar)?.content;
+  const liveFingerprint = liveManifest.get(liveSidecar)?.content;
+  return capturedFingerprint === liveFingerprint ? "UNCHANGED" : "ADVANCED";
 }
 
 export async function checkJudgeReviewCurrentState(
@@ -534,6 +608,8 @@ async function capture(
       }
       const snapshotContentDigest = contentDigest(manifest);
       const snapshotWorkspaceDigest = workspaceDigest(manifest);
+      const { reviewContentDigest: snapshotReviewContentDigest, reviewWorkspaceDigest: snapshotReviewWorkspaceDigest } =
+        await reviewDigests(worktreePath, taskId, manifest);
       const parentRecord = parent
         ? {
             snapshotId: parent.snapshotId,
@@ -571,6 +647,8 @@ async function capture(
         taskId,
         contentDigest: snapshotContentDigest,
         workspaceDigest: snapshotWorkspaceDigest,
+        reviewContentDigest: snapshotReviewContentDigest,
+        reviewWorkspaceDigest: snapshotReviewWorkspaceDigest,
         ...(artifactContentDigest ? { artifactContentDigest } : {}),
         ...(artifactIntegrityDigest ? { artifactIntegrityDigest } : {}),
         sourceScope: persistedSourceScope,
@@ -935,6 +1013,40 @@ function workspaceDigest(manifest: Map<string, PathFingerprint>): string {
       .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .flatMap(([relativePath, fp]) => [relativePath, "\0", fp.content, "\0", fp.stat ?? "", "\0"]),
   );
+}
+
+/**
+ * Identifies the one path that is exempt from `reviewContentDigest`: the task's continuation
+ * sidecar, and only when it is a regular file `readTaskContinuation` accepts as `status: "valid"`.
+ * An absent, irregular, invalid, or unsupported sidecar returns `null` and stays inside the
+ * reviewable content like any ordinary tracked file.
+ */
+export async function reviewSidecarExclusion(worktreePath: string, taskId: string): Promise<string | null> {
+  try {
+    const result = await readTaskContinuation(worktreePath, taskId);
+    return result.status === "valid" ? result.path : null;
+  } catch {
+    return null;
+  }
+}
+
+async function reviewDigests(
+  worktreePath: string,
+  taskId: string,
+  manifest: Map<string, PathFingerprint>,
+): Promise<{ reviewContentDigest: string; reviewWorkspaceDigest: string }> {
+  const excludedPath = await reviewSidecarExclusion(worktreePath, taskId);
+  let reviewManifest = manifest;
+  if (excludedPath !== null && manifest.has(excludedPath)) {
+    reviewManifest = new Map(manifest);
+    reviewManifest.delete(excludedPath);
+  }
+  // Both digests cover the reviewable subset. Sidecar tampering inside the capture is still caught
+  // by `workspaceDigest`, which spans the whole manifest.
+  return {
+    reviewContentDigest: contentDigest(reviewManifest),
+    reviewWorkspaceDigest: workspaceDigest(reviewManifest),
+  };
 }
 
 function changedManifestPaths(before: Map<string, PathFingerprint>, after: Map<string, PathFingerprint>): string[] {

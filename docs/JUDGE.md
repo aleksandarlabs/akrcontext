@@ -119,9 +119,13 @@ An `APPROVED` record must also be backed by evidence and internally coherent. Ve
 
 - **no validation passed** — `tests` must contain at least one entry with `status: "passed"`. A review that executed nothing cannot approve. A judge that could not run any command reports `BLOCKED` and says which command it could not run.
 - **the passing command was invented** — when the capsule declares commands, at least one passing entry must be one of them (see below).
+- **a required command failed** — every declared command must pass unless its line ends `# optional`. A failed optional command is a warning, not a blocker.
+- **`no-runtime-validation` is malformed** — a single `no-runtime-validation: <reason>` line inside the fence needs a non-empty reason and zero commands. It does not claim any code was verified.
 - **issues remain** — `issues` must be empty. A verdict cannot approve and list unresolved defects at the same time; that is `NEEDS_CHANGES`.
 
 A `failed` entry in `tests` invalidates the record under any verdict. These rules apply only to `APPROVED` — a `NEEDS_CHANGES` or `BLOCKED` record is expected to carry issues and unrun commands.
+
+A capsule with no `## Validation` section is legacy. Verification reports `verifiedNow: unknown` for it, because no declared command set exists to check. The record can still keep its historical `approved` verdict; `unknown` says current runtime verification was not established, not that the record is rejected.
 
 ### Declared validation commands
 
@@ -138,15 +142,25 @@ pnpm lint
 
 Those commands are the ones that count as evidence. Without this rule a judge could approve on `tests: [{ command: "echo ok", status: "passed" }]`.
 
-Verification distinguishes three cases, so backward compatibility cannot be used to weaken the gate:
+A line inside the fence is one of four kinds:
+
+- **Required** — a non-empty line that does not start with `#` and does not end with `# optional`. It must pass for `APPROVED`.
+- **Optional** — a non-empty line ending with `# optional`. A failure is a warning, not a blocker.
+- **Comment** — a line starting with `#`. Verification ignores it.
+- **`no-runtime-validation: <reason>`** — a single line that declares no runtime validation exists. It needs a non-empty reason and zero commands in the block.
+
+Verification distinguishes these capsule shapes, so backward compatibility cannot be used to weaken the gate:
 
 | Capsule | Behaviour |
 |---|---|
-| No `## Validation` section | Predates the section. Falls back to the weaker "any passing command" rule so older capsules keep working. |
-| Section present, commands declared | The strict rule applies: a declared command must be among the passing ones. |
+| No `## Validation` section | Legacy capsule. Verification reports `verifiedNow: unknown`; the record's historical `approved` verdict can still stand. |
+| Section present, one or more required commands | Every required command must pass. At least one declared command (required or optional) must also be the passing entry in `tests`; an invented command is never evidence. |
+| Section present, only optional commands (`# optional`) | No command is mandatory, but at least one declared optional command must still be the passing entry in `tests`. |
+| Section present, one failed optional command | The failure is reported as a warning. It does not block `APPROVED` on its own. |
+| Section present, single `no-runtime-validation: <reason>` line | Declares no runtime validation. Needs a non-empty reason and zero commands. Does not claim any code was verified. |
 | Section present, block empty or malformed | Rejected for `APPROVED`. The section exists, so the commands were meant to be filled in — this is an unfinished capsule, not a legacy one. |
 
-`akrctx task` generates the section with an empty block, so every capsule created from this version on falls in the second or third row.
+`akrctx task` generates the section with an empty block, so every capsule created from this version on falls in one of the last four rows.
 
 ### Independent re-execution
 
