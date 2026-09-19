@@ -75,6 +75,8 @@ pnpm akrctx doctor --json
   `CLAUDE.md` line 47. The new line matches `src/templates/instructions.ts`
   word for word. `AGENTS.md` carries no implementation-notes line and is not
   changed.
+- The human declined independent judge review for this delivery. No snapshot
+  was captured and no judge record exists for TASK-073.
 
 ## Open Questions
 - Should `implLogPath` normalize its argument to the short task ID? Today
