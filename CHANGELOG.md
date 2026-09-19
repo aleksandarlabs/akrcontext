@@ -27,6 +27,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   valid `continuation.json` sidecar from its change digest, so updating the sidecar no longer
   invalidates a standing approval.
 
+- `--timings` on `akrctx judge snapshot` and `akrctx judge verify`. The flag is opt-in. It writes
+  one machine-readable JSON line to stderr with `type: "judge-timings"`, the `operation`
+  (`snapshot` or `verify`), `inclusive: true`, and a `phases` array. Each phase reports a fixed
+  `phase` label, `elapsedMs` from a monotonic clock, and a `status` of `passed` or `failed`.
+  Validation commands also carry a 1-based `commandIndex`. Measured phases are `snapshot`,
+  `verification`, `approval-wait`, `workspace-copy`, `dependency-copy`, `snapshot-build`,
+  `dependency-preparation`, `validation-command`, and `cleanup`. The line is emitted on failure as
+  well as on success, and a broken stderr can neither change the result nor mask the original
+  error. Durations are inclusive: do not add all phases to obtain a total. The record contains no
+  command strings, paths, source content, environment values, or command output. It adds no
+  network call and no persistent file; redirect stderr to keep a local copy. Without the flag,
+  stdout, exit status, review schemas, and approval behavior are unchanged. The record is
+  observational, not approval evidence, and cannot replace `judge verify --run-tests`.
+  `docs/JUDGE.md` explains collection and interpretation. The external reviewer's model time and
+  the user's wait before invoking a command stay unmeasured, not zero.
+
 ### Changed
 
 - `akrctx judge verify` now checks each command declared in a capsule's `## Validation` block.
@@ -50,6 +66,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `reviewBoundary` at `CURRENT` and moves only the `executionMetadata` axis. `akrctx judge
   verify` now separates `historicalVerdict` from `verifiedNow`; a record with no `independent`
   field reads as `unknown`, never `true`.
+
+### Fixed
+
+- Shipped agent instructions no longer contradict the judge's actual execution model. The
+  templates in `src/templates/` stated that the judge cannot execute validation. The judge does
+  run the capsule's declared commands, in a disposable copy outside the live project, and the
+  trusted caller then re-executes them independently. `docs/JUDGE.md` now separates those two runs
+  in its "Where the strong check runs" table. Verifier dependencies are described as materialised
+  from the lockfile, which matches `materialiseDependencies`. Installed protected instruction
+  files were not modified.
+
 
 ## [0.6.0] - 2026-09-02
 

@@ -12,6 +12,49 @@ After the primary agent finishes implementing a task, it offers the user the opt
 
 The judge reports its exact base/candidate boundary, validation evidence, and a structured review record. It does not implement its own feedback. If changes are needed, the user hands them back to the primary agent. An enabled comprehension evaluator runs only after deterministic verification confirms `APPROVED` for the current boundary.
 
+## Measuring latency
+
+Add `--timings` to `judge snapshot` or `judge verify` to emit one diagnostic JSON line to
+stderr. Normal stdout (including `--json`), exit status, approval rules and validation
+execution stay unchanged. No timings are saved automatically or sent to a service.
+
+```bash
+akrctx judge snapshot TASK-001 --base main --json --timings \
+  2> /tmp/akrctx-snapshot-timings.jsonl
+akrctx judge verify .akrctx/local/judge/TASK-001/review.json --run-tests --json --timings \
+  --approve-commands "pnpm build" --approve-commands "npx vitest run" \
+  2> /tmp/akrctx-verify-timings.jsonl
+```
+
+Use the commands actually declared in your capsule for `--approve-commands`. These examples
+do not authorize additional commands. Redirecting stderr can also capture ordinary error
+messages; select the record with `type: "judge-timings"` when processing a failed invocation. For an
+interactive approval prompt, keep stderr visible rather than redirecting it.
+
+Durations use a monotonic clock and are expressed in milliseconds. Measurements cover the
+CLI operation and observable phases such as disposable workspace copying, dependency
+preparation, approval wait, individual validation commands and cleanup. Snapshot dependency
+copying (`dependency-copy`) and its fixed build (`snapshot-build`) are measured separately.
+Each phase reports
+`phase`, `elapsedMs` and `status`; validation commands also have a 1-based `commandIndex`.
+The record identifies `operation` (`snapshot` or `verify`) and sets `inclusive: true`.
+Nested durations are inclusive: **do not add all phases to obtain a total**. Command indices identify order
+within a validation run without recording command strings. The diagnostic record contains
+no project paths, source content, environment values or command output. It is observational,
+not approval evidence, and cannot replace `verify --run-tests`. A phase status describes
+that measured operation only; a successful copy or command is not an approved review.
+
+The CLI does not run the external reviewer. Its model execution time, its own validation
+runs and the user's wait before invoking a command are unmeasured, not zero. Do not label
+the gap between snapshot and verification as model latency: it may include human pauses,
+agent scheduling and other work. The approval phase measures only the callback inside
+verification; it is not a count of all user interruptions.
+
+For a baseline, collect several comparable reviews and compare operation totals and phases
+separately. Record external review time and user interruptions separately if the host exposes
+them. This first measurement step deliberately retains both judge validation and independent
+re-execution; it introduces no cache, provider integration or fast approval path.
+
 ## Deterministic enforcement
 
 Before review, the trusted caller captures the boundary and passes the immutable candidate
@@ -210,14 +253,14 @@ The order must match what was printed. Order carries no security weight on its o
 
 So the human, not the capsule, decides what executes. That makes the operator the last barrier: as strong as the attention paid to the list, and no stronger. Read it before approving work you did not supervise.
 
-The gate lives with the primary agent rather than the judge: the judge and the comprehension evaluator are read-only by contract and cannot execute anything. `akrctx judge snapshot --from-review` takes the same flag, because catch-up strongly verifies its parent and that re-runs the same commands.
+The re-execution gate lives with the primary agent. The judge runs its own declared validation in a disposable copy, but does not independently verify its own record. The comprehension evaluator checks the record without executing validation. `akrctx judge snapshot --from-review` takes the same flag, because catch-up strongly verifies its parent and that re-runs the same commands.
 
 ### Where the strong check runs
 
 | Stage | Verification | Why |
 |---|---|---|
-| Judge | none — it produces the record | Read-only; it reports what it ran |
-| Primary agent, before handoff | `judge verify --run-tests` | The only trusted caller that can execute |
+| Judge | Runs declared validation in a disposable copy; produces the record | Reads canonical evidence without modifying it |
+| Primary agent, before handoff | `judge verify --run-tests` | Independently re-executes the declared validation |
 | Comprehension evaluator | `judge verify --json` plus `judge current --json` | Read-only contract; confirms approval validity and live applicability, not that tests re-ran |
 
 A re-execution result is not transferable: a later agent that only runs plain `verify` learns the boundary is intact, not that validation was independently repeated. If you need that guarantee to survive the handoff, it has to come from CI or another trusted orchestrator, not from the record.

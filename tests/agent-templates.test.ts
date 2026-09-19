@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { JUDGE_SCHEMA_VERSION, validateRecord } from "../src/judge-enforcement.js";
 import { claudeImplementerFile, codexImplementerFile, copilotImplementerFile } from "../src/templates/implementer.js";
-import { mainInstructionTemplate } from "../src/templates/instructions.js";
+import { codexSkills, mainInstructionTemplate } from "../src/templates/instructions.js";
 import { judgeContractFiles } from "../src/templates/judge-contract.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile, judgeExampleRecord } from "../src/templates/judge.js";
 import { taskTemplateFiles } from "../src/templates/wiki.js";
@@ -79,6 +79,22 @@ describe("agent template renderings", () => {
   });
 
   describe("judge", () => {
+    it.each(["codex", "claude", "copilot"] as const)(
+      "%s distinguishes reviewer validation from caller re-execution",
+      (target) => {
+        const content = mainInstructionTemplate(target);
+        expect(content).not.toContain("read-only judge and comprehension agents cannot");
+        expect(content).toContain("judge runs validation only in a disposable copy");
+        expect(content).toContain("caller independently re-executes it");
+      },
+    );
+
+    it("workflow describes verifier dependencies from the lockfile", () => {
+      const workflow = codexSkills[".agents/skills/akrctx-workflow/SKILL.md"] ?? "";
+      expect(workflow).toContain("dependencies materialised from the lockfile");
+      expect(workflow).not.toContain("including the snapshot's private local Node dependencies");
+    });
+
     it.each(Object.entries(judgeRenderers))(
       "%s rendering keeps validation away from the canonical snapshot",
       (_target, renderer) => {

@@ -112,7 +112,7 @@ When the capsule's \`task.md\` declares commands in a fenced block under \`## Va
 
 \`akrctx judge verify <review.json> --run-tests\` re-runs the capsule-declared commands the record claims passed, instead of trusting the claim. It requires a snapshot candidate — a \`WORKTREE\` or commit-ref record is refused — and it never executes without operator approval: the CLI prints the declared commands and asks in a terminal, or requires \`--approve-commands\` once per command in declared order when headless. Commands run in a disposable copy outside the live project whose dependencies are materialised from the committed lockfile, not inherited from the snapshot's private copy, so re-execution rests on the lockfile rather than on bytes inside the reviewed artifact; if the boundary declares dependencies but has no lockfile, or the install fails, verification fails with a named reason and never falls back to the snapshot's copy. The disposable copy cannot corrupt the immutable snapshot through ordinary relative writes. Verification still fails if validation rewrites tracked content. This is process isolation for normal tooling, not an OS sandbox for an intentionally malicious command with absolute paths.
 
-Run it from the trusted caller, before any handoff. The judge and the comprehension evaluator are read-only by contract and must not pass this flag.
+Run it from the trusted caller, before any handoff. The judge runs its own declared validation in a disposable copy but must not pass this flag to verify its own record. The comprehension evaluator checks the record without executing validation.
 
 ## What this does and does not prove
 

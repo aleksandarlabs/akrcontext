@@ -7,6 +7,7 @@ import {
   checkJudgeReviewCurrentState,
   pruneJudgeSnapshots,
 } from "../judge-snapshot.js";
+import { withJudgeTimings } from "../judge-timings.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../judge.js";
 import {
   addCommon,
@@ -138,6 +139,7 @@ export function registerJudge(program: Command): void {
       [] as string[],
     )
     .option("--json", "emit snapshot metadata for automation", false)
+    .option("--timings", "emit inclusive phase timing diagnostics to stderr", false)
     .addHelpText(
       "after",
       [
@@ -150,21 +152,23 @@ export function registerJudge(program: Command): void {
       const options = normalizeOptions(raw);
       const cwd = options.cwd ?? process.cwd();
       const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
-      const snapshot = raw.fromReview
-        ? await captureJudgeCatchUpSnapshot(
-            cwd,
-            taskId,
-            String(raw.fromReview),
-            (commands) => approveCommands(commands, approved),
-            Boolean(raw.allowEmpty),
-          )
-        : await captureJudgeSnapshot(
-            cwd,
-            taskId,
-            String(raw.base),
-            Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
-            Boolean(raw.allowEmpty),
-          );
+      const snapshot = await withJudgeTimings(Boolean(raw.timings), "snapshot", async () =>
+        raw.fromReview
+          ? await captureJudgeCatchUpSnapshot(
+              cwd,
+              taskId,
+              String(raw.fromReview),
+              (commands) => approveCommands(commands, approved),
+              Boolean(raw.allowEmpty),
+            )
+          : await captureJudgeSnapshot(
+              cwd,
+              taskId,
+              String(raw.base),
+              Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
+              Boolean(raw.allowEmpty),
+            ),
+      );
       if (options.json) {
         console.log(
           JSON.stringify({ ...snapshot, emptyBoundaryAuthorized: snapshot.emptyBoundaryAuthorized }, null, 2),
@@ -296,6 +300,7 @@ export function registerJudge(program: Command): void {
     .argument("<review-file>", "path to the judge review JSON")
     .option("--json", "emit JSON output", false)
     .option("--run-tests", "re-run the capsule-declared commands the record claims passed", false)
+    .option("--timings", "emit inclusive phase timing diagnostics to stderr", false)
     .option(
       "--approve-commands <cmd>",
       "approve one declared command for re-execution; repeat once per command, in declared order",
@@ -328,10 +333,17 @@ export function registerJudge(program: Command): void {
       const options = normalizeOptions(raw);
       const runTests = Boolean(raw.runTests);
       const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
-      const result = await verifyJudgeRecord(options.cwd ?? process.cwd(), reviewFile, {
-        runTests,
-        approve: (commands) => approveCommands(commands, approved),
-      });
+      const result = await withJudgeTimings(
+        Boolean(raw.timings),
+        "verify",
+        () =>
+          verifyJudgeRecord(options.cwd ?? process.cwd(), reviewFile, {
+            runTests,
+            approve: (commands) => approveCommands(commands, approved),
+          }),
+        undefined,
+        (result) => result.approved,
+      );
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
       } else {

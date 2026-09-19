@@ -4,6 +4,7 @@ import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 import { capsuleFiles } from "./harness-files.js";
+import { measureJudgePhase } from "./judge-timings.js";
 import {
   type ValidationFailureEvidence,
   captureValidationError,
@@ -388,7 +389,14 @@ export async function verifyJudgeRecord(
     }
     if (!snapshot) {
       reasons.push(SNAPSHOT_REQUIRED_REASON);
-    } else if (!(await options.approve?.([...declaredAndPassing]))) {
+    } else if (
+      !(await measureJudgePhase(
+        "approval-wait",
+        async () => options.approve?.([...declaredAndPassing]),
+        undefined,
+        Boolean,
+      ))
+    ) {
       reasons.push(withheldReason(declaredAndPassing));
     } else {
       let cleanup: (() => Promise<void>) | undefined;
@@ -396,10 +404,14 @@ export async function verifyJudgeRecord(
         const validationWorkspace = await createJudgeSnapshotValidationWorkspace(cwd, record.scope.candidate);
         const validationCwd = validationWorkspace.worktreePath;
         cleanup = validationWorkspace.cleanup;
-        for (const command of [...new Set(declaredAndPassing)]) {
+        for (const [index, command] of [...new Set(declaredAndPassing)].entries()) {
           const normalized = sanitizeValidationCommand(command);
           try {
-            await execAsync(command, { cwd: validationCwd, timeout: 15 * 60_000, maxBuffer: 64 * 1024 * 1024 });
+            await measureJudgePhase(
+              "validation-command",
+              () => execAsync(command, { cwd: validationCwd, timeout: 15 * 60_000, maxBuffer: 64 * 1024 * 1024 }),
+              index + 1,
+            );
             reexecuted.push({ command: normalized, passed: true });
           } catch (error) {
             const evidence = captureValidationError(command, error);

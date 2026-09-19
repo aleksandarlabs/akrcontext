@@ -24,6 +24,7 @@ import { promisify } from "node:util";
 import { type Plugin, build as buildWithEsbuild } from "esbuild";
 import { readTaskContinuation } from "./continuation.js";
 import type { JudgeScope } from "./judge-enforcement.js";
+import { measureJudgePhase } from "./judge-timings.js";
 import { captureValidationError } from "./validation-evidence.js";
 
 const execFileAsync = promisify(execFile);
@@ -154,7 +155,12 @@ export async function captureJudgeCatchUpSnapshot(
     throw new Error("Catch-up requires a review whose candidate is an immutable snapshot.");
   }
   const { verifyJudgeRecord } = await import("./judge-enforcement.js");
-  const verified = await verifyJudgeRecord(cwd, relativeRecord, { runTests: true, approve });
+  const verified = await measureJudgePhase(
+    "verification",
+    () => verifyJudgeRecord(cwd, relativeRecord, { runTests: true, approve }),
+    undefined,
+    (result) => result.approved,
+  );
   if (!verified.approved) {
     throw new Error(`Catch-up requires a verified current snapshot approval: ${verified.reasons.join(" ")}`);
   }
@@ -434,19 +440,21 @@ export async function createJudgeSnapshotValidationWorkspace(
   const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), "akrctx-judge-validation-"));
   const worktreePath = path.join(temporaryRoot, "worktree");
   try {
-    await cp(snapshot.worktreePath, worktreePath, {
-      recursive: true,
-      preserveTimestamps: true,
-      mode: constants.COPYFILE_FICLONE,
-      filter: (source) => path.basename(source) !== "node_modules",
-    });
-    await materialiseDependencies(worktreePath);
+    await measureJudgePhase("workspace-copy", () =>
+      cp(snapshot.worktreePath, worktreePath, {
+        recursive: true,
+        preserveTimestamps: true,
+        mode: constants.COPYFILE_FICLONE,
+        filter: (source) => path.basename(source) !== "node_modules",
+      }),
+    );
+    await measureJudgePhase("dependency-preparation", () => materialiseDependencies(worktreePath));
     return {
       worktreePath,
-      cleanup: () => rm(temporaryRoot, { recursive: true, force: true }),
+      cleanup: () => measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true })),
     };
   } catch (error) {
-    await rm(temporaryRoot, { recursive: true, force: true });
+    await measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true }));
     throw error;
   }
 }
@@ -571,17 +579,21 @@ async function capture(
     let finalRoot = "";
     let renamed = false;
     try {
-      await createPrivateGitWorkspace(cwd, worktreePath, sourceScope.baseCommit, sourceScope.candidateCommit);
+      await measureJudgePhase("workspace-copy", () =>
+        createPrivateGitWorkspace(cwd, worktreePath, sourceScope.baseCommit, sourceScope.candidateCommit),
+      );
       const blockedPatterns = await readBlockedPatterns(cwd);
       await removeBlockedPaths(worktreePath, blockedPatterns);
       await overlayChangedFiles(cwd, worktreePath, sourceScope.changedFiles);
-      await copyLocalDependencies(cwd, worktreePath);
-      const builtArtifacts = await buildSnapshotArtifacts(worktreePath);
+      await measureJudgePhase("dependency-copy", () => copyLocalDependencies(cwd, worktreePath));
+      const builtArtifacts = await measureJudgePhase("snapshot-build", () => buildSnapshotArtifacts(worktreePath));
       // pnpm updates private workspace bookkeeping while it runs a script. Restore the copied
       // dependency tree and its lockfile so those incidental writes cannot become part of the
       // immutable boundary.
-      await rm(path.join(worktreePath, "node_modules"), { recursive: true, force: true });
-      await copyLocalDependencies(cwd, worktreePath);
+      await measureJudgePhase("cleanup", () =>
+        rm(path.join(worktreePath, "node_modules"), { recursive: true, force: true }),
+      );
+      await measureJudgePhase("dependency-copy", () => copyLocalDependencies(cwd, worktreePath));
       await restorePackageManagerState(cwd, worktreePath);
       const artifactManifestResult = builtArtifacts ? await artifactManifest(worktreePath) : undefined;
       const artifactContentDigest = artifactManifestResult ? contentDigest(artifactManifestResult) : undefined;
@@ -589,7 +601,7 @@ async function capture(
 
       const after = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE", includedTaskIds);
       if (!sameLiveBoundary(after, sourceScope)) {
-        await rm(temporaryRoot, { recursive: true, force: true });
+        await measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true }));
         continue;
       }
 
@@ -598,7 +610,7 @@ async function capture(
       const liveManifest = await workspaceManifest(cwd, snapshotBlockedPatterns);
       const finalSourceScope = await createJudgeScope(cwd, taskId, sourceScope.baseCommit, "WORKTREE", includedTaskIds);
       if (!sameLiveBoundary(finalSourceScope, sourceScope)) {
-        await rm(temporaryRoot, { recursive: true, force: true });
+        await measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true }));
         continue;
       }
       if (contentDigest(liveManifest) !== contentDigest(manifest)) {
@@ -668,7 +680,7 @@ async function capture(
         ) {
           throw error;
         }
-        await rm(temporaryRoot, { recursive: true, force: true });
+        await measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true }));
       }
       const loaded = await loadJudgeSnapshot(cwd, candidate);
       return {
@@ -684,8 +696,8 @@ async function capture(
       // If the self-verifying load below failed after the rename landed, the snapshot directory
       // is on disk under finalRoot, not temporaryRoot — remove the one that exists so a failed
       // capture never leaves a permanently unloadable snapshot behind.
-      if (renamed) await rm(finalRoot, { recursive: true, force: true });
-      else await rm(temporaryRoot, { recursive: true, force: true });
+      if (renamed) await measureJudgePhase("cleanup", () => rm(finalRoot, { recursive: true, force: true }));
+      else await measureJudgePhase("cleanup", () => rm(temporaryRoot, { recursive: true, force: true }));
       throw error;
     }
   }
