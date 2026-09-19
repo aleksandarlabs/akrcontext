@@ -43,3 +43,17 @@ Captured by the instrumentation itself, not estimated. Durations are inclusive; 
 - Verification with re-execution: 106956ms total — approval-wait 0.1ms, workspace-copy 192ms, dependency-preparation 3007ms, validation commands 1560/99485/1317/264/260ms (indices 1-5), cleanup 140ms.
 - Command index 2 (`pnpm test`) is 93% of verification wall time. Dependency preparation is the second cost at 3007ms. This is the measurement the runner redesign must start from.
 - External reviewer model time and pre-invocation human wait stay unmeasured. Do not read them from these numbers.
+
+## 2026-09-19 — delivery 1, round 4 (changelog catch-up)
+
+- `CHANGELOG.md` gained the `--timings` entry under Added and an instruction-coherence entry under Fixed. That edit moved the workspace to NEWER_CHANGES against the approved snapshot, so the approval no longer covered it.
+- Catch-up snapshot `SNAPSHOT:ec67078d29123053a08f` captured from the verified parent `017ee67cdab234ad844d`. Delta is 3 files: `CHANGELOG.md`, this log, and the review checklist. No source file is in the delta.
+- The first catch-up attempt failed by design: the newly created TASK-072 capsule was a foreign task capsule in the TASK-071 boundary. `--include-task TASK-072` was refused, because it would pull an unrelated capsule into this review. The TASK-072 capsule was moved aside for the capture and restored immediately after.
+- Independent judge reviewed the delta and returned APPROVED with an empty `issues` array. The judge re-checked each CHANGELOG claim against the candidate source instead of accepting it. Record at `.akrctx/local/judge/TASK-071-catchup-approved.json`.
+- `akrctx judge verify --run-tests` reports APPROVED and current, scope digest `sha256:49cf315f…`. `akrctx judge current` reports CURRENT.
+- Known cosmetic defect, left unfixed on purpose: `CHANGELOG.md` has a double blank line before `## [0.6.0]`. Biome does not lint Markdown and the file renders correctly. Fixing it would invalidate this approval and cost another full catch-up cycle.
+
+## Duplicate-execution cost, measured across this delivery
+
+- Five full runs of the same declared commands closed one delivery: implementation ~102000ms, judge round 2 ~105500ms, verify ~107000ms, catch-up parent verification ~113800ms, catch-up verify ~110000ms. Each judge review round added its own run on top.
+- `pnpm test` is 93% of every run. This is the evidence base for TASK-072.

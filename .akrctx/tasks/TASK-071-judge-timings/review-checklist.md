@@ -13,3 +13,7 @@
 - [x] `judge verify --run-tests` reports APPROVED and current; all five declared commands re-executed independently.
 - [x] `judge current` reports CURRENT.
 - [x] First measured pipeline baseline recorded in log.md. Comprehension gate is disabled in config; no handoff required.
+- [x] Changelog updated under Added and Fixed.
+- [x] Catch-up snapshot SNAPSHOT:ec67078d29123053a08f reviewed; APPROVED with no issues.
+- [x] `judge verify --run-tests` reports APPROVED and current; `judge current` reports CURRENT.
+- [x] Delivery closed. Ready to commit.
