@@ -60,6 +60,7 @@ Reports:
 - judge misconfiguration (enabled but files missing)
 - version drift between installed harness and current CLI
 - wiki lint: broken links, orphan pages, and missing or invalid frontmatter timestamps
+- task capsules that hold a `log.md` inside the reviewed boundary (warning only; Doctor never moves the file and readiness does not change)
 - readiness score (0–100)
 - suggested agent prompt to continue the audit intelligently
 

@@ -44,7 +44,7 @@ If defaults.workflow is task-fit, choose the smallest workflow that fits the tas
 - Doctor findings: .akrctx/wiki/
 - Compiled briefs: .akrctx/tasks/TASK-XXX-.../exports/
 - Decisions: .akrctx/wiki/decisions.md
-- Task implementation notes: .akrctx/tasks/TASK-XXX-.../log.md
+- Task implementation notes: .akrctx/local/impl/TASK-XXX/log.md (local only; never inside the capsule)
 - Personal comprehension records: .akrctx/local/comprehension/TASK-XXX/ (local only; never stage them)
 
 ## Independent Review and Comprehension

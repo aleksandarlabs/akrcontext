@@ -220,6 +220,13 @@ export interface DoctorResult {
   suggestions: Suggestion[];
   fixed?: string[];
   wikiLint?: WikiLintResult;
+  /** Capsules that hold an implementation log inside the reviewed boundary. */
+  capsuleLogs: CapsuleLogFinding[];
+}
+
+export interface CapsuleLogFinding {
+  taskId: string;
+  path: string;
 }
 
 export interface WikiLintIssue {

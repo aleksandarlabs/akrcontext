@@ -515,6 +515,8 @@ async function preserveProjectKnowledge(
       } else {
         writes.push({ kind: "preserve", path: relativePath, reason: "Project-owned knowledge is never overwritten." });
       }
+    } else if (relativePath === writePolicyWikiPath && (await pathExists(absolute))) {
+      writes.push(await migrateWritePolicyWiki(cwd, relativePath, content, options));
     } else if (await pathExists(absolute)) {
       writes.push({ kind: "preserve", path: relativePath, reason: "Project-owned knowledge is never overwritten." });
     } else {
@@ -527,6 +529,47 @@ async function preserveProjectKnowledge(
     }
   }
   return writes;
+}
+
+/**
+ * Older templates placed the implementation log inside the capsule.
+ *
+ * A log there is a tracked file in the review diff. Upgrade removes only these
+ * exact legacy values, so any project-written entry or line stays as it is.
+ */
+const legacyImplementationNotes = ".akrctx/tasks/TASK-XXX/log.md";
+const writePolicyWikiPath = ".akrctx/wiki/write-policy.md";
+const legacyWritePolicyLine = `- Implementation notes for a task: ${legacyImplementationNotes}`;
+
+async function migrateWritePolicyWiki(
+  cwd: string,
+  relativePath: string,
+  template: string,
+  options: CommandOptions,
+): Promise<WriteResult> {
+  const lines = (await readFile(path.join(cwd, relativePath), "utf8")).split("\n");
+  const currentLine = template.split("\n").find((line) => line.startsWith("- Implementation notes for a task: "));
+  if (!currentLine || !lines.includes(legacyWritePolicyLine)) {
+    return { kind: "preserve", path: relativePath, reason: "Project-owned knowledge is never overwritten." };
+  }
+  const next = lines.map((line) => (line === legacyWritePolicyLine ? currentLine : line)).join("\n");
+  return writePlannedFile(cwd, relativePath, next, {
+    dryRun: options.dryRun,
+    force: true,
+    reason: "Moved the implementation-log location out of the capsule without replacing project knowledge.",
+  });
+}
+
+function withoutLegacyImplementationNotes(policy: Partial<akrctxPolicy>): Partial<akrctxPolicy> {
+  const notes = policy.writePolicy?.implementationNotes;
+  if (!policy.writePolicy || !Array.isArray(notes) || !notes.includes(legacyImplementationNotes)) return policy;
+  return {
+    ...policy,
+    writePolicy: {
+      ...policy.writePolicy,
+      implementationNotes: notes.filter((entry) => entry !== legacyImplementationNotes),
+    },
+  };
 }
 
 async function migratePolicy(
@@ -564,7 +607,7 @@ async function migratePolicy(
       conflict: true,
     };
   }
-  const migrated = mergeTemplateJson(defaultPolicy(profile), current);
+  const migrated = mergeTemplateJson(defaultPolicy(profile), withoutLegacyImplementationNotes(current));
   return {
     writes: [await writeJsonIfChanged(cwd, relativePath, migrated, options, "akrctx policy migration.")],
     conflict: false,

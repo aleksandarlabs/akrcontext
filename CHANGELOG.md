@@ -77,6 +77,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   from the lockfile, which matches `materialiseDependencies`. Installed protected instruction
   files were not modified.
 
+- The write policy no longer places the implementation log inside the task capsule. The root
+  instructions, `.akrctx/wiki/write-policy.md` and the generated `policy.json` said
+  `.akrctx/tasks/TASK-XXX/log.md`. The implementer contract reads
+  `.akrctx/local/impl/TASK-XXX/log.md`. A log inside the capsule is a tracked file in the review
+  diff, so the judge could read the implementing agent's own account as evidence. All templates
+  now name the local path. `akrctx upgrade` removes the exact old entry from
+  `writePolicy.implementationNotes` and replaces the exact old line in an existing
+  `write-policy.md` page; custom entries and custom pages stay unchanged.
+- `akrctx doctor` reports each capsule that holds a `log.md` as a warning. The warning names the
+  task and the local path. `--json` carries the same data in `capsuleLogs`. Doctor never moves,
+  deletes or rewrites a log, and the finding does not change readiness or fail `--ci`.
+
 
 ## [0.6.0] - 2026-09-02
 

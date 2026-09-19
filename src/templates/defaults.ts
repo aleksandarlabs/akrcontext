@@ -101,7 +101,7 @@ export function defaultPolicy(profile: Profile = "default"): akrctxPolicy {
       task: [".akrctx/tasks/TASK-XXX/"],
       compile: [".akrctx/tasks/TASK-XXX/exports/<target>.md"],
       decisions: [".akrctx/wiki/decisions.md"],
-      implementationNotes: [".akrctx/tasks/TASK-XXX/log.md"],
+      implementationNotes: [".akrctx/local/impl/TASK-XXX/log.md"],
     },
   };
 

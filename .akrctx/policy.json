@@ -55,7 +55,7 @@
       ".akrctx/wiki/decisions.md"
     ],
     "implementationNotes": [
-      ".akrctx/tasks/TASK-XXX/log.md"
+      ".akrctx/local/impl/TASK-XXX/log.md"
     ]
   }
 }

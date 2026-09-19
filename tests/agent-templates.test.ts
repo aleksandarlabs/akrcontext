@@ -1,10 +1,17 @@
+import { readFile, readdir } from "node:fs/promises";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { JUDGE_SCHEMA_VERSION, validateRecord } from "../src/judge-enforcement.js";
+import { defaultPolicy } from "../src/templates/defaults.js";
 import { claudeImplementerFile, codexImplementerFile, copilotImplementerFile } from "../src/templates/implementer.js";
 import { codexSkills, mainInstructionTemplate } from "../src/templates/instructions.js";
 import { judgeContractFiles } from "../src/templates/judge-contract.js";
 import { claudeJudgeFile, codexJudgeFile, copilotJudgeFile, judgeExampleRecord } from "../src/templates/judge.js";
-import { taskTemplateFiles } from "../src/templates/wiki.js";
+import { taskTemplateFiles, wikiTemplates } from "../src/templates/wiki.js";
+
+const LOCAL_IMPL_LOG = ".akrctx/local/impl/TASK-XXX/log.md";
+// Any capsule path that ends in log.md, with or without a slug.
+const CAPSULE_LOG = /\.akrctx\/tasks\/TASK-XXX[^\s`'"]*\/log\.md/;
 
 const REVIEW_SCHEMA_PATH = ".akrctx/judge/schemas/review.schema.json";
 
@@ -182,6 +189,40 @@ describe("agent template renderings", () => {
         expect(content).toContain('"independent": false');
       },
     );
+  });
+
+  describe("implementation log placement", () => {
+    it.each(["codex", "claude", "copilot"] as const)(
+      "%s rendering writes implementation notes to local storage",
+      (target) => {
+        const content = mainInstructionTemplate(target);
+        expect(content).toContain(`- Task implementation notes: ${LOCAL_IMPL_LOG}`);
+        expect(content).not.toMatch(CAPSULE_LOG);
+      },
+    );
+
+    it("wiki write policy names the local log", () => {
+      const page = wikiTemplates["wiki/write-policy.md"] ?? "";
+      expect(page).toContain(`- Implementation notes for a task: ${LOCAL_IMPL_LOG}`);
+      expect(page).not.toMatch(CAPSULE_LOG);
+    });
+
+    it.each(["default", "strict", "regulated"] as const)("%s policy names the local log", (profile) => {
+      expect(defaultPolicy(profile).writePolicy.implementationNotes).toEqual([LOCAL_IMPL_LOG]);
+    });
+
+    it.each(Object.entries(implementerRenderers))("%s reads the log the write policy names", (_target, renderer) => {
+      expect(onlyContent(renderer())).toContain(LOCAL_IMPL_LOG);
+    });
+
+    it("no source template places a log inside a capsule", async () => {
+      const dir = path.join(import.meta.dirname, "../src/templates");
+      const offenders: string[] = [];
+      for (const name of await readdir(dir)) {
+        if (CAPSULE_LOG.test(await readFile(path.join(dir, name), "utf8"))) offenders.push(name);
+      }
+      expect(offenders).toEqual([]);
+    });
   });
 
   describe("implementer", () => {

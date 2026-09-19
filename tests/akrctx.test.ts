@@ -577,6 +577,60 @@ describe("doctor", () => {
     expect(writes.join("\n")).not.toContain("Suggested Codex prompt:");
   });
 
+  describe("capsule implementation logs", () => {
+    async function capsuleWithLog(): Promise<{ taskDir: string; logPath: string }> {
+      await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+      const task = await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+      const logPath = path.join(tmp, task.taskDir, "log.md");
+      await writeFile(logPath, "# Implementation log\n\nOld-policy notes.\n", "utf8");
+      return { taskDir: task.taskDir, logPath };
+    }
+
+    it("reports a capsule that holds log.md, names the task and the reviewed boundary", async () => {
+      const { taskDir } = await capsuleWithLog();
+
+      const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+      expect(result.capsuleLogs).toEqual([{ taskId: "TASK-001", path: `${taskDir}/log.md` }]);
+      const warning = result.suggestions.find((s) => s.text.includes(`${taskDir}/log.md`));
+      expect(warning?.severity).toBe("warning");
+      expect(warning?.text).toContain("TASK-001");
+      expect(warning?.text).toContain("inside the reviewed boundary");
+      expect(warning?.text).toContain(".akrctx/local/impl/TASK-001/log.md");
+    });
+
+    it("keeps every other axis clean when a capsule holds log.md", async () => {
+      await capsuleWithLog();
+
+      const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+      expect(result.readiness).toBe(100);
+      expect(result.missing).toEqual([]);
+      expect(result.conflicts).toEqual([]);
+      expect(result.suggestions.filter((s) => s.severity === "error")).toEqual([]);
+    });
+
+    it.each([false, true])("never moves or rewrites the log (fix: %s)", async (fix) => {
+      const { logPath } = await capsuleWithLog();
+      const before = await readFile(logPath, "utf8");
+
+      await runDoctor({ cwd: tmp, fix, nonInteractive: true });
+
+      expect(await readFile(logPath, "utf8")).toBe(before);
+      expect(await pathExists(path.join(tmp, ".akrctx/local/impl/TASK-001/log.md"))).toBe(false);
+    });
+
+    it("reports nothing when no capsule holds log.md", async () => {
+      await runInit({ cwd: tmp, target: "copilot", nonInteractive: true });
+      await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+      const result = await runDoctor({ cwd: tmp, nonInteractive: true });
+
+      expect(result.capsuleLogs).toEqual([]);
+      expect(result.suggestions.some((s) => s.text.includes("log.md"))).toBe(false);
+    });
+  });
+
   it("provides actionable suggestions when not installed", async () => {
     const result = await runDoctor({ cwd: tmp, nonInteractive: true });
 
@@ -914,6 +968,14 @@ describe("task and compile", () => {
     await mkdir(path.dirname(filePath), { recursive: true });
     await writeFile(filePath, content, "utf8");
   }
+
+  it("creates no local implementation-log directory with a capsule", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    await runTask("Fix auth bug", { cwd: tmp, nonInteractive: true });
+
+    expect(await pathExists(path.join(tmp, ".akrctx/local/impl"))).toBe(false);
+  });
 
   it("creates a task capsule and compiles a codex brief", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
@@ -2187,6 +2249,87 @@ describe("skill content contract", () => {
 // ── upgrade ───────────────────────────────────────────────────────────────────
 
 describe("upgrade", () => {
+  describe("implementation-log placement migration", () => {
+    const OLD_NOTES = ".akrctx/tasks/TASK-XXX/log.md";
+    const NEW_NOTES = ".akrctx/local/impl/TASK-XXX/log.md";
+    const OLD_LINE = `- Implementation notes for a task: ${OLD_NOTES}`;
+    const NEW_LINE = `- Implementation notes for a task: ${NEW_NOTES} (local only; never inside the capsule)`;
+    const policyPath = () => path.join(tmp, ".akrctx/policy.json");
+    const wikiPath = () => path.join(tmp, ".akrctx/wiki/write-policy.md");
+
+    async function installWithOldPolicy(notes: string[]): Promise<void> {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const policy = JSON.parse(await readFile(policyPath(), "utf8"));
+      policy.writePolicy.implementationNotes = notes;
+      await writeFile(policyPath(), `${JSON.stringify(policy, null, 2)}\n`, "utf8");
+    }
+
+    async function notes(): Promise<string[]> {
+      return JSON.parse(await readFile(policyPath(), "utf8")).writePolicy.implementationNotes;
+    }
+
+    it("replaces the old default implementationNotes value", async () => {
+      await installWithOldPolicy([OLD_NOTES]);
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await notes()).toEqual([NEW_NOTES]);
+    });
+
+    it.each([
+      [["docs/impl-notes/TASK-XXX.md"], [NEW_NOTES, "docs/impl-notes/TASK-XXX.md"]],
+      [
+        [OLD_NOTES, "docs/impl-notes/TASK-XXX.md"],
+        [NEW_NOTES, "docs/impl-notes/TASK-XXX.md"],
+      ],
+    ])("keeps custom entries and drops only the old default (%j)", async (before, after) => {
+      await installWithOldPolicy(before);
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await notes()).toEqual(after);
+    });
+
+    it("replaces only the old implementation-notes line in an existing wiki page", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const page = (await readFile(wikiPath(), "utf8")).replace(NEW_LINE, OLD_LINE);
+      const edited = `${page}\n## Project Notes\n\nKeep this section.\n`;
+      await writeFile(wikiPath(), edited, "utf8");
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(wikiPath(), "utf8")).toBe(edited.replace(OLD_LINE, NEW_LINE));
+    });
+
+    it("preserves a wiki page that does not carry the old line", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const custom = "# Write Policy\n\n- Implementation notes for a task: somewhere/else.md\n";
+      await writeFile(wikiPath(), custom, "utf8");
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(wikiPath(), "utf8")).toBe(custom);
+    });
+
+    it("is a no-op on a second run", async () => {
+      await installWithOldPolicy([OLD_NOTES]);
+      const page = (await readFile(wikiPath(), "utf8")).replace(NEW_LINE, OLD_LINE);
+      await writeFile(wikiPath(), page, "utf8");
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+      const policyAfter = await readFile(policyPath(), "utf8");
+      const wikiAfter = await readFile(wikiPath(), "utf8");
+
+      const second = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(policyPath(), "utf8")).toBe(policyAfter);
+      expect(await readFile(wikiPath(), "utf8")).toBe(wikiAfter);
+      const touched = second.writes.filter(
+        (w) => w.kind !== "preserve" && [".akrctx/policy.json", ".akrctx/wiki/write-policy.md"].includes(w.path),
+      );
+      expect(touched).toEqual([]);
+    });
+  });
+
   it("rejects --force because upgrades never overwrite conflicts", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const previousCwd = process.cwd();

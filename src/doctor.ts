@@ -4,7 +4,7 @@ import { agentFilePathList, agentWarningTexts, resolveAgents } from "./agents.js
 import { isLocalIgnoreContentSafe, localIgnorePath } from "./comprehension.js";
 import { readConfigForDiagnosis, writeConfig } from "./config.js";
 import { detectTargets } from "./detect.js";
-import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { listDirs, pathExists, writePlannedFile } from "./fs-utils.js";
 import {
   neutralRequired,
   protectedFiles,
@@ -12,6 +12,7 @@ import {
   targetRequired,
   upgradesIgnorePath,
 } from "./harness-files.js";
+import { implLogPath } from "./impl.js";
 import { runInit } from "./init.js";
 import {
   agentSetupTemplate,
@@ -24,6 +25,7 @@ import {
 } from "./templates.js";
 import {
   type AgentName,
+  type CapsuleLogFinding,
   type CommandOptions,
   type DoctorResult,
   type Profile,
@@ -228,6 +230,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
   const agentConfigWarnings = await getAgentWarnings(cwd);
   const wikiLint = installed ? await lintWiki(cwd) : { brokenLinks: [], orphans: [], missingTimestamps: [] };
   const wikiLintIssueCount = wikiLint.brokenLinks.length + wikiLint.missingTimestamps.length;
+  const capsuleLogs = await getCapsuleLogs(cwd);
   const configPolicyGaps = [...configGaps, ...policyGaps, ...localPrivacyGaps];
   const allMissing = [...missing, ...configPolicyGaps];
   const suggestions: Suggestion[] = [
@@ -244,6 +247,7 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
     ...(wikiLint.orphans.length
       ? [{ text: `Wiki orphan pages: ${wikiLint.orphans.join(", ")}`, severity: "info" as const }]
       : []),
+    ...capsuleLogs.map(capsuleLogSuggestion),
   ];
   const readiness = scoreReadiness(
     installed,
@@ -263,10 +267,34 @@ async function diagnose(cwd: string, options: CommandOptions): Promise<DoctorRes
     conflicts,
     suggestions,
     wikiLint,
+    capsuleLogs,
   };
 
   await writeDoctorWiki(cwd, result, { missing, configGaps, policyGaps, localPrivacyGaps }, wikiLint, options);
   return result;
+}
+
+/**
+ * Find implementation logs written inside a capsule under the old write policy.
+ *
+ * Doctor only reports them. Moving a tracked file changes a review boundary,
+ * so the human decides. Readiness does not count them.
+ */
+async function getCapsuleLogs(cwd: string): Promise<CapsuleLogFinding[]> {
+  const findings: CapsuleLogFinding[] = [];
+  for (const dir of await listDirs(path.join(cwd, ".akrctx/tasks"))) {
+    const taskId = /^TASK-\d+/.exec(dir)?.[0];
+    const relative = `.akrctx/tasks/${dir}/log.md`;
+    if (taskId && (await pathExists(path.join(cwd, relative)))) findings.push({ taskId, path: relative });
+  }
+  return findings;
+}
+
+function capsuleLogSuggestion(finding: CapsuleLogFinding): Suggestion {
+  return {
+    text: `${finding.taskId}: ${finding.path} is inside the reviewed boundary, so the judge reads the implementing agent's own account as evidence. The implementation log belongs at ${implLogPath(finding.taskId)}. Doctor does not move it; decide whether to move it yourself.`,
+    severity: "warning",
+  };
 }
 
 async function getPolicyGaps(cwd: string): Promise<string[]> {

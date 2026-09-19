@@ -19,7 +19,7 @@ akrctx keeps root instructions small and writes durable context only when it has
 - Task capsules: .akrctx/tasks/TASK-XXX/
 - Compiled briefs: .akrctx/tasks/TASK-XXX/exports/<target>.md
 - Architecture or process decisions: .akrctx/wiki/decisions.md
-- Implementation notes for a task: .akrctx/tasks/TASK-XXX/log.md
+- Implementation notes for a task: .akrctx/local/impl/TASK-XXX/log.md (local only; never inside the capsule)
 
 ## Cross-Links
 

@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -120,6 +120,22 @@ describe("CLI layer — main(argv)", () => {
     }
     const parsed = JSON.parse(logs.join("\n"));
     expect(parsed.installed).toBe(true);
+  });
+
+  it("doctor --json carries capsule implementation-log findings", async () => {
+    await main(["node", "akrctx", "init", "--target", "codex", "--json"]);
+    const taskDir = path.join(tmp, ".akrctx/tasks/TASK-001-demo");
+    await mkdir(taskDir, { recursive: true });
+    await writeFile(path.join(taskDir, "log.md"), "# Implementation log\n", "utf8");
+    const { logs, restore } = captureLogs();
+    try {
+      await main(["node", "akrctx", "doctor", "--json"]);
+    } finally {
+      restore();
+    }
+    const parsed = JSON.parse(logs.join("\n"));
+    expect(parsed.capsuleLogs).toEqual([{ taskId: "TASK-001", path: ".akrctx/tasks/TASK-001-demo/log.md" }]);
+    expect(parsed.suggestions.some((s: { text: string }) => s.text.includes("TASK-001"))).toBe(true);
   });
 
   it("doctor --fix --json actually repairs a deleted harness file (fails until C1)", async () => {
