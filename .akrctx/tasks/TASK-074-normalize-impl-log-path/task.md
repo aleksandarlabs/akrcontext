@@ -57,6 +57,8 @@ pnpm akrctx doctor --json
   never moves, copies or deletes a log. Reason: this is the only handling that
   never grants a fresh attempt budget in silence and never writes outside the
   path the caller named.
+- The human declined independent judge review for this delivery. No snapshot
+  was captured and no judge record exists for TASK-074.
 
 ## Open Questions
 - None.
