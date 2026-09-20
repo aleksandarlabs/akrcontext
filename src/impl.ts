@@ -10,7 +10,7 @@ import {
 } from "./agents.js";
 import { hasValidLocalIgnore, localIgnorePath } from "./comprehension.js";
 import { readConfig, writeConfig } from "./config.js";
-import { pathExists, writePlannedFile } from "./fs-utils.js";
+import { listDirs, pathExists, writePlannedFile } from "./fs-utils.js";
 import { createManifestFromWrites } from "./manifest.js";
 import { findTaskDirectory } from "./task.js";
 import type { CommandOptions, Target, WriteResult } from "./types.js";
@@ -19,7 +19,7 @@ import { CLI_VERSION } from "./version.js";
 /**
  * The implementation log.
  *
- * It lives under `.akrctx/local/impl/<TASK-ID>/log.md`, which `.akrctx/local/.gitignore`
+ * It lives under `.akrctx/local/impl/TASK-NNN/log.md`, which `.akrctx/local/.gitignore`
  * already excludes from Git. That placement is load-bearing rather than incidental: a log
  * inside the capsule would be a tracked file in the review diff, which would make the
  * implementing agent's own account of its work readable by the judge as evidence — the one
@@ -30,6 +30,8 @@ import { CLI_VERSION } from "./version.js";
  * rather than assuming it. A log written under a missing or weakened ignore is a tracked
  * file, and the boundary the placement exists to guarantee is gone.
  */
+
+const localImplRoot = ".akrctx/local/impl";
 
 export const EXPOSED_LOG_REASON = `${localIgnorePath} is missing or no longer ignores local akrctx storage, so the implementation log would enter the review diff the judge reads. Run \`akrctx doctor --fix\` first.`;
 
@@ -93,6 +95,52 @@ export interface ImplStartResult extends ImplStatusResult {
 
 export function implLogPath(taskId: string): string {
   return `.akrctx/local/impl/${taskId}/log.md`;
+}
+
+const acceptedTaskId = /^TASK-\d+(-.*)?$/;
+const shortTaskId = /^TASK-\d+/;
+
+/**
+ * Resolve any accepted argument to the short task ID.
+ *
+ * `TASK-007` and `TASK-007-<slug>` name one capsule, so they must name one log
+ * and one attempt budget. Resolution runs against the capsule directory, which
+ * also rejects a path-traversal argument before any path is built from it.
+ */
+export async function resolveImplTaskId(cwd: string, taskId: string): Promise<string> {
+  if (!acceptedTaskId.test(taskId)) {
+    throw new Error(`Invalid task ID: ${taskId}. Pass TASK-NNN or the capsule directory name.`);
+  }
+  const taskDir = await findTaskDirectory(cwd, taskId);
+  const resolved = taskDir ? shortTaskId.exec(path.basename(taskDir))?.[0] : undefined;
+  if (!resolved) {
+    throw new Error(`No task capsule matches "${taskId}". Create the capsule first, or pass its exact directory name.`);
+  }
+  return resolved;
+}
+
+/**
+ * Find the log for a resolved task ID.
+ *
+ * Logs written before the path used the short ID still carry the capsule slug.
+ * Such a log is used where it is the only one. Two logs for one capsule split
+ * the attempt budget, so the store refuses and names the surplus file. It never
+ * moves, copies or deletes a log: that decision belongs to the human.
+ */
+async function resolveLogLocation(cwd: string, taskId: string): Promise<{ path: string; conflict?: string }> {
+  const current = implLogPath(taskId);
+  const legacy: string[] = [];
+  for (const dir of await listDirs(path.join(cwd, localImplRoot))) {
+    if (!dir.startsWith(`${taskId}-`)) continue;
+    const candidate = `${localImplRoot}/${dir}/log.md`;
+    if (await pathExists(path.join(cwd, candidate))) legacy.push(candidate);
+  }
+  if (legacy.length === 0) return { path: current };
+  if (legacy.length === 1 && !(await pathExists(path.join(cwd, current)))) return { path: legacy[0] };
+  return {
+    path: current,
+    conflict: `More than one implementation log exists for ${taskId}: ${[current, ...legacy].join(", ")}. Keep one and remove the others yourself; akrctx never moves a log.`,
+  };
 }
 
 const roundHeading = /^## Round (\d+)\b/;
@@ -236,8 +284,8 @@ ${JSON.stringify(record, null, 2)}
 `;
 }
 
-async function readRecords(cwd: string, taskId: string): Promise<{ records: RoundRecord[]; error?: string }> {
-  const absolute = path.join(cwd, implLogPath(taskId));
+async function readRecords(cwd: string, logPath: string): Promise<{ records: RoundRecord[]; error?: string }> {
+  const absolute = path.join(cwd, logPath);
   if (!(await pathExists(absolute))) return { records: [] };
   const content = await readFile(absolute, "utf8");
   try {
@@ -306,15 +354,17 @@ export function normalizeValidationCommand(command: string): string {
   return command.trim().replace(/\s+/g, " ");
 }
 
-export async function runImplStatus(taskId: string, options: CommandOptions): Promise<ImplStatusResult> {
+export async function runImplStatus(rawTaskId: string, options: CommandOptions): Promise<ImplStatusResult> {
   const cwd = options.cwd ?? process.cwd();
   const config = await readConfig(cwd);
   if (!config) throw new Error("akrctx is not installed. Run `akrctx init` first.");
+  const taskId = await resolveImplTaskId(cwd, rawTaskId);
+  const location = await resolveLogLocation(cwd, taskId);
   const resolved = resolveAgent(config, "implementer");
   const budget = resolved.maxAttempts;
   const unusable = {
     taskId,
-    logPath: implLogPath(taskId),
+    logPath: location.path,
     enabled: resolved.enabled,
     trigger: resolved.trigger,
     attemptsUsed: null,
@@ -328,7 +378,11 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     return { ...unusable, readable: true, blocked: EXPOSED_LOG_REASON, error: EXPOSED_LOG_REASON };
   }
 
-  const { records, error } = await readRecords(cwd, taskId);
+  if (location.conflict) {
+    return { ...unusable, readable: true, blocked: location.conflict, error: location.conflict };
+  }
+
+  const { records, error } = await readRecords(cwd, location.path);
   // An unreadable log is not zero attempts used. Reporting a count would hand a fresh
   // budget to the agent whose log stopped being trustworthy.
   if (error) {
@@ -347,7 +401,7 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
     : undefined;
   return {
     taskId,
-    logPath: implLogPath(taskId),
+    logPath: location.path,
     enabled: resolved.enabled,
     trigger: resolved.trigger,
     attemptsUsed: records.length,
@@ -365,14 +419,14 @@ export async function runImplStatus(taskId: string, options: CommandOptions): Pr
   };
 }
 
-export async function runImplStart(taskId: string, options: CommandOptions): Promise<ImplStartResult> {
+export async function runImplStart(rawTaskId: string, options: CommandOptions): Promise<ImplStartResult> {
   const cwd = options.cwd ?? process.cwd();
-  const status = await runImplStatus(taskId, options);
+  const status = await runImplStatus(rawTaskId, options);
   if (status.blocked) return { ...status, refused: true, reason: status.blocked };
-  const absolute = path.join(cwd, implLogPath(taskId));
+  const absolute = path.join(cwd, status.logPath);
   if (!(await pathExists(absolute)) && !options.dryRun) {
     await mkdir(path.dirname(absolute), { recursive: true });
-    await writeFile(absolute, implLogHeader(taskId), "utf8");
+    await writeFile(absolute, implLogHeader(status.taskId), "utf8");
   }
   // The round is reported, never reserved: it is derived from the persisted records at
   // append time, so two `start` calls with no `log` between them cannot disagree.
@@ -396,12 +450,12 @@ export interface ImplLogResult extends ImplStatusResult {
 }
 
 export async function runImplLog(
-  taskId: string,
+  rawTaskId: string,
   input: Omit<RoundRecord, "round" | "timestamp"> & { timestamp?: string },
   options: CommandOptions,
 ): Promise<ImplLogResult> {
   const cwd = options.cwd ?? process.cwd();
-  const status = await runImplStatus(taskId, options);
+  const status = await runImplStatus(rawTaskId, options);
   // Every refusal belongs to the store, not to `start`. A caller that skipped the opening
   // command must not thereby escape the checks that command exists to apply.
   if (status.blocked) return { ...status, refused: true, reason: status.blocked };
@@ -417,16 +471,16 @@ export async function runImplLog(
     ...(input.decisionNeeded ? { decisionNeeded: input.decisionNeeded } : {}),
   };
 
-  const tddEvidence = checkTddEvidence(await taskRequiresTdd(cwd, taskId), record);
+  const tddEvidence = checkTddEvidence(await taskRequiresTdd(cwd, status.taskId), record);
   if (tddEvidence.required && tddEvidence.status !== "complete") {
     const reason = `TDD red→green evidence is incomplete: ${tddEvidence.reason}`;
     return { ...status, tddEvidence, refused: true, reason, blocked: reason };
   }
 
-  const absolute = path.join(cwd, implLogPath(taskId));
+  const absolute = path.join(cwd, status.logPath);
   if (!options.dryRun) {
     await mkdir(path.dirname(absolute), { recursive: true });
-    const existing = (await pathExists(absolute)) ? "" : implLogHeader(taskId);
+    const existing = (await pathExists(absolute)) ? "" : implLogHeader(status.taskId);
     // One record, one atomic append: earlier rounds are never rewritten.
     await writeFile(absolute, `${existing}${renderRound(record)}\n`, { encoding: "utf8", flag: "a" });
   }

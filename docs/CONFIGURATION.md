@@ -335,7 +335,7 @@ akrctx impl log TASK-001 ...       # append one round record
 akrctx impl status TASK-001        # resolved enabled/trigger, attempts, remaining, last blocker
 ```
 
-The log lives at `.akrctx/local/impl/<TASK-ID>/log.md`, which `.akrctx/local/.gitignore`
+The log lives at `.akrctx/local/impl/TASK-NNN/log.md`, which `.akrctx/local/.gitignore`
 already excludes. That placement is load-bearing: a log inside the capsule would be a
 tracked file in the review diff, which would let the judge read the implementing agent's
 own account of its work as evidence. Writing a round never moves `taskDigest`.

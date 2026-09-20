@@ -3,7 +3,7 @@ type: akrctx-wiki-agent-setup
 title: "Agent Setup"
 description: "Readiness report for the akrctx harness."
 tags: ["agent-setup", "doctor"]
-timestamp: 2026-09-19T09:56:49.450Z
+timestamp: 2026-09-19T22:33:02.407Z
 ---
 
 # Agent Setup
@@ -52,4 +52,3 @@ Agent readiness: 100/100
 - [warning] TASK-064: .akrctx/tasks/TASK-064-implementar-estado-port-til-de-ejecuci-n-y-lectura-legacy/log.md is inside the reviewed boundary, so the judge reads the implementing agent's own account as evidence. The implementation log belongs at .akrctx/local/impl/TASK-064/log.md. Doctor does not move it; decide whether to move it yourself.
 - [warning] TASK-067: .akrctx/tasks/TASK-067-implementar-verificaci-n-completa-de-validaciones-por-comando/log.md is inside the reviewed boundary, so the judge reads the implementing agent's own account as evidence. The implementation log belongs at .akrctx/local/impl/TASK-067/log.md. Doctor does not move it; decide whether to move it yourself.
 - [warning] TASK-071: .akrctx/tasks/TASK-071-judge-timings/log.md is inside the reviewed boundary, so the judge reads the implementing agent's own account as evidence. The implementation log belongs at .akrctx/local/impl/TASK-071/log.md. Doctor does not move it; decide whether to move it yourself.
-- [warning] TASK-072: .akrctx/tasks/TASK-072-judge-runner-receipts/log.md is inside the reviewed boundary, so the judge reads the implementing agent's own account as evidence. The implementation log belongs at .akrctx/local/impl/TASK-072/log.md. Doctor does not move it; decide whether to move it yourself.

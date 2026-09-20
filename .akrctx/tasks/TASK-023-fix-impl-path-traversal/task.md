@@ -82,3 +82,11 @@ pnpm akrctx impl status TASK-001
 ## Open Questions
 
 - None recorded yet.
+
+## Resolution
+
+Absorbed by TASK-074 on 2026-09-20. `akrctx impl` now resolves its `<task-id>`
+argument against the task capsule in `resolveImplTaskId` (`src/impl.ts`). An
+argument that is not `TASK-NNN` or a capsule directory name is refused, so
+`akrctx impl start ../../../../tmp/pwn` writes nothing. `requireTaskId` was not
+reused, because it rejects the capsule directory name that TASK-074 accepts.

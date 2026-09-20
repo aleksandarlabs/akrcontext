@@ -299,7 +299,11 @@ akrctx impl log TASK-001 --record round.json
 akrctx impl status TASK-001 --json
 ```
 
-The log is `.akrctx/local/impl/<TASK-ID>/log.md` — local, Git-ignored, and outside every
+Each command accepts the short ID `TASK-001` or the capsule directory name
+`TASK-001-<slug>`. Both resolve to `TASK-001` and to one log with one attempt budget. An
+argument that matches no capsule is an error.
+
+The log is `.akrctx/local/impl/TASK-NNN/log.md` — local, Git-ignored, and outside every
 review boundary, so recording a round never moves `taskDigest`. Every command verifies that
 `.akrctx/local/.gitignore` still keeps it there, and refuses rather than writing a log the
 review would pick up.

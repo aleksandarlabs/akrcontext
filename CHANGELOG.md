@@ -85,6 +85,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now name the local path. `akrctx upgrade` removes the exact old entry from
   `writePolicy.implementationNotes` and replaces the exact old line in an existing
   `write-policy.md` page; custom entries and custom pages stay unchanged.
+- `akrctx impl start`, `impl log` and `impl status` resolve their `<task-id>` argument against
+  the task capsule. `TASK-001` and `TASK-001-<slug>` now name one log with one attempt budget;
+  before, each form opened its own log. An argument that matches no capsule is refused, which
+  also closes the path-traversal hole recorded in TASK-023: `impl` can no longer write outside
+  `.akrctx/local/impl/`. A log named after the capsule directory is still read where it is the
+  only log for that capsule. Two logs for one capsule make every `impl` command refuse and name
+  the surplus file; `impl` moves, copies and deletes nothing.
 - `akrctx doctor` reports each capsule that holds a `log.md` as a warning. The warning names the
   task and the local path. `--json` carries the same data in `capsuleLogs`. Doctor never moves,
   deletes or rewrites a log, and the finding does not change readiness or fail `--ci`.

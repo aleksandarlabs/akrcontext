@@ -110,8 +110,12 @@ Commands:
                               used, remaining budget, and stopped state.
   help [command]              display help for command
 
-The implementation log lives at .akrctx/local/impl/<TASK-ID>/log.md — local,
+The implementation log lives at .akrctx/local/impl/TASK-NNN/log.md — local,
 Git-ignored, and outside every review boundary by construction.
+
+TASK-001 and TASK-001-<slug> name the same capsule, so both read one log. Every
+command resolves its argument against the capsule and refuses an argument that
+matches none.
 
   akrctx impl enable                 install the implementer agent files
   akrctx impl start TASK-001         open or resume the log, get the round number

@@ -24,8 +24,12 @@ export function registerImpl(program: Command): void {
       "after",
       [
         "",
-        "The implementation log lives at .akrctx/local/impl/<TASK-ID>/log.md — local,",
+        "The implementation log lives at .akrctx/local/impl/TASK-NNN/log.md — local,",
         "Git-ignored, and outside every review boundary by construction.",
+        "",
+        "TASK-001 and TASK-001-<slug> name the same capsule, so both read one log. Every",
+        "command resolves its argument against the capsule and refuses an argument that",
+        "matches none.",
         "",
         "  akrctx impl enable                 install the implementer agent files",
         "  akrctx impl start TASK-001         open or resume the log, get the round number",
@@ -83,7 +87,7 @@ export function registerImpl(program: Command): void {
     impl
       .command("start")
       .description("Open or resume the implementation log and report the round the caller may begin.")
-      .argument("<task-id>", "task capsule ID, for example TASK-001"),
+      .argument("<task-id>", "task capsule ID or capsule directory name, for example TASK-001"),
     false,
   ).action(async (taskId: string, raw) => {
     const options = normalizeOptions(raw);
@@ -109,7 +113,7 @@ export function registerImpl(program: Command): void {
     impl
       .command("log")
       .description("Append one round record to the implementation log.")
-      .argument("<task-id>", "task capsule ID, for example TASK-001")
+      .argument("<task-id>", "task capsule ID or capsule directory name, for example TASK-001")
       .option("--criteria <list>", "acceptance criteria targeted (comma-separated)")
       .option("--files <list>", "files changed (comma-separated)")
       .option(
@@ -156,7 +160,7 @@ export function registerImpl(program: Command): void {
     impl
       .command("status")
       .description("Report resolved implementer settings, attempts used, remaining budget, and stopped state.")
-      .argument("<task-id>", "task capsule ID, for example TASK-001"),
+      .argument("<task-id>", "task capsule ID or capsule directory name, for example TASK-001"),
     false,
   ).action(async (taskId: string, raw) => {
     const options = normalizeOptions(raw);

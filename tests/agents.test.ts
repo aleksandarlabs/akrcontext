@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
@@ -188,6 +188,8 @@ describe("agents configuration", () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await setConfigValue(tmp, "agents.implementer.enabled", "true");
     await setConfigValue(tmp, "agents.implementer.trigger", "on-request");
+    await runTask("first capsule", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+    await runTask("second capsule", { cwd: tmp, workflow: "SDD", nonInteractive: true });
 
     await expect(runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true })).resolves.toMatchObject({
       enabled: true,
@@ -207,6 +209,7 @@ describe("agents configuration", () => {
 
   it("refuses to start or log implementation when the resolved implementer is disabled", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runTask("disabled implementer", { cwd: tmp, workflow: "SDD", nonInteractive: true });
 
     const status = await runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true });
     expect(status).toMatchObject({ enabled: false, trigger: "post-clarification", stopped: true });
@@ -222,6 +225,7 @@ describe("agents configuration", () => {
 
   it("does not rewrite a legacy configuration when a read-only command runs", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runTask("read-only commands", { cwd: tmp, workflow: "SDD", nonInteractive: true });
     const before = await readFile(configPath(), "utf8");
 
     await runJudgeStatus({ cwd: tmp, nonInteractive: true });
@@ -603,6 +607,8 @@ describe("akrctx impl", () => {
   beforeEach(async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     await runImplEnable({ cwd: tmp, nonInteractive: true });
+    // `impl` resolves its argument against a capsule, so TASK-001 must exist.
+    await runTask("implementation rounds", { cwd: tmp, workflow: "SDD", nonInteractive: true });
   });
 
   it("creates the log, reports round 1, and reports round 3 after two rounds", async () => {
@@ -809,7 +815,10 @@ describe("akrctx impl", () => {
   });
 
   it("does not invent evidence for legacy or non-TDD records", async () => {
-    const legacy = await runImplLog("TASK-LEGACY", round(), { cwd: tmp, nonInteractive: true });
+    // A capsule with no readable workflow stands for a log written before the contract.
+    const legacyTask = await runTask("legacy capsule", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+    await rm(path.join(tmp, legacyTask.taskDir, "plan.md"));
+    const legacy = await runImplLog(legacyTask.taskId, round(), { cwd: tmp, nonInteractive: true });
     expect(legacy.tddEvidence).toMatchObject({ required: false, status: "not-required" });
 
     const task = await runTask("non tdd work", { cwd: tmp, workflow: "SDD", nonInteractive: true });
@@ -953,6 +962,12 @@ describe("claude agent discovery notice", () => {
 
 describe("implementation log privacy", () => {
   const localIgnore = () => path.join(tmp, ".akrctx/local/.gitignore");
+
+  beforeEach(async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    // `impl` resolves its argument against a capsule, so TASK-001 must exist.
+    await runTask("log privacy", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+  });
 
   it("is satisfied by a fresh install with no extra step", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
@@ -1332,5 +1347,122 @@ describe("init target accumulation", () => {
   it("produces no narrowing warning on a first install", async () => {
     const result = await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     expect(result.agentTargetWarnings).toEqual([]);
+  });
+});
+
+// ── task ID resolution ───────────────────────────────────────────────────────
+
+describe("impl task ID resolution", () => {
+  let dirName = "";
+  const shortLog = () => path.join(tmp, ".akrctx/local/impl/TASK-001/log.md");
+  const slugLog = () => path.join(tmp, `.akrctx/local/impl/${dirName}/log.md`);
+
+  async function capsule(): Promise<string> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await runImplEnable({ cwd: tmp, nonInteractive: true });
+    const task = await runTask("resolve identifiers", { cwd: tmp, workflow: "SDD", nonInteractive: true });
+    dirName = path.basename(task.taskDir);
+    return dirName;
+  }
+
+  /** Recreate a log written before the path used the short task ID. */
+  async function writeSlugLog(): Promise<void> {
+    await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
+    await mkdir(path.dirname(slugLog()), { recursive: true });
+    await rename(shortLog(), slugLog());
+  }
+
+  it("shares one log between the short ID and the capsule directory name", async () => {
+    const dirName = await capsule();
+
+    await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
+    const status = await runImplStatus(dirName, { cwd: tmp, nonInteractive: true });
+
+    expect(status.taskId).toBe("TASK-001");
+    expect(status.logPath).toBe(".akrctx/local/impl/TASK-001/log.md");
+    expect(status.attemptsUsed).toBe(1);
+    expect(await pathExists(slugLog())).toBe(false);
+  });
+
+  it("shares the attempt budget between both forms", async () => {
+    const dirName = await capsule();
+
+    await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
+    await runImplLog(dirName, round(), { cwd: tmp, nonInteractive: true });
+    const start = await runImplStart("TASK-001", { cwd: tmp, nonInteractive: true });
+
+    expect(start.attemptsUsed).toBe(2);
+    expect(start.round).toBe(3);
+    expect(parseLog(await readFile(shortLog(), "utf8"))).toHaveLength(2);
+  });
+
+  it("writes the resolved short ID into the log header", async () => {
+    const dirName = await capsule();
+
+    await runImplStart(dirName, { cwd: tmp, nonInteractive: true });
+
+    expect(await readFile(shortLog(), "utf8")).toContain("# Implementation Log — TASK-001");
+  });
+
+  it.each([
+    ["a wrong slug", "TASK-001-wrong-slug"],
+    ["an unpadded number", "TASK-1"],
+    ["an ID with no capsule", "TASK-999"],
+  ])("refuses %s", async (_label, taskId) => {
+    await capsule();
+
+    await expect(runImplStart(taskId, { cwd: tmp, nonInteractive: true })).rejects.toThrow(/no task capsule/i);
+    await expect(runImplStatus(taskId, { cwd: tmp, nonInteractive: true })).rejects.toThrow(/no task capsule/i);
+    await expect(runImplLog(taskId, round(), { cwd: tmp, nonInteractive: true })).rejects.toThrow(/no task capsule/i);
+  });
+
+  it("refuses a traversal argument and writes nothing outside the local store", async () => {
+    await capsule();
+    const outside = path.join(tmp, "..", "akrctx-pwn");
+
+    await expect(runImplStart("../../akrctx-pwn", { cwd: tmp, nonInteractive: true })).rejects.toThrow(
+      /invalid task id/i,
+    );
+
+    expect(await pathExists(outside)).toBe(false);
+    expect(await readdir(path.join(tmp, ".akrctx/local/impl")).catch(() => [])).toEqual([]);
+  });
+
+  it("reads a slug-named log when it is the only log for the capsule", async () => {
+    await capsule();
+    await writeSlugLog();
+
+    const status = await runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true });
+
+    expect(status.attemptsUsed).toBe(1);
+    expect(status.logPath).toBe(`.akrctx/local/impl/${dirName}/log.md`);
+  });
+
+  it("appends to the slug-named log instead of opening a second one", async () => {
+    await capsule();
+    await writeSlugLog();
+
+    await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
+
+    expect(parseLog(await readFile(slugLog(), "utf8"))).toHaveLength(2);
+    expect(await pathExists(shortLog())).toBe(false);
+  });
+
+  it("refuses every command while two logs exist for one capsule, and deletes neither", async () => {
+    await capsule();
+    await writeSlugLog();
+    await mkdir(path.dirname(shortLog()), { recursive: true });
+    await writeFile(shortLog(), "# Implementation Log — TASK-001\n", "utf8");
+
+    const started = await runImplStart("TASK-001", { cwd: tmp, nonInteractive: true });
+    const logged = await runImplLog("TASK-001", round(), { cwd: tmp, nonInteractive: true });
+    const status = await runImplStatus("TASK-001", { cwd: tmp, nonInteractive: true });
+
+    expect(started.refused).toBe(true);
+    expect(started.reason).toContain(`.akrctx/local/impl/${dirName}/log.md`);
+    expect(logged.refused).toBe(true);
+    expect(status.blocked).toContain(`.akrctx/local/impl/${dirName}/log.md`);
+    expect(await pathExists(slugLog())).toBe(true);
+    expect(parseLog(await readFile(slugLog(), "utf8"))).toHaveLength(1);
   });
 });
