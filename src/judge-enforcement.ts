@@ -16,10 +16,18 @@ const execFileAsync = promisify(execFile);
 const execAsync = promisify(exec);
 
 /** Schema version for the judge scope and review record. Bumped whenever the approval contract changes. */
-export const JUDGE_SCHEMA_VERSION = 5;
+export const JUDGE_SCHEMA_VERSION = 6;
+
+/**
+ * The one older version `akrctx judge verify` still reads.
+ *
+ * Version 5 carried a free-form `issues` list instead of per-criterion results. A stored v5
+ * record verifies under the v5 rules and is reported as legacy; the CLI never emits one.
+ */
+export const LEGACY_JUDGE_SCHEMA_VERSION = 5;
 
 export interface JudgeScope {
-  schemaVersion: typeof JUDGE_SCHEMA_VERSION;
+  schemaVersion: typeof JUDGE_SCHEMA_VERSION | typeof LEGACY_JUDGE_SCHEMA_VERSION;
   cliVersion: string;
   taskId: string;
   base: string;
@@ -38,20 +46,44 @@ export interface JudgeScope {
   scopeDigest: string;
 }
 
+/** Status of one declared acceptance criterion. Only `pass` lets a record approve. */
+export type JudgeCriterionStatus = "pass" | "fail" | "not-evaluated";
+
+export interface JudgeCriterionResult {
+  /** The `AC-<n>` identifier the capsule declares. Never a position. */
+  id: string;
+  status: JudgeCriterionStatus;
+  evidence: string;
+}
+
 export interface JudgeReviewRecord {
   schemaVersion: typeof JUDGE_SCHEMA_VERSION;
   taskId: string;
   scope: JudgeScope;
   verdict: "APPROVED" | "NEEDS_CHANGES" | "BLOCKED";
   tests: Array<{ command: string; status: "passed" | "failed" | "not-run"; evidence?: string }>;
-  issues: string[];
+  /** The only blocking channel: one entry per declared criterion. */
+  criteria: JudgeCriterionResult[];
+  /** Defects outside the declared criteria. Never blocks APPROVED. */
+  observations: string[];
   reviewedAt: string;
   independent?: boolean;
 }
 
+/** Version 5 shape, accepted on read only. */
+export interface LegacyJudgeReviewRecord
+  extends Omit<JudgeReviewRecord, "schemaVersion" | "criteria" | "observations"> {
+  schemaVersion: typeof LEGACY_JUDGE_SCHEMA_VERSION;
+  issues: string[];
+}
+
+export type StoredJudgeReviewRecord = JudgeReviewRecord | LegacyJudgeReviewRecord;
+
 export interface JudgeVerifyResult {
   valid: boolean;
   approved: boolean;
+  /** True when the record is a stored version 5 record read under the version 5 rules. */
+  legacy: boolean;
   verdict?: JudgeReviewRecord["verdict"];
   scopeDigest?: string;
   reasons: string[];
@@ -225,6 +257,7 @@ export async function verifyJudgeRecord(
   options: JudgeVerifyOptions = {},
 ): Promise<JudgeVerifyResult> {
   const empty = {
+    legacy: false,
     notices: [] as string[],
     declaredCommands: [] as string[],
     reexecuted: [] as JudgeVerifyResult["reexecuted"],
@@ -255,7 +288,8 @@ export async function verifyJudgeRecord(
       verifiedNow: unknownVerifiedNow(shapeReasons[0]),
     };
   }
-  const record = raw as JudgeReviewRecord;
+  const record = raw as StoredJudgeReviewRecord;
+  const legacy = record.schemaVersion === LEGACY_JUDGE_SCHEMA_VERSION;
   const recordIndependence: JudgeVerifyResult["historicalVerdict"]["independence"] =
     record.independent === true ? "declared-true" : record.independent === false ? "declared-false" : "unknown";
   const {
@@ -286,6 +320,7 @@ export async function verifyJudgeRecord(
       scopeDigest: record.scope.scopeDigest,
       reasons: [reason],
       ...empty,
+      legacy,
       historicalVerdict: {
         value: record.verdict,
         independence: recordIndependence,
@@ -310,6 +345,14 @@ export async function verifyJudgeRecord(
 
   const reasons: string[] = [];
   const notices: string[] = [];
+  if (legacy) {
+    notices.push(
+      `Review record uses legacy schema version ${LEGACY_JUDGE_SCHEMA_VERSION}; per-criterion results are not enforced for it.`,
+    );
+    // `schemaVersion` is part of the scope identity, so the recomputed scope is stamped at the
+    // record's version before any digest comparison. Nothing else about the boundary changes.
+    current = asSchemaVersion(current, LEGACY_JUDGE_SCHEMA_VERSION);
+  }
   if (record.taskId !== record.scope.taskId) reasons.push("record.taskId does not match scope.taskId.");
   if (record.scope.cliVersion !== current.cliVersion) {
     const drift = `akrctx v${record.scope.cliVersion}; this CLI is v${current.cliVersion}`;
@@ -379,7 +422,30 @@ export async function verifyJudgeRecord(
         reasons.push("The task capsule has an empty or malformed `## Validation` block; declare the commands.");
       }
     }
-    if (record.issues.length > 0) reasons.push("APPROVED records must not list unresolved issues.");
+    if (legacy && record.issues.length > 0) reasons.push("APPROVED records must not list unresolved issues.");
+  }
+
+  if (!legacy) {
+    const declaration = await readAcceptanceCriteria(reviewCwd, record.taskId);
+    reasons.push(...declaration.problems);
+    const reported = record.criteria.map((criterion) => criterion.id);
+    const missing = declaration.ids.filter((id) => !reported.includes(id));
+    const unexpected = reported.filter((id) => !declaration.ids.includes(id));
+    if (missing.length > 0) {
+      reasons.push(`The review record reports no result for declared criteria: ${missing.join(", ")}.`);
+    }
+    if (unexpected.length > 0) {
+      reasons.push(`The review record reports criteria the capsule does not declare: ${unexpected.join(", ")}.`);
+    }
+    // `observations` is deliberately absent here: a defect outside the declared criteria is a
+    // separate decision, not a blocker on this round.
+    if (record.verdict === "APPROVED") {
+      const blocking = record.criteria.filter((criterion) => criterion.status !== "pass");
+      if (blocking.length > 0) {
+        const named = blocking.map((criterion) => `${criterion.id} (${criterion.status})`).join(", ");
+        reasons.push(`APPROVED requires every declared criterion to pass; these did not: ${named}.`);
+      }
+    }
   }
 
   const reexecuted: JudgeVerifyResult["reexecuted"] = [];
@@ -476,6 +542,7 @@ export async function verifyJudgeRecord(
   return {
     valid: reasons.length === 0,
     approved: reasons.length === 0 && record.verdict === "APPROVED",
+    legacy,
     verdict: record.verdict,
     scopeDigest: record.scope.scopeDigest,
     reasons,
@@ -661,29 +728,150 @@ function sectionBullets(body: string | undefined): string[] {
 const NONE_VARIANT_RE =
   /^(none|ninguna|ninguno|n\/a)(\s+(remaining|left|yet|recorded\s+yet|so\s+far|open|pending))?[\s.!]*$/i;
 
+export interface AcceptanceCriterion {
+  /** The `AC-<n>` identifier, or null when the bullet declares none. */
+  id: string | null;
+  /** Bullet text with wrapped continuation lines joined. */
+  text: string;
+  /** 1-based line number of the bullet in acceptance-criteria.md. */
+  line: number;
+}
+
+export interface AcceptanceCriteriaDeclaration {
+  /** False when acceptance-criteria.md is absent or unreadable. */
+  filePresent: boolean;
+  criteria: AcceptanceCriterion[];
+  /** Identifiers in declared order. A bullet with a defect contributes none. */
+  ids: string[];
+  /** One entry per capsule defect, each naming the offending line. */
+  problems: string[];
+}
+
+const CRITERION_ID_RE = /^(AC-[1-9][0-9]*):\s+\S/;
+
+/**
+ * Criteria declared in a capsule's acceptance-criteria.md.
+ *
+ * Each top-level `- ` bullet is one criterion and carries an `AC-<n>` identifier. Identifiers,
+ * not positions, are what a review record references, so a bullet inserted or reordered between
+ * two rounds cannot silently repoint an existing finding.
+ */
+export async function readAcceptanceCriteria(cwd: string, taskId: string): Promise<AcceptanceCriteriaDeclaration> {
+  let markdown: string;
+  try {
+    markdown = await readFile(path.join(await resolveTaskRoot(cwd, taskId), "acceptance-criteria.md"), "utf8");
+  } catch {
+    return { filePresent: false, criteria: [], ids: [], problems: [] };
+  }
+
+  const criteria: AcceptanceCriterion[] = [];
+  for (const [index, line] of markdown.split("\n").entries()) {
+    const bullet = /^-\s+(.*)$/.exec(line);
+    if (bullet) {
+      const text = bullet[1].trim();
+      criteria.push({ id: CRITERION_ID_RE.exec(text)?.[1] ?? null, text, line: index + 1 });
+      continue;
+    }
+    // Capsule prose wraps at ~100 columns, so an indented line continues the bullet above it.
+    if (criteria.length > 0 && /^\s+\S/.test(line)) {
+      const previous = criteria[criteria.length - 1];
+      previous.text = `${previous.text} ${line.trim()}`;
+    }
+  }
+
+  const problems: string[] = [];
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  for (const criterion of criteria) {
+    if (!criterion.id) {
+      problems.push(`acceptance-criteria.md line ${criterion.line} has no AC-<n> identifier: ${quote(criterion.text)}`);
+      continue;
+    }
+    if (seen.has(criterion.id)) {
+      problems.push(`acceptance-criteria.md line ${criterion.line} repeats ${criterion.id}: ${quote(criterion.text)}`);
+      continue;
+    }
+    seen.add(criterion.id);
+    ids.push(criterion.id);
+  }
+  return { filePresent: true, criteria, ids, problems };
+}
+
+/** Bounded quotation of capsule text, so one long bullet cannot flood an error message. */
+function quote(text: string): string {
+  return `"${text.length > 72 ? `${text.slice(0, 72)}…` : text}"`;
+}
+
+/**
+ * Shape of a stored review record.
+ *
+ * A record declaring the legacy version is validated under the legacy shape, so one stored
+ * version 5 approval stays readable. Anything else is held to the current contract.
+ */
 export function validateRecord(value: unknown): string[] {
   if (!value || typeof value !== "object" || Array.isArray(value)) return ["Review record must be a JSON object."];
   const record = value as Record<string, unknown>;
+  const legacy = record.schemaVersion === LEGACY_JUDGE_SCHEMA_VERSION;
   const reasons: string[] = [];
-  const allowed = ["schemaVersion", "taskId", "scope", "verdict", "tests", "issues", "reviewedAt", "independent"];
+  const allowed = legacy
+    ? ["schemaVersion", "taskId", "scope", "verdict", "tests", "issues", "reviewedAt", "independent"]
+    : ["schemaVersion", "taskId", "scope", "verdict", "tests", "criteria", "observations", "reviewedAt", "independent"];
   for (const key of Object.keys(record)) if (!allowed.includes(key)) reasons.push(`Unexpected review field: ${key}.`);
-  if (record.schemaVersion !== JUDGE_SCHEMA_VERSION) reasons.push(`schemaVersion must be ${JUDGE_SCHEMA_VERSION}.`);
+  if (!legacy && record.schemaVersion !== JUDGE_SCHEMA_VERSION)
+    reasons.push(`schemaVersion must be ${JUDGE_SCHEMA_VERSION}.`);
   if (typeof record.taskId !== "string" || !/^TASK-[0-9]+$/.test(record.taskId)) reasons.push("taskId is invalid.");
   if (!(["APPROVED", "NEEDS_CHANGES", "BLOCKED"] as unknown[]).includes(record.verdict))
     reasons.push("verdict is invalid.");
-  if (!Array.isArray(record.issues) || !record.issues.every((item) => typeof item === "string"))
-    reasons.push("issues must be a string array.");
+  if (legacy) {
+    if (!Array.isArray(record.issues) || !record.issues.every((item) => typeof item === "string"))
+      reasons.push("issues must be a string array.");
+  } else {
+    reasons.push(...criteriaReasons(record.criteria));
+    if (!Array.isArray(record.observations) || !record.observations.every((item) => typeof item === "string"))
+      reasons.push("observations must be a string array.");
+  }
   if (record.independent !== undefined && typeof record.independent !== "boolean")
     reasons.push("independent must be a boolean when present.");
   if (!Array.isArray(record.tests) || !record.tests.every(isTestRecord))
     reasons.push("tests contains an invalid entry.");
   if (typeof record.reviewedAt !== "string" || Number.isNaN(Date.parse(record.reviewedAt)))
     reasons.push("reviewedAt must be an ISO date-time.");
-  if (!isScope(record.scope)) reasons.push("scope does not match the judge scope contract.");
+  if (!isScope(record.scope, legacy ? LEGACY_JUDGE_SCHEMA_VERSION : JUDGE_SCHEMA_VERSION))
+    reasons.push("scope does not match the judge scope contract.");
   return reasons;
 }
 
-function isScope(value: unknown): value is JudgeScope {
+/** Shape of `criteria[]`. Semantic agreement with the capsule is checked in `verifyJudgeRecord`. */
+function criteriaReasons(value: unknown): string[] {
+  if (!Array.isArray(value)) return ["criteria must be an array of per-criterion results."];
+  const reasons: string[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      reasons.push("criteria contains an entry that is not an object.");
+      continue;
+    }
+    const criterion = entry as Record<string, unknown>;
+    for (const key of Object.keys(criterion))
+      if (!["id", "status", "evidence"].includes(key)) reasons.push(`Unexpected criteria field: ${key}.`);
+    const id = criterion.id;
+    if (typeof id !== "string" || !/^AC-[1-9][0-9]*$/.test(id)) {
+      reasons.push(`criteria entry has an invalid id: ${JSON.stringify(id ?? null)}.`);
+    } else if (seen.has(id)) {
+      reasons.push(`criteria reports ${id} more than once.`);
+    } else {
+      seen.add(id);
+    }
+    const label = typeof id === "string" ? id : "entry";
+    if (!(["pass", "fail", "not-evaluated"] as unknown[]).includes(criterion.status))
+      reasons.push(`criteria ${label} has an invalid status.`);
+    if (typeof criterion.evidence !== "string" || criterion.evidence.trim().length === 0)
+      reasons.push(`criteria ${label} needs non-empty evidence.`);
+  }
+  return reasons;
+}
+
+function isScope(value: unknown, expectedVersion: JudgeScope["schemaVersion"]): value is JudgeScope {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   const scope = value as Record<string, unknown>;
   const keys = [
@@ -709,7 +897,7 @@ function isScope(value: unknown): value is JudgeScope {
   const digestPattern = /^sha256:[0-9a-f]{64}$/;
   const commitPattern = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
   return (
-    scope.schemaVersion === JUDGE_SCHEMA_VERSION &&
+    scope.schemaVersion === expectedVersion &&
     typeof scope.cliVersion === "string" &&
     scope.cliVersion.length > 0 &&
     typeof scope.taskId === "string" &&
@@ -812,6 +1000,18 @@ function identityScope(
 ): Omit<JudgeScope, "scopeDigest" | "baseRef"> {
   const { scopeDigest: _ignored, baseRef: _diagnostic, ...identity } = scope as JudgeScope;
   return identity;
+}
+
+/**
+ * Re-stamps a recomputed scope at another schema version and recomputes its digest.
+ *
+ * Bounded legacy verification only: `schemaVersion` is part of the scope identity, so a stored
+ * version 5 record can only be compared against a scope stamped at version 5. Nothing emits a
+ * record from this function.
+ */
+export function asSchemaVersion(scope: JudgeScope, schemaVersion: JudgeScope["schemaVersion"]): JudgeScope {
+  const core = { ...scope, schemaVersion };
+  return { ...core, scopeDigest: digest([JSON.stringify(identityScope(core))]) };
 }
 
 function requireTaskId(taskId: string): void {

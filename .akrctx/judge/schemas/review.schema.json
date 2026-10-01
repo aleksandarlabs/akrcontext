@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "akrctx-judge-review-v5",
+  "$id": "akrctx-judge-review-v6",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -9,12 +9,13 @@
     "scope",
     "verdict",
     "tests",
-    "issues",
+    "criteria",
+    "observations",
     "reviewedAt"
   ],
   "properties": {
     "schemaVersion": {
-      "const": 5
+      "const": 6
     },
     "taskId": {
       "type": "string",
@@ -41,7 +42,7 @@
       ],
       "properties": {
         "schemaVersion": {
-          "const": 5
+          "const": 6
         },
         "cliVersion": {
           "type": "string",
@@ -144,8 +145,39 @@
         }
       }
     },
-    "issues": {
+    "criteria": {
       "type": "array",
+      "description": "One entry per AC-<n> the capsule declares. The only channel that can block APPROVED.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "status",
+          "evidence"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^AC-[1-9][0-9]*$"
+          },
+          "status": {
+            "enum": [
+              "pass",
+              "fail",
+              "not-evaluated"
+            ]
+          },
+          "evidence": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "observations": {
+      "type": "array",
+      "description": "Defects outside the declared criteria. Never blocks APPROVED.",
       "items": {
         "type": "string"
       }
@@ -185,8 +217,18 @@
               ]
             }
           },
-          "issues": {
-            "maxItems": 0
+          "criteria": {
+            "minItems": 1,
+            "items": {
+              "properties": {
+                "status": {
+                  "const": "pass"
+                }
+              },
+              "required": [
+                "status"
+              ]
+            }
           }
         }
       }

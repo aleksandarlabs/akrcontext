@@ -6,6 +6,7 @@ import { captureJudgeSnapshot } from "../src/judge-snapshot.js";
 
 vi.mock("../src/judge-enforcement.js", () => ({
   JUDGE_SCHEMA_VERSION: 1,
+  LEGACY_JUDGE_SCHEMA_VERSION: 0,
   createJudgeScope: vi.fn(),
   verifyJudgeRecord: vi.fn(),
 }));

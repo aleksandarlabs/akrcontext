@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `akrctx task migrate-criteria [TASK-ID]`. It numbers the criteria of one task capsule, or of
+  every capsule, as `AC-<n>`. A capsule whose identifiers are already unique and sequential is
+  left untouched. Any other state is renumbered from 1 in declared order, and indented
+  continuation lines are never touched. `--dry-run` reports the plan and writes nothing.
+
 - `akrctx task search <query>`. It searches literal text, case-insensitive, across the five
   canonical files of existing task capsules. Each result cites the task, the file path relative
   to the repository, the line number, and the matched text. `--json` returns the same records as
@@ -44,6 +49,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the user's wait before invoking a command stay unmeasured, not zero.
 
 ### Changed
+
+- The judge review record reports one typed result per acceptance criterion instead of a
+  free-form `issues` list. Every top-level bullet in a capsule's `acceptance-criteria.md` now
+  starts with `AC-<n>: `, and the record carries `criteria[]` with one entry per declared
+  identifier, each with `id`, `status` (`pass`, `fail` or `not-evaluated`) and non-empty
+  `evidence`. `criteria[]` is the only channel that can block `APPROVED`: every entry must
+  pass, and a missing or extra identifier fails verification with the identifier named. A
+  defect outside the declared criteria goes to the new `observations[]`, which never blocks
+  approval. This bounds a review round: the round is done when every declared identifier
+  passes. A reference is always the identifier, never a position, so a bullet inserted or
+  reordered between two rounds cannot silently repoint an existing finding. A missing,
+  malformed, or duplicate identifier is reported with the offending file line.
+  `JUDGE_SCHEMA_VERSION` is 6. `akrctx judge verify` still reads a stored version 5 record
+  under the version 5 rules, reports it as legacy, and never emits version 5 again.
 
 - `akrctx judge verify` now checks each command declared in a capsule's `## Validation` block.
   A line that ends in `# optional` is optional. Every other non-empty line that does not start

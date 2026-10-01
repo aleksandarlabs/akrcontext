@@ -5,7 +5,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { expect, it } from "vitest";
 import { runInit } from "../src/init.js";
-import { JUDGE_SCHEMA_VERSION, verifyJudgeRecord } from "../src/judge-enforcement.js";
+import { JUDGE_SCHEMA_VERSION, readAcceptanceCriteria, verifyJudgeRecord } from "../src/judge-enforcement.js";
 import { captureJudgeSnapshot } from "../src/judge-snapshot.js";
 import { withJudgeTimings } from "../src/judge-timings.js";
 import { runTask } from "../src/task.js";
@@ -54,7 +54,12 @@ it("measures actual isolated verification and preserves command approval", async
         scope: snapshot.scope,
         verdict: "APPROVED",
         tests: [{ command, status: "passed" }],
-        issues: [],
+        criteria: (await readAcceptanceCriteria(cwd, task.taskId)).ids.map((id) => ({
+          id,
+          status: "pass",
+          evidence: "Checked against the changed files.",
+        })),
+        observations: [],
         reviewedAt: new Date().toISOString(),
       }),
     );

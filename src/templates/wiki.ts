@@ -255,7 +255,7 @@ const capsuleTemplates: CapsuleContent = {
   "plan.md":
     "# Plan\n\n## Workflow\n\n- research-first\n\n## Steps\n\n1. Inspect relevant context.\n2. Confirm scope.\n3. Implement only after context is ready.\n",
   "acceptance-criteria.md":
-    "# Acceptance Criteria\n\n- State each criterion so it can be checked, not interpreted.\n- Existing agent instruction files are preserved unless a human approves a merge.\n- Relevant validation commands are documented or run.\n- The review checklist is completed before handoff.\n",
+    "# Acceptance Criteria\n\nEvery criterion is one top-level `- ` bullet that starts with `AC-<n>: `. The judge reports a\ntyped result per identifier, so identifiers must be unique and must never be reused for a\ndifferent criterion. Indented lines continue the bullet above them.\n\n- AC-1: State each criterion so it can be checked, not interpreted.\n- AC-2: Existing agent instruction files are preserved unless a human approves a merge.\n- AC-3: Relevant validation commands are documented or run.\n- AC-4: The review checklist is completed before handoff.\n",
   "review-checklist.md":
     "# Review Checklist\n\n- [ ] Goal is clear.\n- [ ] Scope is controlled.\n- [ ] Tests or validation commands are defined.\n- [ ] Existing instructions were not overwritten.\n- [ ] All capsule changes are final before snapshot capture.\n- [ ] The capsule is ready for independent review.\n",
 };

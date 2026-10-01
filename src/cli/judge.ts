@@ -359,6 +359,7 @@ export function registerJudge(program: Command): void {
         log(
           `  ${dim("historicalVerdict")} ${result.historicalVerdict.value ?? "unknown"} ${dim(`(${result.historicalVerdict.independence})`)}`,
         );
+        if (result.legacy) log(`  ${dim("schema")}            ${yellow("legacy")}`);
         log(`  ${dim("verifiedNow")}       ${verifiedNowLabel} ${dim(`— ${result.verifiedNow.reason}`)}`);
         for (const notice of result.notices) log(`  ${yellow("!")} ${notice}`);
         for (const run of result.reexecuted) {

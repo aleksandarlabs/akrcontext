@@ -299,10 +299,10 @@ ${workflow}
 function acceptanceMarkdown(description: string): string {
   return `# Acceptance Criteria
 
-- The requested outcome is implemented: ${description}
-- Existing agent instruction files are preserved unless a human approves a merge.
-- Relevant validation commands are documented or run.
-- The review checklist is completed before handoff.
+- AC-1: The requested outcome is implemented: ${description}
+- AC-2: Existing agent instruction files are preserved unless a human approves a merge.
+- AC-3: Relevant validation commands are documented or run.
+- AC-4: The review checklist is completed before handoff.
 `;
 }
 
@@ -316,6 +316,66 @@ function reviewMarkdown(): string {
 - [ ] Tests or validation commands were run or documented.
 - [ ] Existing instruction files were not overwritten.
 `;
+}
+
+export interface CriteriaMigrationResult {
+  taskId: string;
+  /** Repository-relative path of the migrated file. */
+  file: string;
+  changed: boolean;
+  /** Number of criteria the file declares. */
+  criteria: number;
+}
+
+const CRITERION_PREFIX_RE = /^(-\s+)(?:AC-[0-9]+:\s+)?(.*)$/;
+
+/**
+ * Numbers the criteria of one capsule, or of every capsule, as `AC-<n>`.
+ *
+ * The judge references a criterion by identifier, so every capsule needs one per criterion. A
+ * capsule whose identifiers are already unique and sequential is left untouched; any other state
+ * is renumbered from 1 in declared order. Indented continuation lines are never touched.
+ */
+export async function migrateAcceptanceCriteriaIdentifiers(
+  cwd: string,
+  options: { taskId?: string; dryRun?: boolean } = {},
+): Promise<CriteriaMigrationResult[]> {
+  const tasksRoot = path.join(cwd, ".akrctx/tasks");
+  const dirs = (await listDirs(tasksRoot))
+    .filter((dir) => /^TASK-[0-9]+/.test(dir))
+    .filter((dir) => !options.taskId || dir === options.taskId || dir.startsWith(`${options.taskId}-`))
+    .sort();
+  const results: CriteriaMigrationResult[] = [];
+  for (const dir of dirs) {
+    const relative = path.posix.join(".akrctx/tasks", dir, "acceptance-criteria.md");
+    const current = await readTextIfExists(path.join(cwd, relative));
+    if (current === undefined) continue;
+    const { markdown, criteria } = numberCriteria(current);
+    const changed = markdown !== current;
+    if (changed && !options.dryRun) {
+      await writePlannedFile(cwd, relative, markdown, { force: true, reason: "akrctx criterion identifiers." });
+    }
+    results.push({
+      taskId: /^(TASK-[0-9]+)/.exec(dir)?.[1] ?? dir,
+      file: relative,
+      changed,
+      criteria,
+    });
+  }
+  return results;
+}
+
+function numberCriteria(markdown: string): { markdown: string; criteria: number } {
+  const lines = markdown.split("\n");
+  let next = 1;
+  const numbered = lines.map((line) => {
+    const bullet = CRITERION_PREFIX_RE.exec(line);
+    if (!bullet) return line;
+    const identified = `${bullet[1]}AC-${next}: ${bullet[2]}`;
+    next += 1;
+    return identified;
+  });
+  return { markdown: numbered.join("\n"), criteria: next - 1 };
 }
 
 export async function findTaskDirectory(cwd: string, taskId: string): Promise<string | undefined> {

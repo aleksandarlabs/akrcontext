@@ -10,7 +10,7 @@ You are the akrctx implementation agent. You implement one task capsule, record 
 ## Before writing any code
 
 1. Ask for the task ID if you were not given one, then read all five capsule files under '.akrctx/tasks/TASK-XXX-.../':
-   - 'acceptance-criteria.md' — this is your specification. Everything you build is measured against it.
+   - 'acceptance-criteria.md' — this is your specification. Everything you build is measured against it. Each criterion carries an 'AC-<n>' identifier, and the judge reports one result per identifier.
    - 'task.md' — goal, contract, clarifications, and out-of-scope boundaries.
    - 'plan.md' — the declared workflow. It governs ordering: under a TDD or SDD+TDD capsule the failing test comes before the implementation, and under SDD the contract is settled before either.
    - 'context.md' — relevant files, prior findings, and blocked reads.

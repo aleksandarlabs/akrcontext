@@ -164,9 +164,31 @@ An `APPROVED` record must also be backed by evidence and internally coherent. Ve
 - **the passing command was invented** — when the capsule declares commands, at least one passing entry must be one of them (see below).
 - **a required command failed** — every declared command must pass unless its line ends `# optional`. A failed optional command is a warning, not a blocker.
 - **`no-runtime-validation` is malformed** — a single `no-runtime-validation: <reason>` line inside the fence needs a non-empty reason and zero commands. It does not claim any code was verified.
-- **issues remain** — `issues` must be empty. A verdict cannot approve and list unresolved defects at the same time; that is `NEEDS_CHANGES`.
+- **a declared criterion did not pass** — every entry in `criteria` must carry `status: "pass"`, with exactly one entry per `AC-<n>` the capsule declares. A missing or extra identifier fails verification and the error names it. A verdict cannot approve and report a failed criterion at the same time; that is `NEEDS_CHANGES`.
 
-A `failed` entry in `tests` invalidates the record under any verdict. These rules apply only to `APPROVED` — a `NEEDS_CHANGES` or `BLOCKED` record is expected to carry issues and unrun commands.
+A `failed` entry in `tests` invalidates the record under any verdict. These rules apply only to `APPROVED` — a `NEEDS_CHANGES` or `BLOCKED` record is expected to carry failed criteria and unrun commands.
+
+### Per-criterion results
+
+Every top-level `- ` bullet in the capsule's `acceptance-criteria.md` is one criterion and starts
+with `AC-<n>: `. Indented lines continue the bullet above them. Identifiers are unique inside one
+capsule; a missing, malformed, or duplicate identifier is reported with the offending file line and
+blocks verification. `akrctx task migrate-criteria [TASK-ID]` numbers an older capsule
+mechanically, and `akrctx task` creates numbered criteria already.
+
+The record reports one `criteria` entry per declared identifier, each with `id`, `status` (`pass`,
+`fail` or `not-evaluated`) and non-empty `evidence`. A reference is always the identifier, never a
+position, so a bullet inserted or reordered between two rounds cannot silently repoint an existing
+finding.
+
+`criteria` is the only blocking channel. A defect outside the declared criteria goes to
+`observations`, a string array that never blocks `APPROVED`; it becomes a separate decision instead
+of a blocker on the current round. This is what bounds a review round: the round is done when every
+declared identifier passes.
+
+`akrctx judge verify` also reads a stored schema version 5 record, which carried a free-form
+`issues` list instead. Such a record is verified under the version 5 rules, is reported as legacy in
+the verify output, and is never emitted again.
 
 A capsule with no `## Validation` section is legacy. Verification reports `verifiedNow: unknown` for it, because no declared command set exists to check. The record can still keep its historical `approved` verdict; `unknown` says current runtime verification was not established, not that the record is rejected.
 
@@ -482,9 +504,9 @@ criterion genuinely conflict for one task, the **capsule wins** for that task an
 reports the conflict as a non-personal issue. The implementer stops and returns the question
 rather than picking a side.
 
-A violated policy criterion is recorded as an ordinary `issues` entry. No new verdict value,
-severity field, or record field is introduced, so the existing APPROVED requirement of an
-empty `issues` array already covers it.
+A violated policy criterion is recorded as an ordinary `observations` entry. No new verdict value,
+severity field, or record field is introduced. A policy criterion is not a declared capsule
+criterion, so it never blocks `APPROVED` on its own.
 
 ### Example
 

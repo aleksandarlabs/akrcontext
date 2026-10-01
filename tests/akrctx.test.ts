@@ -34,7 +34,10 @@ import { capsuleFiles, upgradesIgnorePath } from "../src/harness-files.js";
 import { runInit } from "../src/init.js";
 import {
   JUDGE_SCHEMA_VERSION,
+  LEGACY_JUDGE_SCHEMA_VERSION,
+  asSchemaVersion,
   createJudgeScope,
+  readAcceptanceCriteria,
   readClarificationState,
   readValidationDeclaration,
   validateRecord,
@@ -53,6 +56,7 @@ import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import {
   listTasks,
+  migrateAcceptanceCriteriaIdentifiers,
   recommendWorkflow,
   removeTask,
   runTask,
@@ -3168,6 +3172,12 @@ describe("judge", () => {
     );
   });
 
+  /** One passing entry per criterion the capsule declares, which is what APPROVED requires. */
+  async function passingCriteria(taskId: string) {
+    const declaration = await readAcceptanceCriteria(tmp, taskId);
+    return declaration.ids.map((id) => ({ id, status: "pass", evidence: "Checked against the changed files." }));
+  }
+
   async function createReviewFixture(
     options: { declares?: string[]; claims?: string[]; legacyCapsule?: boolean; checklist?: string } = {},
   ) {
@@ -3203,7 +3213,8 @@ describe("judge", () => {
       scope,
       verdict: "APPROVED",
       tests: (options.claims ?? ["pnpm test"]).map((command) => ({ command, status: "passed" })),
-      issues: [],
+      criteria: await passingCriteria(task.taskId),
+      observations: [],
       reviewedAt: new Date().toISOString(),
     };
     const recordPath = path.join(tmp, ".akrctx/local/judge/review.json");
@@ -3834,7 +3845,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command: injected, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -3863,7 +3875,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: commands.map((command) => ({ command, status: "passed" })),
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -3963,7 +3976,8 @@ describe("judge", () => {
           scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4013,7 +4027,7 @@ describe("judge", () => {
     expect(result.reasons).toContain(`schemaVersion must be ${JUDGE_SCHEMA_VERSION}.`);
   });
 
-  it("rejects APPROVED when the record still lists issues", async () => {
+  it("rejects a record that still carries the removed issues property", async () => {
     const { recordPath } = await createReviewFixture();
     const record = JSON.parse(await readFile(recordPath, "utf8"));
     record.issues = ["acceptance criterion 3 is not covered by any test"];
@@ -4021,8 +4035,127 @@ describe("judge", () => {
 
     const result = await verifyJudgeRecord(tmp, recordPath);
 
+    expect(result.valid).toBe(false);
+    expect(result.reasons).toContain("Unexpected review field: issues.");
+  });
+
+  it("rejects APPROVED when a declared criterion did not pass", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.criteria[1] = { ...record.criteria[1], status: "fail", evidence: "No test covers it." };
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
     expect(result.approved).toBe(false);
+    expect(result.reasons.join(" ")).toContain("AC-2 (fail)");
+  });
+
+  it("rejects a record that reports no result for a declared criterion", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    const dropped = record.criteria.pop();
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join(" ")).toContain(dropped.id);
+  });
+
+  it("rejects a record that reports a criterion the capsule does not declare", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.criteria.push({ id: "AC-99", status: "pass", evidence: "Invented." });
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join(" ")).toContain("AC-99");
+  });
+
+  it("reports a capsule whose criteria carry no identifier instead of approving it", async () => {
+    const { task, recordPath } = await createReviewFixture();
+    await writeFile(
+      path.join(tmp, task.taskDir, "acceptance-criteria.md"),
+      "# Acceptance Criteria\n\n- The outcome is implemented.\n",
+      "utf8",
+    );
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.reasons.join(" ")).toContain("AC-<n>");
+  });
+
+  it("approves with observations outside the declared criteria", async () => {
+    const { recordPath } = await createReviewFixture();
+    const record = JSON.parse(await readFile(recordPath, "utf8"));
+    record.observations = ["parseRef duplicates logic in resolveRef; outside the declared criteria."];
+    await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.reasons).toEqual([]);
+    expect(result.approved).toBe(true);
+  });
+
+  it("reads a stored version 5 record under the version 5 rules and marks it legacy", async () => {
+    const { task, recordPath } = await createReviewFixture();
+    const legacyScope = asSchemaVersion(
+      await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE"),
+      LEGACY_JUDGE_SCHEMA_VERSION,
+    );
+    const legacy = {
+      schemaVersion: LEGACY_JUDGE_SCHEMA_VERSION,
+      taskId: task.taskId,
+      scope: legacyScope,
+      verdict: "APPROVED",
+      tests: [{ command: "pnpm test", status: "passed" }],
+      issues: [],
+      reviewedAt: new Date().toISOString(),
+    };
+    await writeFile(recordPath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.reasons).toEqual([]);
+    expect(result.approved).toBe(true);
+    expect(result.legacy).toBe(true);
+    expect(result.notices.join(" ")).toContain(`version ${LEGACY_JUDGE_SCHEMA_VERSION}`);
+  });
+
+  it("keeps the version 5 approval rules for a legacy record that lists issues", async () => {
+    const { task, recordPath } = await createReviewFixture();
+    const legacyScope = asSchemaVersion(
+      await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE"),
+      LEGACY_JUDGE_SCHEMA_VERSION,
+    );
+    const legacy = {
+      schemaVersion: LEGACY_JUDGE_SCHEMA_VERSION,
+      taskId: task.taskId,
+      scope: legacyScope,
+      verdict: "APPROVED",
+      tests: [{ command: "pnpm test", status: "passed" }],
+      issues: ["acceptance criterion 3 is not covered by any test"],
+      reviewedAt: new Date().toISOString(),
+    };
+    await writeFile(recordPath, `${JSON.stringify(legacy, null, 2)}\n`, "utf8");
+
+    const result = await verifyJudgeRecord(tmp, recordPath);
+
+    expect(result.approved).toBe(false);
+    expect(result.legacy).toBe(true);
     expect(result.reasons).toContain("APPROVED records must not list unresolved issues.");
+  });
+
+  it("emits only the current schema version", async () => {
+    const { task } = await createReviewFixture();
+    const scope = await createJudgeScope(tmp, task.taskId, "HEAD", "WORKTREE");
+
+    expect(JUDGE_SCHEMA_VERSION).toBe(6);
+    expect(scope.schemaVersion).toBe(JUDGE_SCHEMA_VERSION);
   });
 
   it("applies the approval rules only to APPROVED verdicts", async () => {
@@ -4030,7 +4163,11 @@ describe("judge", () => {
     const record = JSON.parse(await readFile(recordPath, "utf8"));
     record.verdict = "NEEDS_CHANGES";
     record.tests = [];
-    record.issues = ["missing edge-case handling in parseRef"];
+    record.criteria = record.criteria.map((criterion: { id: string }) => ({
+      ...criterion,
+      status: "fail",
+      evidence: "Not covered.",
+    }));
     await writeFile(recordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
 
     const result = await verifyJudgeRecord(tmp, recordPath);
@@ -4384,7 +4521,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4736,7 +4874,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4766,7 +4905,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command: "pnpm test", status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4795,7 +4935,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command: "pnpm test", status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4833,7 +4974,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command: "pnpm test", status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4866,7 +5008,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command: mutating, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -4954,7 +5097,8 @@ describe("judge", () => {
         scope: snapshot.scope,
         verdict: "APPROVED",
         tests: [{ command, status: "passed" }],
-        issues: [],
+        criteria: await passingCriteria(task.taskId),
+        observations: [],
         reviewedAt: new Date().toISOString(),
       })}\n`,
       "utf8",
@@ -5044,7 +5188,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5083,7 +5228,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5115,7 +5261,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5482,7 +5629,8 @@ describe("judge", () => {
           scope: snapshot.scope,
           verdict: "NEEDS_CHANGES",
           tests: [{ command: "pnpm test", status: "passed" }],
-          issues: ["not approved"],
+          criteria: (await passingCriteria(task.taskId)).map((criterion) => ({ ...criterion, status: "fail" })),
+          observations: ["not approved"],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5508,7 +5656,8 @@ describe("judge", () => {
           scope: parent.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5545,7 +5694,8 @@ describe("judge", () => {
           scope: parent.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5575,7 +5725,8 @@ describe("judge", () => {
           scope: parent.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5603,7 +5754,8 @@ describe("judge", () => {
           scope: parent.scope,
           verdict: "APPROVED",
           tests: [{ command, status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -5649,7 +5801,8 @@ describe("judge", () => {
       scope: parent.scope,
       verdict: "NEEDS_CHANGES",
       tests: [{ command: "pnpm test", status: "passed" }],
-      issues: ["still needs work"],
+      criteria: (await passingCriteria(task.taskId)).map((criterion) => ({ ...criterion, status: "fail" })),
+      observations: ["still needs work"],
       reviewedAt: new Date().toISOString(),
     };
     await writeFile(parentRecordPath, `${JSON.stringify(record, null, 2)}\n`, "utf8");
@@ -5661,7 +5814,8 @@ describe("judge", () => {
         {
           ...record,
           verdict: "APPROVED",
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           scope: { ...parent.scope, changeDigest: "sha256:invalid" },
         },
         null,
@@ -5713,7 +5867,8 @@ describe("judge", () => {
           scope: json.scope,
           verdict: "APPROVED",
           tests: [{ command: "pnpm test", status: "passed" }],
-          issues: [],
+          criteria: await passingCriteria(task.taskId),
+          observations: [],
           reviewedAt: new Date().toISOString(),
         },
         null,
@@ -6292,5 +6447,121 @@ describe("clarification gate", () => {
       .map(([target]) => target);
 
     expect(mentioning).toEqual(["claude"]);
+  });
+});
+
+// ── per-criterion judge results ───────────────────────────────────────────────
+
+describe("acceptance criterion identifiers", () => {
+  async function capsule(criteria: string): Promise<{ taskId: string; taskDir: string }> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Report per-criterion results", { cwd: tmp, nonInteractive: true });
+    await writeFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), criteria, "utf8");
+    return task;
+  }
+
+  it("reads identifiers in declared order and joins wrapped continuation lines", async () => {
+    const task = await capsule(
+      "# Acceptance Criteria\n\n- AC-1: The parser reads an identifier.\n- AC-2: The parser joins\n  a wrapped line.\n",
+    );
+
+    const declaration = await readAcceptanceCriteria(tmp, task.taskId);
+
+    expect(declaration.filePresent).toBe(true);
+    expect(declaration.ids).toEqual(["AC-1", "AC-2"]);
+    expect(declaration.problems).toEqual([]);
+    expect(declaration.criteria[1].text).toBe("AC-2: The parser joins a wrapped line.");
+  });
+
+  it("names the offending line when a criterion carries no identifier", async () => {
+    const task = await capsule("# Acceptance Criteria\n\n- AC-1: Identified.\n- Not identified at all.\n");
+
+    const declaration = await readAcceptanceCriteria(tmp, task.taskId);
+
+    expect(declaration.ids).toEqual(["AC-1"]);
+    expect(declaration.problems).toHaveLength(1);
+    expect(declaration.problems[0]).toContain("line 4");
+    expect(declaration.problems[0]).toContain("Not identified at all.");
+  });
+
+  it("names the offending line when an identifier repeats", async () => {
+    const task = await capsule("# Acceptance Criteria\n\n- AC-1: First.\n- AC-1: Second.\n");
+
+    const declaration = await readAcceptanceCriteria(tmp, task.taskId);
+
+    expect(declaration.problems).toHaveLength(1);
+    expect(declaration.problems[0]).toContain("line 4");
+    expect(declaration.problems[0]).toContain("AC-1");
+  });
+
+  it("creates capsules whose criteria already carry identifiers", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Ship identified criteria", { cwd: tmp, nonInteractive: true });
+
+    const declaration = await readAcceptanceCriteria(tmp, task.taskId);
+
+    expect(declaration.problems).toEqual([]);
+    expect(declaration.ids.length).toBeGreaterThan(0);
+    const template = await readFile(path.join(tmp, ".akrctx/tasks/_template/acceptance-criteria.md"), "utf8");
+    for (const line of template.split("\n").filter((line) => line.startsWith("- "))) {
+      expect(line).toMatch(/^- AC-[1-9][0-9]*: /);
+    }
+  });
+});
+
+describe("task migrate-criteria", () => {
+  async function legacyCapsule(criteria: string): Promise<{ taskId: string; taskDir: string }> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Migrate my criteria", { cwd: tmp, nonInteractive: true });
+    await writeFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), criteria, "utf8");
+    return task;
+  }
+
+  it("adds identifiers to every top-level bullet and leaves continuation lines alone", async () => {
+    const task = await legacyCapsule(
+      "# Acceptance Criteria\n\n- First criterion.\n- Second criterion\n  continues here.\n\nClosing prose.\n",
+    );
+
+    const results = await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
+
+    expect(results).toEqual([
+      { taskId: task.taskId, file: `${task.taskDir}/acceptance-criteria.md`, changed: true, criteria: 2 },
+    ]);
+    expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(
+      "# Acceptance Criteria\n\n- AC-1: First criterion.\n- AC-2: Second criterion\n  continues here.\n\nClosing prose.\n",
+    );
+  });
+
+  it("is idempotent and reports no change for an already migrated capsule", async () => {
+    const task = await legacyCapsule("# Acceptance Criteria\n\n- One.\n- Two.\n");
+
+    await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
+    const second = await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
+
+    expect(second[0].changed).toBe(false);
+    expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(
+      "# Acceptance Criteria\n\n- AC-1: One.\n- AC-2: Two.\n",
+    );
+  });
+
+  it("renumbers a capsule whose identifiers duplicate or are partial", async () => {
+    const task = await legacyCapsule("# Acceptance Criteria\n\n- AC-1: One.\n- AC-1: Two.\n- Three.\n");
+
+    await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
+
+    expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(
+      "# Acceptance Criteria\n\n- AC-1: One.\n- AC-2: Two.\n- AC-3: Three.\n",
+    );
+  });
+
+  it("writes nothing with --dry-run and migrates every capsule when no task is named", async () => {
+    const task = await legacyCapsule("# Acceptance Criteria\n\n- Only one.\n");
+    const original = await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8");
+
+    const planned = await migrateAcceptanceCriteriaIdentifiers(tmp, { dryRun: true });
+
+    expect(planned).toHaveLength(1);
+    expect(planned[0].changed).toBe(true);
+    expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(original);
   });
 });

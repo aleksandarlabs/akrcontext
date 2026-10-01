@@ -1,7 +1,14 @@
 import type { Command } from "commander";
 import { readTaskContinuation } from "../continuation.js";
 import { bold, cmd, dim, file, gray, minus, warn, yellow } from "../format.js";
-import { listTasks, removeTask, runTask, searchTaskCapsules, showTask } from "../task.js";
+import {
+  listTasks,
+  migrateAcceptanceCriteriaIdentifiers,
+  removeTask,
+  runTask,
+  searchTaskCapsules,
+  showTask,
+} from "../task.js";
 import { addCommon, ln, log, normalizeOptions, plus } from "./shared.js";
 
 export function registerTask(program: Command): void {
@@ -18,6 +25,7 @@ export function registerTask(program: Command): void {
         "  akrctx task show TASK-001        show a task capsule's files",
         "  akrctx task continuation TASK-001 read portable execution state",
         "  akrctx task search <query>       find literal text in capsule files",
+        "  akrctx task migrate-criteria     number capsule criteria as AC-<n>",
         "  akrctx task rm TASK-001          remove a task capsule",
         "",
         "The create command is a HEADLESS FALLBACK for scripting and CI.",
@@ -131,6 +139,32 @@ export function registerTask(program: Command): void {
       return;
     }
     for (const match of matches) log(`${file(match.file)}:${match.line}  ${match.text}`);
+  });
+
+  addCommon(
+    taskCmd
+      .command("migrate-criteria [taskId]")
+      .description("Number acceptance criteria as AC-<n> in one capsule, or in every capsule."),
+    false,
+  ).action(async (taskId: string | undefined, raw) => {
+    const options = normalizeOptions(raw);
+    const cwd = options.cwd ?? process.cwd();
+    const results = await migrateAcceptanceCriteriaIdentifiers(cwd, { taskId, dryRun: options.dryRun });
+    if (options.json) {
+      console.log(JSON.stringify(results, null, 2));
+      return;
+    }
+    const changed = results.filter((result) => result.changed);
+    if (!changed.length) {
+      log(dim(`Every criterion already carries an identifier (${results.length} capsules checked).`));
+      return;
+    }
+    for (const result of changed) {
+      log(`  ${options.dryRun ? warn() : plus()} ${file(result.file)}  ${dim(`${result.criteria} criteria`)}`);
+    }
+    ln();
+    const verb = options.dryRun ? "Would number" : "Numbered";
+    log(dim(`${verb} the criteria of ${changed.length} of ${results.length} capsules.`));
   });
 
   addCommon(taskCmd.command("rm <taskId>").description("Remove a task capsule."), false).action(

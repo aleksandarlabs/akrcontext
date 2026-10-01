@@ -190,6 +190,8 @@ There is no "assume and proceed" option. The test above already excludes trivia,
 
 **What stays open.** Ambiguity you did not resolve goes under \`## Open Questions\`, written as a question. Running headless with nobody to answer, that is the correct outcome: record it and treat the capsule as not ready. Never close the gap by prediction.
 
+**Criterion identifiers.** Every criterion in acceptance-criteria.md is one top-level \`- \` bullet that starts with \`AC-<n>: \`. Number them from 1 in declared order and keep each identifier stable; the judge reports one typed result per identifier. For an older capsule with unnumbered criteria, run \`akrctx task migrate-criteria TASK-XXX\`.
+
 **Format, in both sections.** One entry is one top-level \`- \` bullet; wrap long entries with indented continuation lines. \`akrctx judge verify\` reads only top-level bullets, because both sections also carry explanatory prose that must not be mistaken for content. An entry written as a bare paragraph is invisible to it — the section reads as empty and no notice is emitted.`;
 const reviewBody =
   "Check whether the task capsule is ready: goal clarity, testability, relevant context, blocked secrets, scope control, validation commands, and human-approved merge strategy.";

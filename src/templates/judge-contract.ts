@@ -1,4 +1,4 @@
-import { JUDGE_SCHEMA_VERSION } from "../judge-enforcement.js";
+import { JUDGE_SCHEMA_VERSION, LEGACY_JUDGE_SCHEMA_VERSION } from "../judge-enforcement.js";
 
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 
@@ -9,7 +9,7 @@ const reviewSchema = {
   $id: JUDGE_SCHEMA_ID,
   type: "object",
   additionalProperties: false,
-  required: ["schemaVersion", "taskId", "scope", "verdict", "tests", "issues", "reviewedAt"],
+  required: ["schemaVersion", "taskId", "scope", "verdict", "tests", "criteria", "observations", "reviewedAt"],
   properties: {
     schemaVersion: { const: JUDGE_SCHEMA_VERSION },
     taskId: { type: "string", pattern: "^TASK-[0-9]+$" },
@@ -64,7 +64,25 @@ const reviewSchema = {
         },
       },
     },
-    issues: { type: "array", items: { type: "string" } },
+    criteria: {
+      type: "array",
+      description: "One entry per AC-<n> the capsule declares. The only channel that can block APPROVED.",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["id", "status", "evidence"],
+        properties: {
+          id: { type: "string", pattern: "^AC-[1-9][0-9]*$" },
+          status: { enum: ["pass", "fail", "not-evaluated"] },
+          evidence: { type: "string", minLength: 1 },
+        },
+      },
+    },
+    observations: {
+      type: "array",
+      description: "Defects outside the declared criteria. Never blocks APPROVED.",
+      items: { type: "string" },
+    },
     reviewedAt: { type: "string", format: "date-time" },
     independent: {
       type: "boolean",
@@ -81,7 +99,10 @@ const reviewSchema = {
           tests: {
             contains: { properties: { status: { const: "passed" } }, required: ["status"] },
           },
-          issues: { maxItems: 0 },
+          criteria: {
+            minItems: 1,
+            items: { properties: { status: { const: "pass" } }, required: ["status"] },
+          },
         },
       },
     },
@@ -102,9 +123,18 @@ Before using an approval, run \`akrctx judge verify <review.json> --run-tests\`.
 An \`APPROVED\` verdict additionally requires evidence and coherence:
 
 - at least one entry in \`tests\` with \`status: "passed"\` — an approval that ran nothing is not an approval
-- an empty \`issues\` array — a verdict cannot approve and report unresolved defects at the same time
+- \`status: "pass"\` on every entry in \`criteria\`, with exactly one entry per \`AC-<n>\` the capsule declares — a missing or extra identifier fails verification and the error names it
+- defects outside the declared criteria belong in \`observations\`, which never blocks approval
 
 A \`failed\` entry in \`tests\` invalidates the record under any verdict. If validation cannot run at all, the correct verdict is \`BLOCKED\`, not \`APPROVED\`.
+
+## Criterion identifiers
+
+Every top-level \`- \` bullet in the capsule's \`acceptance-criteria.md\` is one criterion and starts with \`AC-<n>: \`. Indented lines continue the bullet above them. Identifiers are unique inside one capsule; a missing, malformed, or duplicate identifier is reported with the offending file line and blocks verification. \`akrctx task migrate-criteria [TASK-ID]\` numbers an older capsule mechanically.
+
+The record reports one \`criteria\` entry per declared identifier, each with a \`status\` and non-empty \`evidence\`. A reference is always the identifier, never a position, so a bullet inserted or reordered between two rounds cannot silently repoint an existing finding. \`criteria\` is the only blocking channel: a defect the capsule does not declare goes to \`observations\` and becomes a separate decision instead of a blocker on the current round.
+
+\`akrctx judge verify\` also reads a stored schema version ${LEGACY_JUDGE_SCHEMA_VERSION} record, which carried a free-form \`issues\` list. Such a record is verified under the version ${LEGACY_JUDGE_SCHEMA_VERSION} rules, reported as legacy, and never emitted again.
 
 When the capsule's \`task.md\` declares commands in a fenced block under \`## Validation\`, every required command — any non-empty line not starting with \`#\` and not suffixed \`# optional\` — must pass for \`APPROVED\`. A line suffixed \`# optional\` may fail; that is reported as a warning and does not block approval. At least one declared command must still be the passing entry in \`tests\`; a judge cannot satisfy the evidence rule with a command it invented, even when every declared command is optional. A single \`no-runtime-validation: <reason>\` line inside the fence declares no runtime validation; it requires a non-empty reason and zero commands, and does not claim any code was verified. A capsule with no \`## Validation\` section is legacy: verification reports \`verifiedNow: unknown\`, but the record's historical \`approved\` verdict can still stand.
 
