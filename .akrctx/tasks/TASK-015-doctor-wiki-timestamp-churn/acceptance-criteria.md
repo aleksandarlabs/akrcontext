@@ -1,8 +1,8 @@
 # Acceptance Criteria
 
-- Two consecutive doctor runs with unchanged findings leave the wiki files byte-identical
+- AC-1: Two consecutive doctor runs with unchanged findings leave the wiki files byte-identical
   (no working-tree dirt).
-- A doctor run after a real finding change updates the report and its timestamp.
-- `wiki-lint` still sees valid timestamps on all reports.
-- `pnpm build && pnpm test && pnpm lint` pass.
-- The review checklist is completed before handoff.
+- AC-2: A doctor run after a real finding change updates the report and its timestamp.
+- AC-3: `wiki-lint` still sees valid timestamps on all reports.
+- AC-4: `pnpm build && pnpm test && pnpm lint` pass.
+- AC-5: The review checklist is completed before handoff.
