@@ -508,3 +508,48 @@ rename now removes the renamed snapshot directory instead of leaving a permanent
 one. The earlier research measurement missed this because it compared two reads taken seconds
 apart, and inode drift on this mount manifests over minutes-to-hours, not seconds. See
 `.akrctx/tasks/TASK-022-snapshot-write-detection/log.md`.
+
+## 2026-10-02 — The eight-capsule backlog was revised before implementation, and its revision record lives here
+
+**Decision.** TASK-076 to TASK-083 were created on 2026-10-01 from a session review of the
+harness, then revised the same day by a second reviewer before any implementation. The revision
+narrative, the delivery order and the checks that covered all eight capsules are recorded here,
+once, instead of being repeated inside each `task.md`. A capsule records its own task; a decision
+that spans capsules belongs in this file, per the write policy in `.akrctx/policy.json`.
+
+**Revision workflow.** fast-patch. Reason: the revision aligned existing capsules with the design
+review and with the current code. It changed no implementation and no installed harness file. The
+workflow each `plan.md` declares still governs that capsule's future implementation.
+
+**Delivery order.** TASK-083, then TASK-082, then TASK-079, then TASK-076, then design TASK-077
+and TASK-080. TASK-078 and TASK-081 carry a smaller, experimental or documentation scope.
+TASK-083, TASK-079, TASK-081 and TASK-082 carry no open questions and are ready to implement;
+TASK-076, TASK-077, TASK-078 and TASK-080 still hold unresolved contract questions.
+
+**Checks over the revised set.** `pnpm build`, 985 tests, `pnpm lint`, `akrctx init --target codex
+--dry-run` and `akrctx doctor --json` all pass. Doctor reports readiness 100 with 0 missing files,
+alongside the pre-existing historical capsule-log warnings. `readAcceptanceCriteria` reports zero
+problems for all eight capsules, and `readClarificationState` reads their remaining open questions.
+These checks were re-run independently after the revision, not taken from the revision's own
+claim.
+
+**Correction found after the revision.** Three revised capsules retire an identifier on purpose:
+TASK-076 and TASK-078 retire `AC-5`, and TASK-081 retires `AC-2` and `AC-3`. `akrctx task
+migrate-criteria` renumbers every criterion from 1 whenever the regenerated text differs, so it
+would reassign those identifiers to different criteria — the silent repointing that identifiers
+exist to prevent. The parser accepts the gaps; the migration command destroys them. TASK-084 owns
+the fix.
+
+**Correction to the TASK-078 problem evidence.** The revision described the TASK-075 case as
+inconclusive. That is correct about the detector and wrong about the event. The implementing agent
+reported, in the session that produced TASK-075, that it wrote five contract decisions without
+asking, and the human did not dispute it. TASK-078 now states both facts separately: the event is
+recorded in a session transcript no repository tool can read, and the diff still proves nothing on
+its own. A mechanical signal that cannot see the evidence must stay inconclusive; the finding that
+motivated the task stands.
+
+**Consequences.** No `## Capsule Revision` section exists in any capsule, so a reader looking for
+cross-capsule process reads this file. Each capsule keeps its `### Session 2026-10-01`
+clarification entry, because that entry records a human instruction that changed scope, which is
+what the section is for. See `.akrctx/tasks/TASK-076-judge-round-accounting/` through
+`.akrctx/tasks/TASK-084-retired-criterion-identifiers/`.
