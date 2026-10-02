@@ -32,4 +32,5 @@ different criterion. Indented lines continue the bullet above them.
   as a round, and makes its task state unknown. Incomplete category evidence alone does not
   discard a round whose key is complete.
 
-Retired: AC-5, AC-13
+Retired: AC-5
+Retired: AC-13
