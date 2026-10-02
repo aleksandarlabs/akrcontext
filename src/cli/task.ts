@@ -150,14 +150,19 @@ export function registerTask(program: Command): void {
     const options = normalizeOptions(raw);
     const cwd = options.cwd ?? process.cwd();
     const results = await migrateAcceptanceCriteriaIdentifiers(cwd, { taskId, dryRun: options.dryRun });
+    const failed = results.filter((result) => result.problems?.length);
+    process.exitCode = failed.length ? 1 : 0;
     if (options.json) {
       console.log(JSON.stringify(results, null, 2));
       return;
     }
     const changed = results.filter((result) => result.changed);
-    if (!changed.length) {
+    if (!changed.length && !failed.length) {
       log(dim(`Every criterion already carries an identifier (${results.length} capsules checked).`));
       return;
+    }
+    for (const result of failed) {
+      for (const problem of result.problems ?? []) log(`  ${warn()} ${file(result.file)}: ${problem}`);
     }
     for (const result of changed) {
       log(`  ${options.dryRun ? warn() : plus()} ${file(result.file)}  ${dim(`${result.criteria} criteria`)}`);
@@ -165,6 +170,7 @@ export function registerTask(program: Command): void {
     ln();
     const verb = options.dryRun ? "Would number" : "Numbered";
     log(dim(`${verb} the criteria of ${changed.length} of ${results.length} capsules.`));
+    if (failed.length) log(`${warn()} ${failed.length} capsules require manual repair; no writes to those capsules.`);
   });
 
   addCommon(taskCmd.command("rm <taskId>").description("Remove a task capsule."), false).action(

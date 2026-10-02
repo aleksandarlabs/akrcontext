@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { lstat, readFile, readdir, readlink } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
+import { type AcceptanceCriterion, scanCriteriaIdentities } from "./acceptance-criteria.js";
 import { capsuleFiles } from "./harness-files.js";
 import { measureJudgePhase } from "./judge-timings.js";
 import {
@@ -728,14 +729,7 @@ function sectionBullets(body: string | undefined): string[] {
 const NONE_VARIANT_RE =
   /^(none|ninguna|ninguno|n\/a)(\s+(remaining|left|yet|recorded\s+yet|so\s+far|open|pending))?[\s.!]*$/i;
 
-export interface AcceptanceCriterion {
-  /** The `AC-<n>` identifier, or null when the bullet declares none. */
-  id: string | null;
-  /** Bullet text with wrapped continuation lines joined. */
-  text: string;
-  /** 1-based line number of the bullet in acceptance-criteria.md. */
-  line: number;
-}
+export type { AcceptanceCriterion } from "./acceptance-criteria.js";
 
 export interface AcceptanceCriteriaDeclaration {
   /** False when acceptance-criteria.md is absent or unreadable. */
@@ -746,8 +740,6 @@ export interface AcceptanceCriteriaDeclaration {
   /** One entry per capsule defect, each naming the offending line. */
   problems: string[];
 }
-
-const CRITERION_ID_RE = /^(AC-[1-9][0-9]*):\s+\S/;
 
 /**
  * Criteria declared in a capsule's acceptance-criteria.md.
@@ -764,42 +756,13 @@ export async function readAcceptanceCriteria(cwd: string, taskId: string): Promi
     return { filePresent: false, criteria: [], ids: [], problems: [] };
   }
 
-  const criteria: AcceptanceCriterion[] = [];
-  for (const [index, line] of markdown.split("\n").entries()) {
-    const bullet = /^-\s+(.*)$/.exec(line);
-    if (bullet) {
-      const text = bullet[1].trim();
-      criteria.push({ id: CRITERION_ID_RE.exec(text)?.[1] ?? null, text, line: index + 1 });
-      continue;
-    }
-    // Capsule prose wraps at ~100 columns, so an indented line continues the bullet above it.
-    if (criteria.length > 0 && /^\s+\S/.test(line)) {
-      const previous = criteria[criteria.length - 1];
-      previous.text = `${previous.text} ${line.trim()}`;
-    }
-  }
-
-  const problems: string[] = [];
-  const ids: string[] = [];
-  const seen = new Set<string>();
-  for (const criterion of criteria) {
-    if (!criterion.id) {
-      problems.push(`acceptance-criteria.md line ${criterion.line} has no AC-<n> identifier: ${quote(criterion.text)}`);
-      continue;
-    }
-    if (seen.has(criterion.id)) {
-      problems.push(`acceptance-criteria.md line ${criterion.line} repeats ${criterion.id}: ${quote(criterion.text)}`);
-      continue;
-    }
-    seen.add(criterion.id);
-    ids.push(criterion.id);
-  }
-  return { filePresent: true, criteria, ids, problems };
-}
-
-/** Bounded quotation of capsule text, so one long bullet cannot flood an error message. */
-function quote(text: string): string {
-  return `"${text.length > 72 ? `${text.slice(0, 72)}…` : text}"`;
+  const declaration = scanCriteriaIdentities(markdown);
+  return {
+    filePresent: true,
+    criteria: declaration.criteria,
+    ids: declaration.ids,
+    problems: declaration.problems.map((problem) => problem.message),
+  };
 }
 
 /**

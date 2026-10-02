@@ -2,8 +2,8 @@
 
 - [x] Capsule scope, criteria and plan corrected after the 2026-10-01 design review.
 
-- [ ] Trigger rule and notice text recorded in task.md before implementation.
-- [ ] Open questions resolved with the human and recorded under Clarifications.
+- [x] Trigger rule and bounded notice contract recorded before implementation.
+- [x] Contract decisions closed on 2026-10-02 under the user's delegated authority.
 - [ ] False-positive and false-negative cases enumerated before implementation.
 - [ ] Red tests written for every enumerated case.
 - [ ] The notice never changes `valid` or `approved`.

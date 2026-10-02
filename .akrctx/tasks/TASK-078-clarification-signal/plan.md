@@ -13,9 +13,9 @@ classification is not a mechanical guarantee. `workflowRules.edgeCases` maps to 
 
 ## Steps
 
-1. Resolve the experimental trigger, ignored transformations and unsupported-boundary reporting.
-2. Write the bounded, non-accusatory notice contract before implementation.
-3. Enumerate observable cases and known false positives/negatives; do not claim universal
-   separation of prose-only edits from changed requirements.
-4. Write edge-case tests, including TASK-075 as an inconclusive first-added capsule.
-5. Implement only the limited comparison and verify that verdicts remain unchanged.
+1. Use the closed heuristic contract and the documented normalization limits.
+2. Pin examples for reflow/full stops, meaningful punctuation, structured declarations, new
+   clarification bullets, placeholders, duplicate bullets and No ambiguity explanations.
+3. Cover snapshot/commit-ref comparison and explicit unsupported/unavailable diagnostics.
+4. Cover TASK-075 as inconclusive and all listed false-positive/false-negative boundaries.
+5. Implement bounded notices and verify unchanged verdicts and absence of live fallback.

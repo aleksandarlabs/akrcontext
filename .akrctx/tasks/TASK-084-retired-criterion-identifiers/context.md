@@ -1,7 +1,8 @@
 # Context
 
 Config: task-fit workflow, judge enabled, comprehension gate disabled. This repository lands work
-as direct commits on main. Installed harness files are regenerated from src/templates.
+as direct commits on main. Shipped harness content lives in src/templates; TASK-079 supplies
+the supported upgrade path for existing capsule templates.
 
 ## Relevant Files
 
@@ -28,3 +29,12 @@ as direct commits on main. Installed harness files are regenerated from src/temp
 ## Blocked Reads
 
 - Secrets and credentials must not be read.
+
+## Handoff
+
+Contract closed on 2026-10-02 in task.md. The implementation brief is exports/codex.md.
+Implementation is complete: reader and migration share identity validation, and migration only
+adds missing prefixes above the active/retired maximum. Defective capsules are left untouched
+and reported while bulk processing continues.
+The Retired footer is declared in TASK-076, TASK-078 and TASK-081; parser enforcement
+is implemented. The corpus dry-run checks 83 capsules with zero changes and zero defects.

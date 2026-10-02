@@ -18,3 +18,6 @@ different criterion. Indented lines continue the bullet above them.
   self-reported, not independent verification or authenticated human approval.
 - AC-11: The templates refer mechanical outcomes to existing criteria or validation evidence
   instead of requiring a duplicate set of mechanically graded checkboxes.
+
+Retired: AC-2
+Retired: AC-3

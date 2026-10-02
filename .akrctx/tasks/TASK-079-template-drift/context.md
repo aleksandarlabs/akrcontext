@@ -2,14 +2,14 @@
 
 Config: task-fit workflow, judge enabled, comprehension gate disabled. This repository lands
 work as direct commits on main. Shipped harness content lives in src/templates. Managed files
-use CLI regeneration; existing capsule templates currently remain on the preserve path until
-TASK-079 is implemented.
+use CLI regeneration. Since TASK-079 the five capsule templates are managed files: upgrade
+updates verified untouched ones and preserves differing ones with an upgrade candidate.
 
 ## Relevant Files
 
 - `src/upgrade.ts` — `runUpgrade` writes managed files through `upgradeManagedFile` and records
-  each applied hash in the manifest. `preserveProjectKnowledge`, near the end of the file, is the
-  path that preserves an existing capsule template; it special-cases `.akrctx/wiki/index.md` and
+  each applied hash in the manifest. `preserveProjectKnowledge`, near the end of the file, no longer
+  handles capsule templates (they moved into `desiredManagedFiles`); it special-cases `.akrctx/wiki/index.md` and
   the write-policy wiki page, then preserves anything else that exists. `desiredManagedFiles`
   defines what counts as managed.
 - `src/templates/wiki.ts` — `capsuleTemplates` holds the five capsule files, and

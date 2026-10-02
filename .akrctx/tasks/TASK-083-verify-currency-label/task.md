@@ -61,6 +61,10 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   applies the scope and consistency corrections from that review; it does not implement the
   proposed CLI features. Unresolved contract choices remain under Open Questions.
 
+### Session 2026-10-02
+- The user requested implementation of TASK-083 and explicitly authorized the independent
+  judge after completion. The existing contract is complete; no material ambiguity remains.
+
 ## Open Questions
 
 - None.

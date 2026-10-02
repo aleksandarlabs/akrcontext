@@ -29,24 +29,59 @@ inconclusive, and must never present a diff as proof that a human was not consul
 
 ## Contract
 
-Scope constraints from the design review:
+**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
+reviewing agent's refinements. No human confirmed them. Each one is listed under
+`## Open Questions` for confirmation. Implementation must not start until they move to
+`## Clarifications` with the human's answer.
 
-- Detection belongs in verify, which has a reviewed boundary. Doctor has no equivalent base.
-- Compare the reviewed base and candidate, not the current live workspace or agent-written dates.
-- Limit the first delivery to existing capsules with comparable clarification sections.
-  Newly introduced capsules, absent historical sections and unavailable baselines do not
-  provide evidence of a missing consultation and must not emit that accusation.
-- No notice changes `valid` or `approved`. State that the signal is heuristic and identify
-  the changed section or file and the comparison used.
-- The detector checks recorded text, not whether a conversation occurred or whether a question
-  was necessary. New clarification content or an explicit no-ambiguity explanation is a
-  self-reported statement, not authenticated human approval.
-- A mechanical comparison cannot generally distinguish a prose edit from a contract change.
-  The contract must list specific ignored transformations and known false positives instead
-  of promising universal semantic classification.
+### Supported comparison and trigger
 
-AC-5 is retired: the historical TASK-075 diff cannot prove missing consultation. Its
-identifier is not reused; AC-11 covers that inconclusive example.
+In verify, compare the reviewed base and candidate for changes to task.md's `## Contract`
+section (including its subsections) or acceptance-criteria.md. Support snapshot and commit-ref
+boundaries with readable base/candidate content. Never substitute the live workspace.
+WORKTREE and missing/unreadable comparison inputs produce an explicit `comparison unavailable`
+diagnostic, never a missing-consultation conclusion.
+
+Limit the missing-clarification heuristic to existing capsules with Clarifications sections
+on both sides. New capsules and capsules predating that section are explicitly not comparable.
+TASK-075's first-added capsule stays inconclusive; the external session evidence in Problem
+evidence is not mechanically recoverable from the diff.
+
+Normalize CRLF/LF and whitespace reflow within prose paragraphs/list-item continuations.
+Preserve block boundaries and order, fenced/inline code and structured metadata/declaration
+lines such as proof-command:, proof-doc: and Retired:. For cosmetic punctuation, ignore only
+a single terminal full stop on a prose paragraph/list item outside code. Do not strip other
+punctuation: operators, paths, identifiers, numbers, quoting and Markdown syntax may be semantic.
+Any remaining normalized change is eligible to trigger the heuristic.
+
+### New clarification
+
+A top-level `- ` bullet under Clarifications whose normalized full body was absent in the base
+is new recorded clarification content. Include wrapped continuations, ignore placeholder None
+variants, and do not count heading/date changes or duplicates of an existing bullet.
+A new bullet starting `No ambiguity:` with a non-empty explanation is an explicit assertion
+that no clarification was needed. An empty explanation does not suppress the signal.
+New meaningful content suppresses the notice; a heading/date alone does not.
+
+This checks recorded assertions, not authenticated human involvement. It cannot establish
+whether a new bullet relates to every changed decision or whether a conversation occurred.
+
+### Notice and detection limits
+
+Without new clarification content, emit one bounded heuristic notice per changed compared
+section/file. Include its name, added/deleted raw line counts and a pointer identifying the
+reviewed base/candidate (snapshot ID where applicable) and relative path. Never embed the diff;
+cap each notice at 1024 characters, abbreviating long display paths while retaining the boundary
+ID and section. All diagnostics stay non-blocking and leave valid/approved unchanged.
+
+Known false positives include a clearer paraphrase, grammar/punctuation edits outside the
+narrow normalization rule, and contract reordering without a new decision. Known false
+negatives include punctuation-only meaning changes covered by normalization, a clarification
+bullet unrelated to the new decision, self-reported No ambiguity, and changes made before the
+review base. Neither the notice nor its absence proves consultation occurred or was skipped.
+
+AC-5 remains retired; AC-11 covers the inconclusive historical example. No Doctor heuristic
+or minimum number of clarification questions is introduced.
 
 ## Validation
 ```
@@ -73,13 +108,25 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   applies the scope and consistency corrections from that review; it does not implement the
   proposed CLI features. Unresolved contract choices remain under Open Questions.
 
+### Session 2026-10-02
+- The human reviewed the provenance of this capsule's contract and returned its decisions to
+  `## Open Questions`. The contract had recorded them as the human's own, which was false: they
+  came from the assistant's recommendations and a reviewing agent's refinements. One of three
+  comparable recommendations was already reversed by the human in TASK-084 once its consequence
+  was shown, so an unconfirmed recommendation is not treated as an answer.
+
 ## Open Questions
 
-- Which exact text comparison triggers the notice, and which syntactic transformations are
-  ignored? Specify supported examples and acknowledged false positives and false negatives.
-- Which additions to Clarifications count as new recorded content, and what syntax expresses
-  a no-ambiguity explanation? Neither form can authenticate a human consultation.
-- How does the notice identify the changed contract/criteria without printing an unbounded
-  diff? Choose a bounded summary or pointers to the reviewed diff.
-- Which review-boundary types provide comparable base/candidate capsule content, and what
-  explicit diagnostic is returned when that comparison is unavailable?
+- Confirm the trigger comparison and the transformations it ignores. Draft: compare the contract
+  and criteria sections between base and candidate, normalising only prose reflow and one terminal
+  full stop. Operators, paths, code, identifiers and structured declarations stay significant,
+  because blanket punctuation removal would hide a real contract change.
+- Confirm what counts as newly recorded clarification content. Draft: a new top-level bullet under
+  `## Clarifications`, and a bullet starting `No ambiguity:` to state that no question was needed.
+  Neither form authenticates a human consultation.
+- Confirm how the notice shows the change. Draft: a bounded summary naming the section and the
+  line count, plus a pointer to the reviewed diff. Never an unbounded diff.
+- Confirm which boundaries support the comparison. Draft: snapshot and commit-ref candidates.
+  A `WORKTREE` candidate or unreadable inputs report that the comparison is unavailable. A new or
+  historical capsule with no comparable section stays inconclusive, and a bullet date is never
+  evidence.

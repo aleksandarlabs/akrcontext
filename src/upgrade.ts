@@ -194,7 +194,16 @@ function resolveUpgradeTargets(config: akrctxConfig, requested: CommandOptions["
 }
 
 function desiredManagedFiles(config: akrctxConfig, targets: Target[]): Record<string, string> {
-  const files: Record<string, string> = { ...comprehensionFiles, ...judgeContractFiles };
+  const files: Record<string, string> = {
+    ...comprehensionFiles,
+    ...judgeContractFiles,
+    ...Object.fromEntries(
+      Object.entries(taskTemplateFiles).map(([relativePath, content]) => [
+        path.posix.join(".akrctx", relativePath),
+        content,
+      ]),
+    ),
+  };
   for (const target of targets) {
     files[`.akrctx/targets/${target}.md`] = targetReferenceTemplates[target];
     if (target === "codex") Object.assign(files, codexSkills);
@@ -481,12 +490,6 @@ async function preserveProjectKnowledge(
     ".akrctx/wiki/overview.md": overviewTemplate(projectName, config.targets, CLI_VERSION),
     ...Object.fromEntries(
       Object.entries(wikiTemplates).map(([relativePath, content]) => [
-        path.posix.join(".akrctx", relativePath),
-        content,
-      ]),
-    ),
-    ...Object.fromEntries(
-      Object.entries(taskTemplateFiles).map(([relativePath, content]) => [
         path.posix.join(".akrctx", relativePath),
         content,
       ]),

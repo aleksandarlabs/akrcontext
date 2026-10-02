@@ -348,8 +348,14 @@ export function registerJudge(program: Command): void {
         console.log(JSON.stringify(result, null, 2));
       } else {
         if (result.approved) {
-          log(`${bold("Judge verification:")} ${green("APPROVED and current")}`);
+          log(`${bold("Judge verification:")} ${green("APPROVED for the reviewed boundary")}`);
           log(`  ${dim(result.scopeDigest ?? "")}`);
+          const reviewBoundary = result.verifiedNow.reviewBoundary;
+          const boundaryLabel =
+            reviewBoundary === "CURRENT"
+              ? green(reviewBoundary)
+              : yellow(reviewBoundary ?? "not classified for this boundary type");
+          log(`  ${dim("reviewBoundary")}    ${boundaryLabel}`);
         } else {
           log(`${bold("Judge verification:")} ${yellow("INVALID")}`);
           for (const reason of result.reasons) log(`  ${minus()} ${reason}`);

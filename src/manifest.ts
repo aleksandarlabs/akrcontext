@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { ensureTrailingNewline, pathExists } from "./fs-utils.js";
+import { capsuleFiles } from "./harness-files.js";
 import type { WriteResult } from "./types.js";
 
 export const manifestPath = ".akrctx/manifest.json";
@@ -94,8 +95,14 @@ export async function writeManifest(cwd: string, manifest: akrctxManifest, dryRu
   };
 }
 
+const capsuleTemplatePaths: ReadonlySet<string> = new Set(
+  capsuleFiles.map((file) => `.akrctx/tasks/_template/${file}`),
+);
+
 export function isManifestManagedPath(relativePath: string): boolean {
   if (relativePath === ".pi/README.md") return true;
+  // Only the shipped capsule template is managed; actual task capsules stay project-owned.
+  if (capsuleTemplatePaths.has(relativePath)) return true;
   return [
     ".agents/skills/",
     ".claude/agents/",

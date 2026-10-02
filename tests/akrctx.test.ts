@@ -52,6 +52,7 @@ import {
   pruneJudgeSnapshots,
 } from "../src/judge-snapshot.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../src/judge.js";
+import { contentHash, readManifest } from "../src/manifest.js";
 import { runRemove } from "../src/remove.js";
 import { runStatus } from "../src/status.js";
 import {
@@ -2334,6 +2335,163 @@ describe("upgrade", () => {
     });
   });
 
+  describe("capsule template provenance", () => {
+    const rel = ".akrctx/tasks/_template/acceptance-criteria.md";
+    const shipped = () => taskTemplateFiles["tasks/_template/acceptance-criteria.md"];
+    const abs = () => path.join(tmp, rel);
+    const candidate = () => path.join(tmp, `.akrctx/upgrades/${CLI_VERSION}/${rel}`);
+    const OLD = "# Acceptance Criteria\n\nOld shipped wording.\n";
+
+    async function manifestHashes(): Promise<Record<string, { hash: string }>> {
+      return JSON.parse(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8")).files;
+    }
+
+    async function installWithOldTemplate(recordProvenance: boolean): Promise<void> {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      await writeFile(abs(), OLD, "utf8");
+      const manifestFile = path.join(tmp, ".akrctx/manifest.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      if (recordProvenance) manifest.files[rel] = { hash: contentHash(OLD) };
+      else delete manifest.files[rel];
+      await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+    }
+
+    it("records provenance for every capsule template on a fresh install", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      const files = await manifestHashes();
+      for (const file of capsuleFiles) {
+        const key = `.akrctx/tasks/_template/${file}`;
+        expect(files[key]?.hash).toBe(contentHash(await readFile(path.join(tmp, key))));
+      }
+    });
+
+    it("keeps wiki knowledge and task capsules out of the manifest", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      await mkdir(path.join(tmp, ".akrctx/tasks/TASK-001-x"), { recursive: true });
+      await writeFile(path.join(tmp, ".akrctx/tasks/TASK-001-x/task.md"), "# x\n", "utf8");
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      const keys = Object.keys(await manifestHashes());
+      expect(keys.filter((key) => key.startsWith(".akrctx/wiki/"))).toEqual([]);
+      expect(
+        keys.filter((key) => key.startsWith(".akrctx/tasks/") && !key.startsWith(".akrctx/tasks/_template/")),
+      ).toEqual([]);
+    });
+
+    it("updates a template that matches its recorded hash and lists the write", async () => {
+      await installWithOldTemplate(true);
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(abs(), "utf8")).toBe(shipped());
+      expect(result.writes.find((write) => write.path === rel)?.kind).toBe("update");
+      expect((await manifestHashes())[rel]?.hash).toBe(contentHash(shipped()));
+      expect(result.conflicts).not.toContain(rel);
+    });
+
+    it("produces the same template as a fresh install after an eligible upgrade", async () => {
+      await installWithOldTemplate(true);
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+      const fresh = await mkdtemp(path.join(os.tmpdir(), "akrctx-fresh-"));
+      await runInit({ cwd: fresh, target: "codex", nonInteractive: true });
+
+      for (const file of capsuleFiles) {
+        const key = `.akrctx/tasks/_template/${file}`;
+        expect(await readFile(path.join(tmp, key), "utf8")).toBe(await readFile(path.join(fresh, key), "utf8"));
+      }
+    });
+
+    it("preserves a personalized template and offers a candidate", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const edited = `${await readFile(abs(), "utf8")}\nProject criterion.\n`;
+      await writeFile(abs(), edited, "utf8");
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(abs(), "utf8")).toBe(edited);
+      expect(await readFile(candidate(), "utf8")).toBe(shipped());
+      expect(result.conflicts).toContain(rel);
+      expect(result.completed).toBe(false);
+    });
+
+    it("preserves a differing template that has no provenance and invents no hash", async () => {
+      await installWithOldTemplate(false);
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(abs(), "utf8")).toBe(OLD);
+      expect(await readFile(candidate(), "utf8")).toBe(shipped());
+      expect(result.conflicts).toContain(rel);
+      expect((await manifestHashes())[rel]).toBeUndefined();
+    });
+
+    it("preserves a differing template when the manifest is invalid", async () => {
+      await installWithOldTemplate(true);
+      await writeFile(path.join(tmp, ".akrctx/manifest.json"), "{ invalid manifest\n", "utf8");
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(abs(), "utf8")).toBe(OLD);
+      expect(await pathExists(candidate())).toBe(true);
+      expect(result.conflicts).toContain(rel);
+    });
+
+    it("creates a missing template and records its hash", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      await rm(abs());
+
+      await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(await readFile(abs(), "utf8")).toBe(shipped());
+      expect((await manifestHashes())[rel]?.hash).toBe(contentHash(shipped()));
+    });
+
+    it("records provenance for an identical template without rewriting it", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const manifestFile = path.join(tmp, ".akrctx/manifest.json");
+      const manifest = JSON.parse(await readFile(manifestFile, "utf8"));
+      delete manifest.files[rel];
+      await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`, "utf8");
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", nonInteractive: true });
+
+      expect(result.writes.find((write) => write.path === rel)?.kind).toBe("preserve");
+      expect((await manifestHashes())[rel]?.hash).toBe(contentHash(shipped()));
+      expect(await readManifest(tmp)).toBeDefined();
+    });
+
+    it("reports drift in dry-run without changing files or provenance", async () => {
+      await installWithOldTemplate(true);
+      await rm(path.join(tmp, ".akrctx/tasks/_template/task.md"));
+      const manifestBefore = await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8");
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+      expect(result.writes.find((write) => write.path === rel)?.kind).toBe("update");
+      expect(result.writes.find((write) => write.path === ".akrctx/tasks/_template/task.md")?.kind).toBe("create");
+      expect(await readFile(abs(), "utf8")).toBe(OLD);
+      expect(await pathExists(path.join(tmp, ".akrctx/tasks/_template/task.md"))).toBe(false);
+      expect(await readFile(path.join(tmp, ".akrctx/manifest.json"), "utf8")).toBe(manifestBefore);
+    });
+
+    it("names a personalized template as a candidate in dry-run", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      await writeFile(abs(), "# Mine\n", "utf8");
+
+      const result = await runUpgrade({ cwd: tmp, target: "codex", dryRun: true, nonInteractive: true });
+
+      expect(
+        result.writes
+          .filter((write) => write.path.endsWith(rel))
+          .map((write) => write.kind)
+          .sort(),
+      ).toEqual(["preserve", "suggest"]);
+      expect(await pathExists(candidate())).toBe(false);
+    });
+  });
+
   it("rejects --force because upgrades never overwrite conflicts", async () => {
     await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
     const previousCwd = process.cwd();
@@ -4322,6 +4480,64 @@ describe("judge", () => {
     };
 
     // stdin is not a TTY under vitest, so these exercise the headless branch as written.
+    it.each([
+      { boundary: "CURRENT", legacy: false },
+      { boundary: "NEWER_CHANGES", legacy: false },
+      { boundary: "DIVERGED", legacy: false },
+      { boundary: "DIVERGED", legacy: true },
+      { boundary: null, legacy: false },
+      { boundary: null, legacy: true },
+    ])("labels approval separately from $boundary (legacy=$legacy)", async ({ boundary, legacy }) => {
+      const command = 'node -e "process.exit(0)"';
+      const { recordPath } = boundary
+        ? await createApprovableSnapshotFixture([command])
+        : await createReviewFixture({ declares: [command], claims: [command] });
+      if (legacy) {
+        const {
+          criteria: _criteria,
+          observations: _observations,
+          ...record
+        } = JSON.parse(await readFile(recordPath, "utf8"));
+        await writeFile(
+          recordPath,
+          JSON.stringify({
+            ...record,
+            schemaVersion: LEGACY_JUDGE_SCHEMA_VERSION,
+            scope: asSchemaVersion(record.scope, LEGACY_JUDGE_SCHEMA_VERSION),
+            issues: [],
+          }),
+          "utf8",
+        );
+      }
+      if (boundary === "NEWER_CHANGES") {
+        await writeFile(path.join(tmp, "app.ts"), "export const value = 3;\n", "utf8");
+      } else if (boundary === "DIVERGED") {
+        await execFileAsync("git", ["checkout", "--orphan", "other-lineage"], { cwd: tmp });
+      }
+
+      const expected = await verifyJudgeRecord(tmp, recordPath);
+      const { output, exitCode } = await runCli(["judge", "verify", recordPath]);
+      const json = await runCli(["judge", "verify", recordPath, "--json"]);
+
+      expect(expected.approved).toBe(true);
+      expect(expected.verifiedNow.reviewBoundary).toBe(boundary);
+      expect(exitCode).toBeUndefined();
+      expect(json.exitCode).toBeUndefined();
+      expect(JSON.parse(json.output)).toEqual(expected);
+      expect(output.split("\n")[0]).toBe("Judge verification: APPROVED for the reviewed boundary");
+      expect(output).not.toContain("APPROVED and current");
+      expect(output).toContain(`reviewBoundary    ${boundary ?? "not classified for this boundary type"}`);
+      expect(output).toContain(`historicalVerdict APPROVED (${expected.historicalVerdict.independence})`);
+      expect(output).toContain(`verifiedNow       ${expected.verifiedNow.value} — ${expected.verifiedNow.reason}`);
+      expect(output).toContain("Validation was taken on trust.");
+      if (legacy) expect(output).toContain("schema            legacy");
+      if (boundary === "DIVERGED") {
+        expect(output).toContain("verifiedNow       incomplete");
+        expect(output).toContain("reviewBoundary: DIVERGED");
+      }
+      if (boundary === null) expect(output).not.toContain("reviewBoundary    CURRENT");
+    });
+
     it("refuses headless re-execution and prints the invocation that would approve it", async () => {
       const sentinel = path.join(tmp, "cli-unapproved.txt");
       const command = `node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`;
@@ -4351,7 +4567,8 @@ describe("judge", () => {
       ]);
 
       expect(exitCode).toBeUndefined();
-      expect(output).toContain("APPROVED and current");
+      expect(output).toContain("APPROVED for the reviewed boundary");
+      expect(output).toContain("reviewBoundary    CURRENT");
       expect(output).toContain("re-ran");
     });
 
@@ -4373,7 +4590,7 @@ describe("judge", () => {
 
       expect(exitCode).toBe(1);
       expect(output).not.toContain("re-ran");
-      expect(output).not.toContain("APPROVED and current");
+      expect(output).not.toContain("APPROVED for the reviewed boundary");
       expect(output).toContain(`expected ${JSON.stringify(first)}`);
       expect(output).toContain(`got ${JSON.stringify(second)}`);
     });
@@ -4393,7 +4610,7 @@ describe("judge", () => {
       ]);
 
       expect(exitCode).toBe(1);
-      expect(output).not.toContain("APPROVED and current");
+      expect(output).not.toContain("APPROVED for the reviewed boundary");
     });
 
     it("ignores --approve-commands when --run-tests is not set", async () => {
@@ -6544,13 +6761,16 @@ describe("task migrate-criteria", () => {
     );
   });
 
-  it("renumbers a capsule whose identifiers duplicate or are partial", async () => {
+  it("rejects duplicate identifiers instead of silently repointing an existing review", async () => {
     const task = await legacyCapsule("# Acceptance Criteria\n\n- AC-1: One.\n- AC-1: Two.\n- Three.\n");
 
-    await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
+    // Unconditional renumbering was a bug: it changed the identity of the second criterion.
+    const results = await migrateAcceptanceCriteriaIdentifiers(tmp, { taskId: task.taskId });
 
+    expect(results[0].changed).toBe(false);
+    expect(results[0].problems?.[0]).toContain("line 4");
     expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(
-      "# Acceptance Criteria\n\n- AC-1: One.\n- AC-2: Two.\n- AC-3: Three.\n",
+      "# Acceptance Criteria\n\n- AC-1: One.\n- AC-1: Two.\n- Three.\n",
     );
   });
 

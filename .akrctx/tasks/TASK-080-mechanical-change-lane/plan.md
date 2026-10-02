@@ -12,10 +12,10 @@ specification step is not optional here: a declared generator command writes by 
 
 ## Steps
 
-1. Resolve generator provenance/bootstrapping and provisional foreign-path capture authorization.
-2. Specify base workspace preparation, output-path comparison and every approved shell step.
-3. Write failing tests for parsing, absent-base generators, unexpected writes, unreproduced
-   deltas, non-generated changes and approval refusal.
-4. Implement declared scope authorization and reproduction using current workspace guarantees.
-5. Replay TASK-075 with explicit provenance, reviewing generator code as well as reproduction.
-6. Update shipped contracts and instructions, then regenerate through supported CLI paths.
+1. Use the closed two-step contract; keep the generator's prior review distinct from this lane.
+2. Write failing declaration/provenance tests, including absent-base and modified generators.
+3. Cover exact foreign-task capture authorization and ordered approval of all preparation and
+   generation commands before execution; do not introduce automatic scope exemptions.
+4. Implement isolated tool preparation and reproduction from base with the full path manifest.
+5. Test mode/symlink/add/delete drift and detected out-of-path writes, including ignored output.
+6. Reproduce TASK-075 in a labelled two-step fixture, then update shipped contract/instructions.

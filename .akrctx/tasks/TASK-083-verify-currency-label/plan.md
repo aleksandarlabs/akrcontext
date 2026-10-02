@@ -8,7 +8,7 @@ Reason: the defect is a few presentation lines in `src/cli/judge.ts`, and the fa
 are already computed and already in the JSON output. No contract changes, no new data, no
 behaviour change to any verdict. `workflowRules.smallSafePatch` maps to fast-patch, and
 `defaults.workflow` is task-fit, so this is the smallest workflow that fits. The wording and null
-behavior are recorded in task.md; this capsule correction does not implement the CLI change.
+behavior are recorded in task.md; implementation follows that contract without changing verification.
 
 ## Steps
 

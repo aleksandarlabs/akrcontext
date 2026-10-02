@@ -12,7 +12,8 @@ Three capsules retire an identifier deliberately. TASK-076 and TASK-078 retire `
 design review removed the criterion, and TASK-081 retires `AC-2` and `AC-3`. Each records the
 retirement in its `## Contract` section and states that the identifier must not be reused.
 
-`akrctx task migrate-criteria --dry-run` reports all three as needing migration:
+At discovery, before adding the contract-closure criteria below,
+`akrctx task migrate-criteria --dry-run` reported all three as needing migration:
 
 ```
   ! .akrctx/tasks/TASK-076-judge-round-accounting/acceptance-criteria.md  11 criteria
@@ -37,7 +38,39 @@ rejected because "a bullet inserted or reordered between round 1 and round 2 wou
 repoint an existing finding". The migration command reintroduces exactly that failure.
 
 ## Contract
-To be written after the open questions below are answered.
+
+Migration preserves every existing valid `AC-<n>` identifier and its association with the
+criterion. It adds identifiers only to top-level criterion bullets that have none.
+
+Retirements are declared at the end of acceptance-criteria.md, after all criteria, with one
+unindented non-bullet line per identifier: `Retired: AC-5`. Multiple retirements use multiple
+lines. These lines are metadata, not criteria, and never require judge results.
+
+Allocation scans the entire file before editing. The next identifier is one greater than the
+maximum of active and retired identifiers, or AC-1 when both sets are empty. Assign further
+unnumbered bullets successive identifiers in document order. Never fill a gap or reuse a
+retirement; a gap without a retirement declaration remains valid but does not prove history.
+
+Duplicate active identifiers, duplicate retirements, active/retired overlap, malformed
+retirement lines, or a malformed AC-like identifier are capsule defects. Report file and line
+and refuse to write that capsule; never repair these by renumbering. A bulk run may still
+process other valid capsules but must report the failed capsules and exit non-zero.
+
+Preserve all existing bytes except the identifier prefixes inserted into unnumbered bullets.
+A no-op returns `changed: false`, does not write, and produces no planned write in dry-run.
+Dry-run uses the same classification and allocation rules without applying changes.
+
+The reader and migrator share active/retired validity rules. The reader reports unnumbered
+bullets as defects; migration can repair only that defect automatically. Retired identifiers
+are excluded from the live criterion set, preserving the record schema and APPROVED rule.
+
+Add explicit retirement metadata for the known removals in TASK-076, TASK-078 and TASK-081.
+This documents established removals and changes no active identifier or criterion meaning.
+
+## Workflow
+
+SDD+TDD: preserve the closed identity contract and reproduce migration defects in failing tests
+before implementation. Independent judge review is authorized by the user on 2026-10-02.
 
 ## Validation
 ```
@@ -50,36 +83,40 @@ pnpm akrctx doctor --json
 
 ## Out Of Scope
 
-- Changing the identifier format, the record shape, or the APPROVED rule from TASK-075.
-- Renumbering any existing capsule. This delivery makes a command stop editing files it should
-  leave alone.
-- Enforcing that identifiers are contiguous. A gap is the expected result of a retirement.
+- Changing the active identifier format, review record schema or APPROVED rule from TASK-075.
+- Renumbering existing criteria, guessing undeclared historical retirements or filling gaps.
+- Automatically repairing duplicates, malformed identity metadata or active/retired overlap.
 
 ## Clarifications
 
 Ambiguity resolved with the human before implementation. One answer per top-level `- ` bullet.
 
-- None recorded yet.
+### Session 2026-10-02
+- The user proposed preserving valid identifiers, declaring retirements with `Retired: AC-5`,
+  allocating above the maximum active/retired number, and reporting no-op as changed: false.
+  These decisions are adopted.
+- Under the delegated decision authority, duplicate or malformed identity metadata is a
+  reported defect and prevents writes to that capsule. It is never silently renumbered.
+  Retirement metadata is a footer with one non-bullet line per identifier.
+- Confirmed directly with the human: migration only adds an identifier to a bullet that has none,
+  and never changes one that is already valid. Renumbering only the defective files was rejected,
+  because a file with one unnumbered bullet would still reassign a retired identifier. Keeping
+  today's unconditional renumbering was rejected because it turns the identifier back into a
+  position, which TASK-075 rejected explicitly.
+- The human first chose prose-only retirement with no machine-readable declaration, on the stated
+  basis that allocating above the maximum made reuse impossible. That basis was wrong: when the
+  retired identifier is the highest in the file, `maximum active + 1` hands it out again. Shown
+  that hole, the human reversed to the footer declaration. Recorded so nobody reopens prose-only
+  on the original, false reasoning.
+- Confirmed directly with the human: one run processes every capsule, applies the safe additions,
+  names each capsule that needs manual repair, and exits non-zero. Stopping at the first duplicate
+  was rejected because several defective capsules would then need one pass each. Warning and
+  exiting zero was rejected because `verify` already rejects a duplicate at review time, so the
+  defect would surface later and cost more.
+- Recording the footer for TASK-076, TASK-078 and TASK-081 places four capsules in one reviewed
+  boundary. The implementer either captures the snapshot with `--include-task` for those three, or
+  lands the metadata in a separate commit before capture. Judge scope fails closed otherwise.
 
 ## Open Questions
 
-Ambiguity still unresolved. One question per top-level `- ` bullet.
-
-- Does migration ever renumber a bullet that already carries a valid identifier? The narrow rule
-  is that it only adds an identifier to a bullet that has none, and never touches an existing one.
-  That makes a retirement safe by construction. It also leaves a capsule with duplicate
-  identifiers unrepaired, because repairing a duplicate means changing one of them.
-
-- How does a capsule declare a retirement, so a reader can tell a retirement from a lost
-  criterion? TASK-076, TASK-078 and TASK-081 state it in prose inside `## Contract`, which no tool
-  reads. Candidates: a retired-identifier line in `acceptance-criteria.md`, a tombstone bullet
-  carrying the identifier and a retired marker, or leaving it to prose and accepting that the gap
-  is unexplained to any tool.
-
-- What does the command do with a capsule that has both a defect and a gap, such as one unnumbered
-  bullet and a retired identifier? Numbering the new bullet needs a number that was never used,
-  which requires the retirement to be machine-readable, or the command must refuse and say why.
-
-- Is the `changed` result of a no-op pass a defect in itself? The command currently reports a
-  change for a file it should not touch, and `--dry-run` prints it as a planned write. A caller in
-  CI reading that output learns the wrong thing even when nobody applies the migration.
+- None.

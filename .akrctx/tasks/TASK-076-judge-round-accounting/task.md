@@ -32,22 +32,72 @@ script.
 
 ## Contract
 
-Scope constraints from the design review:
+**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
+reviewing agent's refinements. No human confirmed them. Each one is listed under
+`## Open Questions` for confirmation. Implementation must not start until they move to
+`## Clarifications` with the human's answer.
 
-- `rounds` only reads local evidence. `verify` gains no filing side effect and this delivery
-  adds no canonical naming, record-writing or historical migration command.
-- Duplicate copies count once; a genuinely separate judgment must not be silently merged.
-- Catch-up reviews remain visible as review work, with a separate category. Historical
-  records whose category cannot be established are labelled unknown, never guessed.
-- Report tasks whose latest chronological verdict is APPROVED separately from tasks whose
-  latest verdict is NEEDS CHANGES or BLOCKED. This is historical completion, not live approval
-  currency. Contradictory latest records must be reported as ambiguous.
-- Keep the 2.23 historical figure labelled with its original counting rule. Current aggregates
-  are recalculated from local records and must not be presented as that frozen cohort.
+The command is read-only. It neither files records nor changes verify, approval validity,
+local-only storage, filenames or the live workspace.
 
-The round identity, supported legacy shapes and JSON structure remain to be specified before
-implementation. AC-5 is retired because canonical filing is outside this delivery; its
-identifier must not be reused.
+### Record discovery and eligibility
+
+Read regular local record files under .akrctx/local/judge, including task subdirectories and
+records/, irrespective of filename or extension. Do not traverse snapshots/ or follow
+symlinks, and honor blocked-read policy. Snapshot metadata may be read through existing
+policy-aware helpers solely to classify the referenced boundary.
+
+A parseable record needs a valid taskId, verdict (APPROVED, NEEDS CHANGES or BLOCKED) and
+parseable reviewedAt. Malformed files or missing/invalid required fields go to skipped with
+file and reason. In particular, missing reviewedAt is skipped, not chronologically guessed.
+Older schema versions may qualify without passing today's full record verification.
+
+A recognizable record lacking a valid scope.scopeDigest goes to unknown with its taskId,
+files and reason and is excluded from round counts: it has no stable deduplication key.
+Missing/invalid optional evidence is reported as unknown, not inferred from filenames.
+
+### Round identity and classification
+
+Within each task, one historical round is `(reviewedAt, scopeDigest)`. Compare reviewedAt as
+its parsed UTC instant so equivalent timestamp offsets do not create extra rounds. Exact
+copies count once and list all source files. This is an accounting convention; two genuinely
+separate invocations with identical evidence cannot be recovered from those fields alone.
+
+If records with one key disagree on verdict, independence (true, false or absent/unknown),
+or supplied per-criterion statuses, count one round, mark it ambiguous, and list every source
+file in unknown with a conflict reason. Do not silently select a preferred copy. Evidence
+wording differences alone do not create a new round or a conflict.
+
+Sort rounds by UTC instant, using scopeDigest as a stable display tie-breaker. Conflicting
+verdicts at the latest instant or an ambiguous latest round make the task state unknown.
+Otherwise the latest APPROVED means closed; latest NEEDS CHANGES or BLOCKED means open.
+Recognizable uncountable records make the task state unknown because they can hide rounds.
+These are historical states, never assertions that an approval matches the live workspace.
+
+Categorize rounds as ordinary, catch-up or unknown using explicit boundary metadata only.
+Catch-ups count as real review work. Missing category evidence does not discard an otherwise
+countable round; report the uncertainty in unknown.
+
+### Output
+
+JSON has exactly these top-level fields:
+
+- tasks[]: taskId, state (closed/open/unknown), and rounds[]. Each round carries reviewedAt,
+  scopeDigest, verdict (null when conflicting), independent (true/false/null), category,
+  ambiguous, and sorted source files[].
+- closed{} and open{}: taskCount, roundCount, mean and max for tasks in that state. Empty
+  groups have counts 0 and mean/max null, never a fabricated zero-round observation.
+- unknown[]: entries with taskId (or null), sorted files[] and reason for uncountable records,
+  conflicting evidence, uncertain task state or unknown round category.
+- skipped[]: entries with file and reason for unreadable/non-record/ineligible inputs.
+
+Sort tasks by taskId and diagnostics by file/reason. The optional task filter applies before
+aggregation. Unattributable skipped files remain visible, labelled as such. Human output
+renders every field and entry, including empty collections, using these same values.
+
+Keep the 2.23/31-task historical baseline and its original counting rule in the implementation
+log when comparing cohorts; do not hardcode this repository's baseline into a generic CLI.
+AC-5 remains retired because canonical filing is outside this delivery.
 
 ## Validation
 ```
@@ -74,13 +124,23 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   applies the scope and consistency corrections from that review; it does not implement the
   proposed CLI features. Unresolved contract choices remain under Open Questions.
 
+### Session 2026-10-02
+- The human reviewed the provenance of this capsule's contract and returned its decisions to
+  `## Open Questions`. The contract had recorded them as the human's own, which was false: they
+  came from the assistant's recommendations and a reviewing agent's refinements. One of three
+  comparable recommendations was already reversed by the human in TASK-084 once its consequence
+  was shown, so an unconfirmed recommendation is not treated as an answer.
+
 ## Open Questions
 
-- What identifies a historical review round? `(reviewedAt, scopeDigest)` merges duplicate
-  copies but can also merge two different judgments with identical timestamps and scope.
-  Define how differing verdicts, criterion results and independence claims are handled, and
-  what the reader reports when historical evidence cannot distinguish two invocations.
-- Which legacy record shapes can be counted from their contents, and how should records with
-  missing identity fields or ambiguous chronological order be reported?
-- What is the JSON structure for per-task details, closed-task aggregates, open-task totals,
-  unknown categories and skipped files? The human and JSON reports must expose the same facts.
+- Confirm the round identity. Draft: `(reviewedAt, scopeDigest)`, with UTC instants defining
+  timestamp equality. Duplicate copies count once. When two records share that key but differ in
+  verdict, criterion statuses or independence claim, the key is ambiguous: it counts as one round
+  and the report names the source files.
+- Confirm the handling of incomplete records. Draft: a record with a missing or invalid
+  `reviewedAt` is skipped with a reason; a recognizable record missing `scopeDigest` is reported
+  as unknown and not counted as a round; an unknown review category alone does not prevent
+  counting a round whose key is complete. The reviewing agent found that the assistant's
+  recommendations contradicted each other here, so this one needs a real answer.
+- Confirm the JSON structure. Draft: `tasks[]`, `closed{}`, `open{}`, `unknown[]`, `skipped[]`,
+  with null means and maxima for an empty aggregate. The human report prints the same fields.

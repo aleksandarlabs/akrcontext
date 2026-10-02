@@ -65,6 +65,13 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   applies the scope and consistency corrections from that review; it does not implement the
   proposed CLI features. Unresolved contract choices remain under Open Questions.
 
+### Session 2026-10-02
+- The human declined independent judge review for this delivery. No snapshot was captured
+  and no judge record exists for TASK-079. Reason given: the working tree holds uncommitted
+  changes from other tasks and the human chose neither a worktree nor a change of git state.
+  Validation is the implementer's own: build, lint and 1024 tests pass, and
+  `upgrade --dry-run` shows the effect on this repository.
+
 ## Open Questions
 
 The existing managed-file conflict contract is reused.

@@ -1,5 +1,6 @@
 import { lstat, readFile, readdir, rm } from "node:fs/promises";
 import path from "node:path";
+import { scanCriteriaIdentities } from "./acceptance-criteria.js";
 import { normalizeWorkflow as normalizeConfigWorkflow, readConfig } from "./config.js";
 import { listDirs, pathExists, readTextIfExists, writePlannedFile } from "./fs-utils.js";
 import { type CapsuleContent, capsuleFiles } from "./harness-files.js";
@@ -325,16 +326,16 @@ export interface CriteriaMigrationResult {
   changed: boolean;
   /** Number of criteria the file declares. */
   criteria: number;
+  /** Identity defects that require manual repair; these capsules are never written. */
+  problems?: string[];
 }
-
-const CRITERION_PREFIX_RE = /^(-\s+)(?:AC-[0-9]+:\s+)?(.*)$/;
 
 /**
  * Numbers the criteria of one capsule, or of every capsule, as `AC-<n>`.
  *
  * The judge references a criterion by identifier, so every capsule needs one per criterion. A
- * capsule whose identifiers are already unique and sequential is left untouched; any other state
- * is renumbered from 1 in declared order. Indented continuation lines are never touched.
+ * valid existing identifier is preserved. Missing identifiers are allocated above every active
+ * and retired number. Identity defects require manual repair; other valid capsules still migrate.
  */
 export async function migrateAcceptanceCriteriaIdentifiers(
   cwd: string,
@@ -350,7 +351,11 @@ export async function migrateAcceptanceCriteriaIdentifiers(
     const relative = path.posix.join(".akrctx/tasks", dir, "acceptance-criteria.md");
     const current = await readTextIfExists(path.join(cwd, relative));
     if (current === undefined) continue;
-    const { markdown, criteria } = numberCriteria(current);
+    const declaration = scanCriteriaIdentities(current);
+    const problems = declaration.problems
+      .filter((problem) => problem.kind === "identity")
+      .map((problem) => problem.message);
+    const markdown = problems.length ? current : numberCriteria(current, declaration);
     const changed = markdown !== current;
     if (changed && !options.dryRun) {
       await writePlannedFile(cwd, relative, markdown, { force: true, reason: "akrctx criterion identifiers." });
@@ -359,23 +364,26 @@ export async function migrateAcceptanceCriteriaIdentifiers(
       taskId: /^(TASK-[0-9]+)/.exec(dir)?.[1] ?? dir,
       file: relative,
       changed,
-      criteria,
+      criteria: declaration.criteria.length,
+      ...(problems.length ? { problems } : {}),
     });
   }
   return results;
 }
 
-function numberCriteria(markdown: string): { markdown: string; criteria: number } {
+function numberCriteria(markdown: string, declaration: ReturnType<typeof scanCriteriaIdentities>): string {
+  let maximum = 0n;
+  for (const id of [...declaration.ids, ...declaration.retiredIds]) {
+    const number = BigInt(id.slice(3));
+    if (number > maximum) maximum = number;
+  }
   const lines = markdown.split("\n");
-  let next = 1;
-  const numbered = lines.map((line) => {
-    const bullet = CRITERION_PREFIX_RE.exec(line);
-    if (!bullet) return line;
-    const identified = `${bullet[1]}AC-${next}: ${bullet[2]}`;
-    next += 1;
-    return identified;
-  });
-  return { markdown: numbered.join("\n"), criteria: next - 1 };
+  for (const line of declaration.unnumberedLines) {
+    maximum += 1n;
+    // Insert only the prefix: preserve spacing, CRLF, continuation lines and all other bytes.
+    lines[line - 1] = lines[line - 1].replace(/^(-[ \t]+)/, `$1AC-${maximum}: `);
+  }
+  return lines.join("\n");
 }
 
 export async function findTaskDirectory(cwd: string, taskId: string): Promise<string | undefined> {

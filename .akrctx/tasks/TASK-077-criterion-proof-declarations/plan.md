@@ -12,11 +12,11 @@ ceremony is concrete: a binding proof that is wrong blocks a correct implementat
 
 ## Steps
 
-1. Resolve declaration syntax and the distinction between claimed and observed evidence.
-2. Complete the optional command/documentary-reference contract before implementation.
-3. Write failing tests for parsing, unsupported references, policy-blocked references, unmet
-   command requirements and declarations that are present but insufficient.
-4. Implement parsing and verification without a new execution channel or record schema.
-5. Update shipped templates and regenerate through the CLI; TASK-079 must first provide a
-   supported upgrade path for capsule templates.
-6. Exercise declarations on suitable criteria in this capsule without fabricating proofs.
+1. Use the closed declaration contract; coordinate shared criterion parsing with TASK-084.
+2. Write failing tests for physical-line parsing, duplicate references, orphaned/unsupported
+   declarations, blocked paths, multiple commands and globally optional proof commands.
+3. Pin separate unmet-proof, unobserved-execution and not-evaluated messages using current
+   record and result structures. Keep documentary judgment distinct from mechanical status.
+4. Implement parser/verification changes without new execution or reporter-text inference.
+5. After TASK-079, update and regenerate shipped templates through the CLI.
+6. Exercise appropriate declarations in this capsule; do not fabricate proofs for judgment.

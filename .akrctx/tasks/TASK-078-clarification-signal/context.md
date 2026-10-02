@@ -30,3 +30,8 @@ TASK-079 is implemented.
 ## Blocked Reads
 
 - Secrets and credentials must not be read.
+
+## Handoff
+
+Contract closed on 2026-10-02 in task.md. The implementation brief is exports/codex.md.
+The current change records decisions only; feature implementation and its tests remain pending.

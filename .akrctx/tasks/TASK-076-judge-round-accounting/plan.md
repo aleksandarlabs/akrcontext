@@ -10,9 +10,9 @@ matches workflowRules.apiOrContract and keeps storage changes outside the delive
 
 ## Steps
 
-1. Resolve round identity, supported legacy evidence and JSON reporting questions.
-2. Complete the counting contract before implementation.
-3. Write failing fixture tests for duplicate copies, distinct judgments, catch-up categories,
-   incomplete tasks, contradictory latest verdicts and all historical record locations.
-4. Implement the read-only reader and `akrctx judge rounds`.
-5. Compare the recalculated cohort to the labelled 2.23 baseline and explain differences.
+1. Use the closed accounting contract and Session 2026-10-02 decisions.
+2. Write failing fixtures for legacy record locations, duplicate keys, equivalent UTC times,
+   conflicting verdicts/independence/statuses, missing fields, tie ordering and catch-up metadata.
+3. Implement the read-only reader, diagnostics and closed/open aggregation.
+4. Pin identical human/JSON information, task filtering and empty-group behavior.
+5. Compare the current cohort to the labelled 2.23 baseline in the implementation log.

@@ -2,8 +2,8 @@
 
 - [x] Capsule scope, criteria and plan corrected after the 2026-10-01 design review.
 
-- [ ] Proof syntax, proof kinds and binding rule recorded in task.md before implementation.
-- [ ] Open questions resolved with the human and recorded under Clarifications.
+- [x] Proof syntax, proof kinds and binding rule recorded in task.md before implementation.
+- [x] Contract decisions closed on 2026-10-02 under the user's delegated authority.
 - [ ] Red tests written before implementation for the parser and each proof kind.
 - [ ] A criterion without a declared proof remains assessable; old capsules untouched.
 - [ ] No new execution channel introduced; only `## Validation` commands ever run.
