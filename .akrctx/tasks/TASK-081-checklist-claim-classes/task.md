@@ -67,6 +67,11 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   applies the scope and consistency corrections from that review; it does not implement the
   proposed CLI features. Unresolved contract choices remain under Open Questions.
 
+### Session 2026-10-02
+- AC-7 requires both checklist producers to change, but TASK-082 works in src/task.ts. The
+  human decided that TASK-081 edits only `reviewMarkdown()` in src/task.ts and nothing else
+  in that file.
+
 ## Open Questions
 
 Evidence enforcement belongs to existing validation and TASK-077.

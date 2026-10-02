@@ -6785,3 +6785,79 @@ describe("task migrate-criteria", () => {
     expect(await readFile(path.join(tmp, task.taskDir, "acceptance-criteria.md"), "utf8")).toBe(original);
   });
 });
+
+describe("TASK-081 checklist claim classes", () => {
+  const shipped = () => taskTemplateFiles["tasks/_template/review-checklist.md"];
+
+  async function generated(): Promise<string> {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Classify checklist claims", { cwd: tmp, nonInteractive: true });
+    return readFile(path.join(tmp, task.taskDir, "review-checklist.md"), "utf8");
+  }
+
+  function sectionOf(markdown: string, heading: string): string {
+    const parts = markdown.split(/^## /m).slice(1);
+    return parts.find((part) => part.startsWith(`${heading}\n`)) ?? "";
+  }
+
+  it("separates Evidence References from Process Attestations in both producers", async () => {
+    for (const checklist of [shipped(), await generated()]) {
+      expect(checklist).toContain("\n## Evidence References\n");
+      expect(checklist).toContain("\n## Process Attestations\n");
+      expect(checklist.indexOf("## Evidence References")).toBeLessThan(checklist.indexOf("## Process Attestations"));
+    }
+  });
+
+  it("ships the same checklist from the template and from akrctx task", async () => {
+    expect(await generated()).toBe(shipped());
+  });
+
+  it("keeps evidence references free of checkboxes", () => {
+    const evidence = sectionOf(shipped(), "Evidence References");
+
+    expect(evidence).toContain("AC-");
+    expect(evidence).toContain("task.md");
+    expect(evidence).not.toMatch(/\[[ x]\]/);
+  });
+
+  it("labels every attestation with an actor and states that a checked box is self-reported", () => {
+    const attestations = sectionOf(shipped(), "Process Attestations");
+    const boxes = attestations.split("\n").filter((line) => /^- \[[ x]\]/.test(line));
+
+    expect(attestations).toContain("self-reported");
+    expect(attestations).toMatch(/not independent(ly)? verif/i);
+    expect(attestations).toMatch(/authenticated human approval/);
+    expect(boxes.length).toBeGreaterThan(0);
+    for (const box of boxes) expect(box).toMatch(/^- \[ \] (Implementing agent|Human operator): /);
+  });
+
+  it("drops the duplicated mechanical-result checkboxes", () => {
+    const checklist = shipped();
+
+    expect(checklist).not.toMatch(/tests or validation commands/i);
+    expect(checklist).not.toMatch(/regenerated from src\/templates/i);
+    expect(checklist).not.toMatch(/build, .*tests/i);
+  });
+
+  it("keeps TASK-051: ready-for-review is the last box and no box waits for approval", () => {
+    const boxes = shipped()
+      .split("\n")
+      .filter((line) => /^- \[ \]/.test(line));
+
+    expect(boxes.at(-1)).toMatch(/ready for independent review/);
+    expect(shipped()).toMatch(/before snapshot capture/);
+    expect(shipped()).not.toMatch(/approved|APPROVED|review (is )?completed/);
+  });
+
+  it("leaves existing capsules untouched by init and upgrade planning", async () => {
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    const task = await runTask("Keep my checklist", { cwd: tmp, nonInteractive: true });
+    const file = path.join(tmp, task.taskDir, "review-checklist.md");
+    const legacy = "# Review Checklist\n\n- [x] Goal is clear.\n- [ ] Mixed, unclassified item.\n";
+    await writeFile(file, legacy, "utf8");
+
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+
+    expect(await readFile(file, "utf8")).toBe(legacy);
+  });
+});

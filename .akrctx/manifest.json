@@ -79,14 +79,29 @@
     },
     ".codex/agents/akrctx-implementer.toml": {
       "hash": "sha256:b7ee166b7953ea7c6c93aa606beb6617a3f91ac1ccc80bf3464930014b684ebc"
+    },
+    ".akrctx/tasks/_template/task.md": {
+      "hash": "sha256:b830baeb19b45f3d5bca32f257ceab37dd70614cecc2e2c21b2e51239d9d3a80"
+    },
+    ".akrctx/tasks/_template/context.md": {
+      "hash": "sha256:d51a364d307a37e93d67d7f2191afe064b6cd6f1168f1719eea10cccb970b347"
+    },
+    ".akrctx/tasks/_template/plan.md": {
+      "hash": "sha256:e2a17a717b6cafb3ab52cd706eb41c7b351ac0a0d2f957da51229dc9e39c5529"
+    },
+    ".akrctx/tasks/_template/acceptance-criteria.md": {
+      "hash": "sha256:38efe433c3b6b4d04d755e8a6f0b8cc64915c2f8af6de99a41373fe2f1ecdb36"
+    },
+    ".akrctx/tasks/_template/review-checklist.md": {
+      "hash": "sha256:0a9e4ed75a441f0055978543fc756c68b540fbe44af9b5ce1089395a4393ffeb"
     }
   },
   "candidates": {
     ".akrctx/upgrades/0.6.0/CLAUDE.md": {
-      "hash": "sha256:cad724ac56bb92050b19dcb5912d5d0a505cd122f079f38dd5a512d838c0cb61"
+      "hash": "sha256:c8175014940e87c819a210db80b89e0a2558a4552d11f6b418153ad19750231c"
     },
     ".akrctx/upgrades/0.6.0/AGENTS.md": {
-      "hash": "sha256:61c0167a9ab32d46a7c2aabcf21a9fffd9f1ab1a4a5f35387036df90631e95ce"
+      "hash": "sha256:d97c34be63a74e27cae7fb69b63c617d2565a7d277f67c868fbf7e138510ca01"
     }
   }
 }

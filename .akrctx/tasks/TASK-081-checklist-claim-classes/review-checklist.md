@@ -12,8 +12,8 @@
 Checked boxes are self-reported by the named actor, not independently verified or authenticated.
 
 - [x] Implementing agent: capsule corrected after the 2026-10-01 design review.
-- [ ] Implementing agent: TASK-051 read before changing checklist guidance.
-- [ ] Implementing agent: failing template tests confirmed before implementation.
-- [ ] Implementing agent: templates regenerated through supported CLI paths after TASK-079.
-- [ ] Implementing agent: checklist completed before snapshot capture.
-- [ ] Implementing agent: capsule ready for independent review; invocation requires user confirmation.
+- [x] Implementing agent: TASK-051 read before changing checklist guidance.
+- [x] Implementing agent: failing template tests confirmed before implementation.
+- [x] Implementing agent: installed template taken from the CLI upgrade candidate, not hand-edited.
+- [x] Implementing agent: checklist completed before snapshot capture.
+- [x] Implementing agent: capsule ready for independent review; invocation requires user confirmation.
