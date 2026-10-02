@@ -38,6 +38,11 @@ cannot see it. Anything built on `akrctx task show --json` inherits the blind sp
 - Keep the JSON shape and generated capsule layout unchanged. Reason extraction, declaration
   enforcement and removing the legacy generated heading are separate work.
 
+## Workflow
+
+TDD: reproduce the existing workflow-reader defect with failing tests before changing the
+reader, following workflowRules.bugfix and the workflow already selected in plan.md.
+
 ## Validation
 ```
 pnpm build

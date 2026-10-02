@@ -532,14 +532,34 @@ export async function showTask(cwd: string, taskId: string): Promise<TaskShowRes
     const content = await readTextIfExists(path.join(cwd, taskDir, name));
     if (content !== undefined) files[name] = content;
   }
-  const taskMd = files["task.md"] ?? "";
-  const workflowMatch = /## Recommended Workflow\n\n(.+)/.exec(taskMd);
+  const workflow =
+    readDeclaredWorkflow(files["plan.md"] ?? "", "Workflow") ??
+    readDeclaredWorkflow(files["task.md"] ?? "", "Recommended Workflow");
   return {
     taskId: resolvedTaskId,
     taskDir,
-    workflow: workflowMatch ? workflowMatch[1].trim() : undefined,
+    workflow,
     files,
   };
+}
+
+/** Read the first declared line without interpreting its value or its reason. */
+function readDeclaredWorkflow(markdown: string, heading: string): string | undefined {
+  const lines = markdown.split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trimEnd() === `## ${heading}`);
+  if (start < 0) return undefined;
+  for (const line of lines.slice(start + 1)) {
+    const text = line.trim();
+    if (!text) continue;
+    if (/^#{1,6}\s/.test(text)) return undefined;
+    const value = text
+      .replace(/^[-*+](?:\s+|$)/, "")
+      .trim()
+      .replace(/\.$/, "")
+      .trim();
+    return value || undefined;
+  }
+  return undefined;
 }
 
 export async function removeTask(cwd: string, taskId: string, options: CommandOptions): Promise<TaskRemoveResult> {

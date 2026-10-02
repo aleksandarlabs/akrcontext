@@ -6861,3 +6861,106 @@ describe("TASK-081 checklist claim classes", () => {
     expect(await readFile(file, "utf8")).toBe(legacy);
   });
 });
+
+describe("TASK-082 workflow declaration reader", () => {
+  const cli = path.resolve("dist/index.js");
+
+  async function workflowCapsule(plan: string | undefined, task = "# Task\n"): Promise<string> {
+    const taskDir = ".akrctx/tasks/TASK-082-fixture";
+    await mkdir(path.join(tmp, taskDir), { recursive: true });
+    await writeFile(path.join(tmp, taskDir, "task.md"), task);
+    if (plan !== undefined) await writeFile(path.join(tmp, taskDir, "plan.md"), plan);
+    return taskDir;
+  }
+
+  it.each([
+    ["TDD", "TDD"],
+    ["- research-first", "research-first"],
+    ["* SDD+TDD.", "SDD+TDD"],
+    ["+ EDD", "EDD"],
+    ["  -   fast-patch.  ", "fast-patch"],
+    ["TDD.", "TDD"],
+    ["UI review", "UI review"],
+    ["bespoke workflow.", "bespoke workflow"],
+    ["- research-first, then TDD", "research-first, then TDD"],
+    ["SDD+TDD. This is the declared string.", "SDD+TDD. This is the declared string"],
+  ])("reads and normalizes the plan declaration %s", async (declaration, expected) => {
+    await workflowCapsule(
+      `# Plan\n\n## Workflow\n\n${declaration}\n\nReason: Keep the declared string.\n\n## Steps\n\n1. Work.\n`,
+    );
+
+    expect((await showTask(tmp, "TASK-082")).workflow).toBe(expected);
+  });
+
+  it("reads whitespace and CRLF without requiring a blank line after the heading", async () => {
+    await workflowCapsule("# Plan\r\n\r\n## Workflow  \r\n\t-  UI review.  \r\n\r\n## Steps\r\nWork.\r\n");
+
+    expect((await showTask(tmp, "TASK-082")).workflow).toBe("UI review");
+  });
+
+  it("prefers a non-empty plan declaration over a conflicting legacy value", async () => {
+    await workflowCapsule("## Workflow\n\n- EDD.\n", "## Recommended Workflow\n\nTDD\n");
+
+    expect((await showTask(tmp, "TASK-082")).workflow).toBe("EDD");
+  });
+
+  it.each([undefined, "# Plan\n", "## Workflow\n\n## Steps\n\nWork.\n", "## Workflow\n\n \t\n"])(
+    "uses the legacy heading when the plan has no declaration (%s)",
+    async (plan) => {
+      await workflowCapsule(plan, "# Task\n\n## Recommended Workflow\n\n- TDD.\n\n## Scope\n\nWork.\n");
+
+      expect((await showTask(tmp, "TASK-082")).workflow).toBe("TDD");
+    },
+  );
+
+  it("keeps workflow absent rather than reading a neighboring section or recommending one", async () => {
+    await workflowCapsule(
+      "## Workflow\n\n## Steps\n\nSDD\n",
+      "# Fix an API bug\n\n## Recommended Workflow\n\n## Scope\n\nTDD\n",
+    );
+
+    expect((await showTask(tmp, "TASK-082")).workflow).toBeUndefined();
+  });
+
+  it("does not mistake a different heading or a prose mention for the declaration", async () => {
+    await workflowCapsule("# Plan\n\nThe heading ## Workflow mentions TDD.\n\n## Workflow Reason\n\nEDD\n");
+
+    expect((await showTask(tmp, "TASK-082")).workflow).toBeUndefined();
+  });
+
+  it("keeps capsule bytes, mtimes and the showTask result shape unchanged", async () => {
+    const plan = "## Workflow\n\n- UI review.\n\nReason: Check visuals.\n";
+    const task = "## Recommended Workflow\n\nTDD\n";
+    const taskDir = await workflowCapsule(plan, task);
+    const names = ["task.md", "plan.md"];
+    const before = await Promise.all(names.map((name) => stat(path.join(tmp, taskDir, name))));
+
+    const result = await showTask(tmp, "TASK-082");
+
+    expect(Object.keys(result).sort()).toEqual(["files", "taskDir", "taskId", "workflow"]);
+    expect(result.files).toEqual({ "task.md": task, "plan.md": plan });
+    for (const [index, name] of names.entries()) {
+      expect(await readFile(path.join(tmp, taskDir, name), "utf8")).toBe(result.files[name]);
+      expect((await stat(path.join(tmp, taskDir, name))).mtimeMs).toBe(before[index].mtimeMs);
+    }
+  });
+
+  it.each(["TDD.", "- fast-patch.", "- UI review", "custom workflow."])(
+    "reports the declaration %s through task show --json without adding fields",
+    async (declaration) => {
+      await workflowCapsule(`## Workflow\n\n${declaration}\n`);
+      const { stdout } = await execFileAsync("node", [cli, "task", "show", "TASK-082", "--json"], { cwd: tmp });
+      const result = JSON.parse(stdout);
+
+      expect(Object.keys(result).sort()).toEqual(["files", "taskDir", "taskId", "workflow"]);
+      expect(result.workflow).toBe(declaration.replace(/^- /, "").replace(/\.$/, ""));
+    },
+  );
+
+  it("omits workflow from JSON when neither declaration is present", async () => {
+    await workflowCapsule("# Plan\n\n## Workflow\n\n## Steps\n\nWork.\n");
+    const { stdout } = await execFileAsync("node", [cli, "task", "show", "TASK-082", "--json"], { cwd: tmp });
+
+    expect(Object.keys(JSON.parse(stdout)).sort()).toEqual(["files", "taskDir", "taskId"]);
+  });
+});
