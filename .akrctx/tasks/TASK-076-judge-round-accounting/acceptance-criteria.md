@@ -25,10 +25,11 @@ different criterion. Indented lines continue the bullet above them.
   enough category evidence are labelled unknown rather than inferred from their names.
 - AC-12: The implementation log compares the labelled 2.23 historical baseline to recalculated
   results. The generic CLI distinguishes closed/open/unknown tasks without a hardcoded baseline.
-- AC-13: Missing/invalid taskId, verdict or reviewedAt is skipped with a reason. A recognizable
-  record missing scopeDigest is unknown and uncounted; incomplete category evidence alone does
-  not discard a countable round.
 - AC-14: JSON has exactly tasks, closed, open, unknown and skipped with the contract's nested
   fields; human output exposes the same information. Empty mean/max values are null.
+- AC-15: A file that is malformed or lacks a valid taskId or verdict is skipped with a reason.
+  A recognizable record missing reviewedAt or scopeDigest is reported in unknown, is not counted
+  as a round, and makes its task state unknown. Incomplete category evidence alone does not
+  discard a round whose key is complete.
 
-Retired: AC-5
+Retired: AC-5, AC-13

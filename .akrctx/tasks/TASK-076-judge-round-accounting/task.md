@@ -32,10 +32,7 @@ script.
 
 ## Contract
 
-**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
-reviewing agent's refinements. No human confirmed them. Each one is listed under
-`## Open Questions` for confirmation. Implementation must not start until they move to
-`## Clarifications` with the human's answer.
+Confirmed by the human on 2026-10-02. See `## Clarifications`, Session 2026-10-02.
 
 The command is read-only. It neither files records nor changes verify, approval validity,
 local-only storage, filenames or the live workspace.
@@ -47,13 +44,13 @@ records/, irrespective of filename or extension. Do not traverse snapshots/ or f
 symlinks, and honor blocked-read policy. Snapshot metadata may be read through existing
 policy-aware helpers solely to classify the referenced boundary.
 
-A parseable record needs a valid taskId, verdict (APPROVED, NEEDS CHANGES or BLOCKED) and
-parseable reviewedAt. Malformed files or missing/invalid required fields go to skipped with
-file and reason. In particular, missing reviewedAt is skipped, not chronologically guessed.
-Older schema versions may qualify without passing today's full record verification.
+A recognizable record has a valid taskId and verdict (APPROVED, NEEDS CHANGES or BLOCKED).
+Malformed files and files without a valid taskId or verdict go to skipped with file and
+reason. Older schema versions may qualify without passing today's full record verification.
 
-A recognizable record lacking a valid scope.scopeDigest goes to unknown with its taskId,
-files and reason and is excluded from round counts: it has no stable deduplication key.
+A recognizable record lacking a parseable reviewedAt or a valid scope.scopeDigest goes to
+unknown with its taskId, files and reason and is excluded from round counts: it has no stable
+deduplication key. A missing reviewedAt is never chronologically guessed.
 Missing/invalid optional evidence is reported as unknown, not inferred from filenames.
 
 ### Round identity and classification
@@ -130,17 +127,19 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   came from the assistant's recommendations and a reviewing agent's refinements. One of three
   comparable recommendations was already reversed by the human in TASK-084 once its consequence
   was shown, so an unconfirmed recommendation is not treated as an answer.
+- Round identity confirmed by the human as drafted. One round is `(reviewedAt, scopeDigest)`,
+  with reviewedAt compared as a UTC instant. Exact copies count once. Records that share the key
+  but differ in verdict, criterion statuses or independence count as one round, marked ambiguous,
+  with every source file named.
+- Incomplete records: the human chose one rule for both key fields, replacing the draft. Files
+  that are not records (malformed, or without a valid taskId or verdict) go to skipped. A
+  recognizable record missing reviewedAt or scopeDigest goes to unknown, is not counted, and
+  makes its task state unknown, because it can hide a round. A round with a complete key but an
+  unknown category still counts. AC-13 is retired and replaced by AC-15.
+- JSON structure confirmed by the human as drafted: exactly tasks[], closed{}, open{},
+  unknown[] and skipped[], with null mean and max for an empty group. No schemaVersion field.
+  The human report prints the same fields.
 
 ## Open Questions
 
-- Confirm the round identity. Draft: `(reviewedAt, scopeDigest)`, with UTC instants defining
-  timestamp equality. Duplicate copies count once. When two records share that key but differ in
-  verdict, criterion statuses or independence claim, the key is ambiguous: it counts as one round
-  and the report names the source files.
-- Confirm the handling of incomplete records. Draft: a record with a missing or invalid
-  `reviewedAt` is skipped with a reason; a recognizable record missing `scopeDigest` is reported
-  as unknown and not counted as a round; an unknown review category alone does not prevent
-  counting a round whose key is complete. The reviewing agent found that the assistant's
-  recommendations contradicted each other here, so this one needs a real answer.
-- Confirm the JSON structure. Draft: `tasks[]`, `closed{}`, `open{}`, `unknown[]`, `skipped[]`,
-  with null means and maxima for an empty aggregate. The human report prints the same fields.
+- None.
