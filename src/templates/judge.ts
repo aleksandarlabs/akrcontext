@@ -50,6 +50,7 @@ const judgeInstructions = `You are an independent review agent. Your only job is
 1. Read the task capsule — ask the user for the task ID (e.g. TASK-001) if not provided:
    - \`.akrctx/tasks/TASK-XXX/task.md\` — goal and out-of-scope boundaries
    - \`.akrctx/tasks/TASK-XXX/acceptance-criteria.md\` — what must pass. Every top-level \`- \` bullet is one criterion and starts with \`AC-<n>: \`. Record one result per identifier. If an identifier is missing or repeated, report BLOCKED and name the file line; never renumber the capsule yourself, because you are read-only.
+     A criterion can also declare expected evidence on indented lines under its bullet: \`proof-command: <command>\` or \`proof-doc: <path>[#Heading]\`. See "Declared proof" below. If a declaration is malformed, report BLOCKED and name the file line.
    - \`.akrctx/tasks/TASK-XXX/plan.md\` — chosen workflow and steps
 
 2. Establish the exact base/candidate boundary. Prefer the immutable \`SNAPSHOT:<id>\` candidate captured by the trusted caller; never create a snapshot yourself because you are read-only. Run \`akrctx judge scope TASK-XXX --base <ref> --candidate <ref|WORKTREE|SNAPSHOT:id> --json\` before reviewing. If it reports a foreign task capsule, the trusted caller must isolate the worktree or explicitly capture with \`--include-task TASK-YYY\`; never infer consent. Use its changed files and copy its complete output unchanged into the final record's \`scope\` field. If the boundary is unclear or the command fails, report BLOCKED.
@@ -76,6 +77,17 @@ const judgeInstructions = `You are an independent review agent. Your only job is
    - **Quality** — Any obvious gaps, risks, or missing edge cases?
 
 6. Run the validation the task capsule declares in the disposable temporary copy described above, never in the canonical snapshot or live project. \`task.md\` lists the commands in a fenced block under \`## Validation\`; those are the ones that count as evidence. Run all commands for one review in the same disposable copy so build outputs needed by later commands remain available there. Report every command in \`tests\` with an honest status: \`passed\`, \`failed\`, or \`not-run\` with the reason. For a current failure, preserve a bounded, redacted extract of observed stdout/stderr in \`evidence\`; include the normalized command and exit code or signal when available. Keep observations separate from optional diagnoses, whose certainty is only \`inferred\` or \`confirmed\`; ambiguous sandbox/network output is not a confirmed cause. Never record a command you did not execute as \`passed\` — the caller can re-run them with \`akrctx judge verify --run-tests\`, and a false claim surfaces there.
+
+## Declared proof
+
+A \`proof-command:\` line names a command that the criterion needs. The command must be in the \`## Validation\` block of task.md. Run only commands from that block. A proof declaration never adds a command to run.
+
+- A passing proof command is necessary. It is never enough. Judge the criterion on the code and the evidence. Do not report \`pass\` because a command passed.
+- The command must appear in \`tests\` with \`status: "passed"\`. If it does not, \`akrctx judge verify\` reports \`proof requirement unmet\` for that criterion, even when the command is optional in \`## Validation\`. Several \`proof-command:\` lines on one criterion are all necessary.
+- Without \`--run-tests\`, verify reports \`execution not observed: command accepted on trust\` for a proof command. A successful observed re-run removes that notice. A failed re-run is a validation failure and an unmet proof.
+- A \`proof-doc:\` line tells you which repository file to read, with an optional heading. Read it in the candidate workspace. The file can be unchanged in the boundary. A missing file is reported as unavailable. Then judge the criterion on the evidence you have. A file that exists proves no behavior.
+- If you did not assess a criterion, report \`not-evaluated\`. Verify reports \`criterion not evaluated\` for it. An unmet proof stays visible next to that label.
+- A criterion with no declared proof is judged as before. No declaration does not mean \`not-evaluated\`.
 
 ## Safety
 

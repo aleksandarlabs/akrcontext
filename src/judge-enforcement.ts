@@ -1,9 +1,9 @@
 import { exec, execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, readFile, readdir, readlink } from "node:fs/promises";
+import { lstat, readFile, readdir, readlink, realpath, stat } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
-import { type AcceptanceCriterion, scanCriteriaIdentities } from "./acceptance-criteria.js";
+import { type AcceptanceCriterion, docReferencePath, scanCriteriaIdentities } from "./acceptance-criteria.js";
 import { capsuleFiles } from "./harness-files.js";
 import { measureJudgePhase } from "./judge-timings.js";
 import {
@@ -426,8 +426,10 @@ export async function verifyJudgeRecord(
     if (legacy && record.issues.length > 0) reasons.push("APPROVED records must not list unresolved issues.");
   }
 
+  let criteriaDeclaration: AcceptanceCriteriaDeclaration | undefined;
   if (!legacy) {
     const declaration = await readAcceptanceCriteria(reviewCwd, record.taskId);
+    criteriaDeclaration = declaration;
     reasons.push(...declaration.problems);
     const reported = record.criteria.map((criterion) => criterion.id);
     const missing = declaration.ids.filter((id) => !reported.includes(id));
@@ -450,6 +452,8 @@ export async function verifyJudgeRecord(
   }
 
   const reexecuted: JudgeVerifyResult["reexecuted"] = [];
+  // Raw declared command -> outcome of the observed re-run. Empty unless `--run-tests` ran it.
+  const observed = new Map<string, boolean>();
   if (options.runTests) {
     if (declaredAndPassing.length === 0) {
       reasons.push("--run-tests found no capsule-declared command claimed as passing to re-execute.");
@@ -480,9 +484,11 @@ export async function verifyJudgeRecord(
               index + 1,
             );
             reexecuted.push({ command: normalized, passed: true });
+            observed.set(command, true);
           } catch (error) {
             const evidence = captureValidationError(command, error);
             reexecuted.push({ command: normalized, passed: false, evidence });
+            observed.set(command, false);
             reasons.push(
               `Independent re-run of \`${evidence.command}\` failed (exit code ${evidence.exitCode ?? "unknown"}); the record claims it passed.`,
             );
@@ -502,6 +508,19 @@ export async function verifyJudgeRecord(
         await cleanup?.();
       }
     }
+  }
+
+  if (criteriaDeclaration && !legacy) {
+    const proof = await proofFindings({
+      criteria: criteriaDeclaration.criteria,
+      results: (record as JudgeReviewRecord).criteria,
+      checks: declaration.checks,
+      tests: record.tests,
+      observed,
+      reviewCwd,
+    });
+    reasons.push(...proof.reasons);
+    notices.push(...proof.notices);
   }
 
   // Reported, never enforced: see the `notices` field on JudgeVerifyResult.
@@ -584,6 +603,84 @@ function scopeDrift(before: JudgeScope, after: JudgeScope): string[] {
     if (JSON.stringify(before[field]) !== JSON.stringify(after[field])) drifted.push(`scope.${field}`);
   }
   return drifted;
+}
+
+interface ProofInput {
+  criteria: AcceptanceCriterion[];
+  results: JudgeCriterionResult[];
+  checks: ValidationDeclaration["checks"];
+  tests: JudgeReviewRecord["tests"];
+  observed: Map<string, boolean>;
+  reviewCwd: string;
+}
+
+/**
+ * What a criterion's declared proofs add to verification.
+ *
+ * Only a command proof has a mechanical effect, and only as a necessary condition: a passing
+ * command never makes a criterion pass. A document proof points the judge at content; here it
+ * is only checked for availability, and a missing one is a notice. Nothing in this function
+ * executes anything. A command is accepted on trust unless `--run-tests` observed it.
+ */
+async function proofFindings(input: ProofInput): Promise<{ reasons: string[]; notices: string[] }> {
+  const reasons: string[] = [];
+  const notices: string[] = [];
+  const declared = new Set(input.checks.map((check) => check.command));
+  for (const criterion of input.criteria) {
+    const result = input.results.find((entry) => entry.id === criterion.id);
+    if (!criterion.id || !result || criterion.proofs.length === 0) continue;
+    const id = criterion.id;
+    if (result.status === "not-evaluated") reasons.push(`${id}: criterion not evaluated.`);
+
+    const commands = [
+      ...new Set(
+        criterion.proofs
+          .filter((proof) => proof.kind === "command")
+          .map((proof) => proof.reference.replace(OPTIONAL_SUFFIX, "").trim()),
+      ),
+    ];
+    // A criterion already reported as failing is not claiming a pass that a proof could block.
+    for (const command of result.status === "fail" ? [] : commands) {
+      const shown = `\`${sanitizeValidationCommand(command)}\``;
+      const entries = input.tests.filter((test) => test.command === command);
+      if (!declared.has(command)) {
+        reasons.push(
+          `${id}: proof requirement unmet: ${shown} is not a command the capsule declares under ## Validation.`,
+        );
+      } else if (input.observed.get(command) === false) {
+        reasons.push(`${id}: proof requirement unmet: ${shown} failed its independent re-run.`);
+      } else if (
+        !entries.some((test) => test.status === "passed") ||
+        entries.some((test) => test.status === "failed")
+      ) {
+        const state = entries.find((test) => test.status !== "passed")?.status ?? "absent";
+        reasons.push(
+          `${id}: proof requirement unmet: ${shown} has no passing evidence in the review record (${state}).`,
+        );
+      } else if (input.observed.get(command) !== true) {
+        notices.push(`${id}: execution not observed: command accepted on trust: ${shown}.`);
+      }
+    }
+
+    for (const proof of criterion.proofs.filter((entry) => entry.kind === "doc")) {
+      const problem = await docUnavailable(input.reviewCwd, docReferencePath(proof.reference));
+      if (problem) notices.push(`${id}: proof-doc \`${proof.reference}\` unavailable: ${problem}.`);
+    }
+  }
+  return { reasons, notices };
+}
+
+/** Null when the document is a regular file inside the root. Metadata only; never reads content. */
+async function docUnavailable(root: string, relative: string): Promise<string | null> {
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(path.join(root, relative))]);
+    const inside = path.relative(realRoot, realTarget);
+    if (inside.startsWith("..") || path.isAbsolute(inside))
+      return "it resolves outside the repository and was not followed";
+    return (await stat(realTarget)).isFile() ? null : "it is not a file";
+  } catch {
+    return "it was not found in the reviewed boundary";
+  }
 }
 
 export interface ValidationDeclaration {
@@ -757,12 +854,47 @@ export async function readAcceptanceCriteria(cwd: string, taskId: string): Promi
   }
 
   const declaration = scanCriteriaIdentities(markdown);
+  const problems = declaration.problems.map((problem) => problem.message);
+  await withholdBlockedProofDocs(cwd, declaration.criteria, problems);
   return {
     filePresent: true,
     criteria: declaration.criteria,
     ids: declaration.ids,
-    problems: declaration.problems.map((problem) => problem.message),
+    problems,
   };
+}
+
+/**
+ * Drops a proof-doc reference that policy.json blocks, and reports it as a capsule defect.
+ * Fails closed: when the policy cannot be read, no document reference is trusted. The path is
+ * matched as text; the target is never opened.
+ */
+async function withholdBlockedProofDocs(
+  cwd: string,
+  criteria: AcceptanceCriterion[],
+  problems: string[],
+): Promise<void> {
+  if (!criteria.some((criterion) => criterion.proofs.some((proof) => proof.kind === "doc"))) return;
+  let patterns: string[] | undefined;
+  let unreadable = "";
+  try {
+    patterns = await readBlockedPatterns(cwd);
+  } catch (error) {
+    unreadable = messageOf(error);
+  }
+  for (const criterion of criteria) {
+    criterion.proofs = criterion.proofs.filter((proof) => {
+      if (proof.kind !== "doc") return true;
+      const target = docReferencePath(proof.reference);
+      const blocked = patterns?.find((pattern) => matchesBlockedPattern(target, pattern));
+      if (patterns && !blocked) return true;
+      const why = blocked ? `policy.json blocks it (${blocked})` : unreadable;
+      problems.push(
+        `acceptance-criteria.md line ${proof.line} has an invalid proof-doc reference "${proof.reference}": ${why}`,
+      );
+      return false;
+    });
+  }
 }
 
 /**

@@ -300,6 +300,8 @@ ${workflow}
 function acceptanceMarkdown(description: string): string {
   return `# Acceptance Criteria
 
+A criterion can declare the evidence it expects on indented lines under its bullet. Write \`proof-command: <command>\` to name a command from \`## Validation\` in task.md. Write \`proof-doc: <path>[#Heading]\` to point the judge at a repository file. Both are optional, with one reference per line. Add no proof to a criterion that needs judgment.
+
 - AC-1: The requested outcome is implemented: ${description}
 - AC-2: Existing agent instruction files are preserved unless a human approves a merge.
 - AC-3: Relevant validation commands are documented or run.
