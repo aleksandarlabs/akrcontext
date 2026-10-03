@@ -139,6 +139,11 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
 - JSON structure confirmed by the human as drafted: exactly tasks[], closed{}, open{},
   unknown[] and skipped[], with null mean and max for an empty group. No schemaVersion field.
   The human report prints the same fields.
+- Directory traversal, decided by the human after implementation found `TASK-083-workspace/`, a
+  full project copy inside the judge directory (13464 files). The reader enters only `TASK-<n>/`
+  directories and `records/` directly under `.akrctx/local/judge`. Any other directory is not
+  traversed and appears as one skipped entry that names it. Directories inside those two are not
+  traversed either. `snapshots/` stays excluded and unlisted.
 
 ## Open Questions
 
