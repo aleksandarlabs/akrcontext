@@ -21,10 +21,7 @@ generated template ships "Relevant validation commands are documented or run". B
 
 ## Contract
 
-**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
-reviewing agent's refinements. No human confirmed them. Each one is listed under
-`## Open Questions` for confirmation. Implementation must not start until they move to
-`## Clarifications` with the human's answer.
+Confirmed by the human on 2026-10-03. See `## Clarifications`, Session 2026-10-03.
 
 ### Declaration syntax
 
@@ -105,15 +102,20 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   comparable recommendations was already reversed by the human in TASK-084 once its consequence
   was shown, so an unconfirmed recommendation is not treated as an answer.
 
+### Session 2026-10-03
+- Declaration syntax confirmed by the human as drafted. Proof declarations are indented lines
+  on the criterion's own bullet, spelled only `proof-command:` or `proof-doc:`, parsed before
+  prose folding. No generic `proof:` spelling. Repeated identical references count once. An
+  empty, orphaned or unsupported declaration is a capsule defect with file and line.
+- Reference kinds confirmed by the human as drafted. Only `proof-command:` has mechanical effect:
+  an undeclared, absent, failed or not-run required command is `proof requirement unmet` and
+  blocks a claimed pass. `proof-doc:` only points the judge at content and never gates; a missing
+  document is reported unavailable. A malformed or policy-blocked reference is a capsule defect.
+- Proof availability confirmed by the human as drafted. Verify uses three distinct text reasons:
+  `proof requirement unmet`, `execution not observed: command accepted on trust`, and
+  `criterion not evaluated`. They may coexist. A command accepted on trust only emits the
+  notice and keeps today's validity rules. The record shape stays unchanged.
+
 ## Open Questions
 
-- Confirm the declaration syntax and its location. Draft: an indented declaration line on the
-  criterion's own bullet, parsed before prose folding, spelled exclusively `proof-command:` or
-  `proof-doc:`. The generic `proof:` spelling is discarded to avoid two competing formats, and
-  repeated identical references are deduplicated.
-- Confirm how the two reference kinds differ. Draft: only `proof-command:` carries mechanical
-  effect; `proof-doc:` points at content to inspect and never becomes a gate; a malformed or
-  policy-blocked reference is a capsule defect.
-- Confirm how verify expresses proof availability. Draft: three distinct text reasons, for an
-  unmet requirement, for unobserved execution where the command was taken on trust, and for a
-  criterion the judge did not evaluate. The record shape stays unchanged.
+- None.
