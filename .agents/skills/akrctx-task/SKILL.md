@@ -25,4 +25,6 @@ There is no "assume and proceed" option. The test above already excludes trivia,
 
 **Criterion identifiers.** Every criterion in acceptance-criteria.md is one top-level `- ` bullet that starts with `AC-<n>: `. Number them from 1 in declared order and keep each identifier stable; the judge reports one typed result per identifier. For an older capsule with unnumbered criteria, run `akrctx task migrate-criteria TASK-XXX`.
 
+**Criterion proof.** A criterion can declare expected evidence on indented lines under its bullet: `proof-command: <command>` names a command already listed under `## Validation`, and `proof-doc: <path>[#Heading]` points the judge at a repository file. Both are optional, with one reference per line. Declare a proof only where it fits. A criterion that needs judgment carries none. A passing command never replaces the judge's assessment, and a proof adds no command to run.
+
 **Format, in both sections.** One entry is one top-level `- ` bullet; wrap long entries with indented continuation lines. `akrctx judge verify` reads only top-level bullets, because both sections also carry explanatory prose that must not be mistaken for content. An entry written as a bare paragraph is invisible to it — the section reads as empty and no notice is emitted.

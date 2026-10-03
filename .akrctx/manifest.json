@@ -18,10 +18,10 @@
       "hash": "sha256:0065770ba2cfe89904f668cbef440f012f9ed185a65619e1db063113738a186f"
     },
     ".akrctx/judge/README.md": {
-      "hash": "sha256:e76d30f8cfd4713449a3de0a3be18cfed14dfc452ae9378dd3b02489753fc5a0"
+      "hash": "sha256:7728e44175b25025d291138de2a7ba554778034c5fee3d688028f16417af3a3e"
     },
     ".akrctx/judge/schemas/review.schema.json": {
-      "hash": "sha256:14df0993dbfb34c5f64d81fd7b9e542d9f6b22c943aebcdcd6b326c53db503b8"
+      "hash": "sha256:580662843a25bd17f52d5abac1c1bac105487e2b41953959d451735d7e44643f"
     },
     ".claude/commands/akrctx-doctor.md": {
       "hash": "sha256:b8c7e206ec6ddb0eed5b6db0818ea1f08c937a9ff0c9bcfb7c0d3bb3ec1dcab1"
@@ -36,7 +36,7 @@
       "hash": "sha256:5718fafae31ea81cadb9c57b3e41ee9bfe0e2352d6d16114c711bb2262413058"
     },
     ".claude/skills/akrctx-task/SKILL.md": {
-      "hash": "sha256:ba6df544140efcffee860aaa77356783ddd5e61788b562ee0e557f772d7c987c"
+      "hash": "sha256:38c53fa66c463b5bb1d6cc1c67cba8824aef274e51b256525c4bbaad5151f272"
     },
     ".claude/skills/akrctx-review/SKILL.md": {
       "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
@@ -48,7 +48,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".claude/agents/akrctx-judge.md": {
-      "hash": "sha256:ba2df6aa5d1b615c3828443e8f16eb9da9a6972121902a02468284b864f2640c"
+      "hash": "sha256:2517a5687809ec93fb50d501d36f6ae6c42c0be95669b1ce09e2c900514de90b"
     },
     ".akrctx/targets/codex.md": {
       "hash": "sha256:24276b46926eb8f4eb258da5bc35fb276cdfeca172de374f632c20eece9876f7"
@@ -60,7 +60,7 @@
       "hash": "sha256:5718fafae31ea81cadb9c57b3e41ee9bfe0e2352d6d16114c711bb2262413058"
     },
     ".agents/skills/akrctx-task/SKILL.md": {
-      "hash": "sha256:ba6df544140efcffee860aaa77356783ddd5e61788b562ee0e557f772d7c987c"
+      "hash": "sha256:38c53fa66c463b5bb1d6cc1c67cba8824aef274e51b256525c4bbaad5151f272"
     },
     ".agents/skills/akrctx-review/SKILL.md": {
       "hash": "sha256:7a1c46a6a6ccd46fd3337387c0ae7ddc1d09b97335ab3a16d0fab4d9b2fc0bf2"
@@ -72,7 +72,7 @@
       "hash": "sha256:21fb3047188f0430a74d1533eed5592a7ccb2c7a5880ac71b1dc73d191aaa332"
     },
     ".codex/agents/akrctx-judge.toml": {
-      "hash": "sha256:e3610c712507a1ddbe3ad311702f9d2e17dd040b5e3e939208e4a1dacc3e43b5"
+      "hash": "sha256:bd02767cb8a7312d0cde76fdd63a485d29adc318567f5894dc24eae12201cbe3"
     },
     ".claude/agents/akrctx-implementer.md": {
       "hash": "sha256:8c983b2696a06c22903600a2b8be7c50edbb714f0c16fc1d5964a131b15169e2"
@@ -90,7 +90,7 @@
       "hash": "sha256:e2a17a717b6cafb3ab52cd706eb41c7b351ac0a0d2f957da51229dc9e39c5529"
     },
     ".akrctx/tasks/_template/acceptance-criteria.md": {
-      "hash": "sha256:38efe433c3b6b4d04d755e8a6f0b8cc64915c2f8af6de99a41373fe2f1ecdb36"
+      "hash": "sha256:5e73ba22776537e15dab51b50cb68381e693b27df046f3dbff09ece03963f754"
     },
     ".akrctx/tasks/_template/review-checklist.md": {
       "hash": "sha256:0a9e4ed75a441f0055978543fc756c68b540fbe44af9b5ce1089395a4393ffeb"

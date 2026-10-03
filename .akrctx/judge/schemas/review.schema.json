@@ -147,7 +147,7 @@
     },
     "criteria": {
       "type": "array",
-      "description": "One entry per AC-<n> the capsule declares. The only channel that can block APPROVED.",
+      "description": "One entry per AC-<n> the capsule declares. The only channel that can block APPROVED. A declared proof (proof-command:, proof-doc:) adds no field here; it constrains verification only.",
       "items": {
         "type": "object",
         "additionalProperties": false,

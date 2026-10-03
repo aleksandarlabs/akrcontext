@@ -22,6 +22,28 @@ Every top-level `- ` bullet in the capsule's `acceptance-criteria.md` is one cri
 
 The record reports one `criteria` entry per declared identifier, each with a `status` and non-empty `evidence`. A reference is always the identifier, never a position, so a bullet inserted or reordered between two rounds cannot silently repoint an existing finding. `criteria` is the only blocking channel: a defect the capsule does not declare goes to `observations` and becomes a separate decision instead of a blocker on the current round.
 
+## Declared proof
+
+A criterion can declare expected evidence on indented lines under its own bullet:
+
+```text
+- AC-1: The requested behavior is implemented.
+  proof-command: pnpm test
+  proof-doc: docs/behavior.md#Behavior
+```
+
+Only `proof-command:` and `proof-doc:` exist. One reference per line, with a single-line value. Identical repeated references count once. Both are optional, and existing capsules need no change. An empty, orphaned, or unsupported proof line, or a `proof-doc:` that is absolute, uses `..`, is a URL, or matches `blockedReadPatterns`, is a capsule defect reported with its file line. Such a reference is never read or fetched.
+
+A `proof-command:` must match a command in the `## Validation` block of `task.md` after the same trimming and removal of the `# optional` marker. It adds no execution channel: only declared commands ever run. Several `proof-command:` lines on one criterion are all necessary, and a command that is optional for the whole task is necessary for a criterion that names it.
+
+Verification reports three separate texts, which can appear together:
+
+- `proof requirement unmet`: the command is not declared, or the record has no passing evidence for it (absent, `failed`, or `not-run`), or its observed re-run failed. This blocks a claimed pass for that criterion.
+- `execution not observed: command accepted on trust`: the record claims the command passed and `--run-tests` did not observe it. This is a notice. The record stays valid under the usual rules. A successful observed re-run removes it.
+- `criterion not evaluated`: the record reports `not-evaluated` for a criterion that declares a proof. This never hides an unmet proof.
+
+A passing command is a necessary condition, never a verdict. The judge still decides whether the criterion is satisfied, and the record can report `fail` next to a passing command. A `proof-doc:` only points the judge at repository content, including unchanged files in the boundary. It never gates. A missing document is reported as unavailable, a link that leaves the repository is not followed, and file existence alone proves nothing. The record shape does not change, and akrctx does not read per-test results from reporter output.
+
 `akrctx judge verify` also reads a stored schema version 5 record, which carried a free-form `issues` list. Such a record is verified under the version 5 rules, reported as legacy, and never emitted again.
 
 When the capsule's `task.md` declares commands in a fenced block under `## Validation`, every required command — any non-empty line not starting with `#` and not suffixed `# optional` — must pass for `APPROVED`. A line suffixed `# optional` may fail; that is reported as a warning and does not block approval. At least one declared command must still be the passing entry in `tests`; a judge cannot satisfy the evidence rule with a command it invented, even when every declared command is optional. A single `no-runtime-validation: <reason>` line inside the fence declares no runtime validation; it requires a non-empty reason and zero commands, and does not claim any code was verified. A capsule with no `## Validation` section is legacy: verification reports `verifiedNow: unknown`, but the record's historical `approved` verdict can still stand.
