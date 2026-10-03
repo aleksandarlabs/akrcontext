@@ -29,10 +29,7 @@ inconclusive, and must never present a diff as proof that a human was not consul
 
 ## Contract
 
-**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
-reviewing agent's refinements. No human confirmed them. Each one is listed under
-`## Open Questions` for confirmation. Implementation must not start until they move to
-`## Clarifications` with the human's answer.
+Confirmed by the human on 2026-10-03. See `## Clarifications`, Session 2026-10-03.
 
 ### Supported comparison and trigger
 
@@ -120,15 +117,20 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   whitespace reflow within prose, and one terminal full stop on a prose paragraph or list item
   outside code. Operators, paths, identifiers, numbers, quoting, Markdown syntax, code and
   structured declaration lines stay significant.
+- New clarification content confirmed by the human as drafted. A new top-level bullet under
+  `## Clarifications`, with its continuations, counts when its normalized body was absent in the
+  base. A new `No ambiguity:` bullet with a non-empty explanation asserts no question was needed.
+  A heading or date alone, a duplicate bullet or a None placeholder does not count. One new
+  bullet suppresses the notice for every changed section; this is an accepted false negative.
+- Notice content confirmed by the human as drafted. One notice per changed section or file,
+  naming it, with added and deleted line counts and a pointer to the reviewed boundary and
+  relative path. Never the diff itself. Each notice is capped at 1024 characters; long paths are
+  abbreviated, but the boundary ID and section are kept.
+- Supported boundaries confirmed by the human as drafted. Snapshot and commit-ref candidates
+  are compared. A `WORKTREE` candidate or unreadable inputs report `comparison unavailable`. A new
+  capsule, or one without Clarifications on both sides, stays inconclusive with no notice. A
+  bullet date is never evidence.
 
 ## Open Questions
 
-- Confirm what counts as newly recorded clarification content. Draft: a new top-level bullet under
-  `## Clarifications`, and a bullet starting `No ambiguity:` to state that no question was needed.
-  Neither form authenticates a human consultation.
-- Confirm how the notice shows the change. Draft: a bounded summary naming the section and the
-  line count, plus a pointer to the reviewed diff. Never an unbounded diff.
-- Confirm which boundaries support the comparison. Draft: snapshot and commit-ref candidates.
-  A `WORKTREE` candidate or unreadable inputs report that the comparison is unavailable. A new or
-  historical capsule with no comparable section stays inconclusive, and a bullet date is never
-  evidence.
+- None.
