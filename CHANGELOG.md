@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- `akrctx judge reproduce TASK-XXX --base <ref> --candidate SNAPSHOT:<id>`. It reproduces a
+  declared mechanical change. The `## Migration` block of `task.md` names a generator that is
+  already landed in the base and a verified APPROVED review record for it. The command runs the
+  generator in a disposable copy of the base, after the operator approves the complete ordered
+  command list, and compares the declared paths to the snapshot. A difference, an inert declared
+  path, or a write outside the declared paths fails and names its paths. `--include-task` stays
+  required for every foreign capsule. The report goes to stdout only. This is process isolation,
+  not an OS sandbox, and a match does not approve the generator or any other change.
+
 - `akrctx task migrate-criteria [TASK-ID]`. It numbers the criteria of one task capsule, or of
   every capsule, as `AC-<n>`. A capsule whose identifiers are already unique and sequential is
   left untouched. Any other state is renumbered from 1 in declared order, and indented

@@ -64,6 +64,26 @@ It does not prove which model produced the verdict. The judge is read-only by de
 
 `--run-tests` narrows that gap without closing it. A review record can never inject a command, because only declared commands run. The capsule itself is normally written by the primary agent, so the declared commands are agent-authored project content — which is why the approval prompt exists: the human, not the capsule, decides what executes. That makes the operator the last barrier rather than a compromised primary agent, but it is only as strong as the attention paid to the list. Read it before approving work you did not supervise.
 
+## Mechanical change reproduction
+
+`akrctx judge reproduce TASK-XXX --base <ref> --candidate SNAPSHOT:<id>` checks that a declared generator produces exactly the generated paths of a snapshot. It adds evidence about the result. It does not approve the generator and it does not review any other change.
+
+Land and review the generator first, as ordinary code. A later change can then declare it in one fenced JSON object under `## Migration` in `task.md`, with `generator` (`command`, `commit`, `review`, `inputs`, `prepare`) and `paths` keys. `commit` is the full landed Git SHA and must be an ancestor of the base. `review` is a stored, verified APPROVED record whose candidate is a snapshot. Every file in `inputs` must be identical in that reviewed content, in the landed commit and in the base. A generator that only exists in the candidate, or that changed after it landed, is refused. `paths` lists exact files: no globs, no directories, no absolute paths, no `..`, no `.git`, no blocked paths and no symlinked ancestors.
+
+The runner prepares the tool in an external disposable workspace from base inputs and the committed lockfile. It sets `AKRCTX_GENERATOR_ROOT` to that workspace and shows the value with the command list. It runs the generator in a separate disposable worktree extracted from the base. Before anything runs, it builds the complete ordered list: the frozen lockfile install when `package.json` declares dependencies, the `prepare` commands, then the generator. The operator approves that list in a terminal. Headless, pass `--approve-commands` once per command, in the printed order. Without approval nothing runs.
+
+Each declared path is compared to the snapshot by bytes, existence, file type, executable bit and symlink target, without following the target. These cases are errors, and each names its paths:
+
+- a generated path that differs from the candidate
+- a declared path that is identical in the base, the candidate and the reproduction
+- any detected write outside `paths`, including ignored outputs and a write that restores the original bytes
+
+A run on the candidate that changes nothing proves only idempotency, so reproduction always starts from the base.
+
+`--include-task` stays required for every foreign task capsule. A declaration never grants capture scope and a successful reproduction never replaces it. Changes outside `paths` still need ordinary review, and a change to the generator needs a new first-step review.
+
+The report goes to stdout and the exit code. The command writes no file and creates no receipt that another reader can trust. The live project and the snapshot are only read. This is process isolation, not an OS sandbox: a command that writes outside the disposable workspaces by absolute path is not observed. Read the command list before you approve it.
+
 ## Withheld paths
 
 Files matching `blockedReadPatterns` in `policy.json` are excluded from the diff and listed by path in `scope.excludedPaths`. Their contents are never read or fingerprinted. The path list is part of the boundary digest, so a secret appearing or disappearing still invalidates a stale approval. A judge that cannot review meaningfully without those files should report `BLOCKED`.

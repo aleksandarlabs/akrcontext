@@ -507,7 +507,7 @@ async function materialiseDependencies(worktreePath: string): Promise<void> {
   }
 }
 
-async function frozenInstallCommand(worktreePath: string): Promise<string[] | undefined> {
+export async function frozenInstallCommand(worktreePath: string): Promise<string[] | undefined> {
   const present = async (file: string) => !!(await lstat(path.join(worktreePath, file)).catch(() => undefined));
   if (await present("pnpm-lock.yaml")) return ["pnpm", "install", "--frozen-lockfile"];
   if (await present("package-lock.json")) return ["npm", "ci"];

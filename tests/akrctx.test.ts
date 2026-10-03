@@ -8449,3 +8449,891 @@ ${clarificationText === null ? "" : `\n## Clarifications\n\n${clarificationText}
     });
   });
 });
+
+describe("TASK-080 mechanical change lane", () => {
+  const SLOW = 120_000;
+  const GENERATOR = `import { chmodSync, mkdirSync, readFileSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+const mode = process.argv[2] ?? "";
+for (const file of ["data/a.txt", "data/b.txt"]) writeFileSync(file, readFileSync(file, "utf8").toUpperCase());
+if (mode === "--stray") {
+  mkdirSync("ignored", { recursive: true });
+  writeFileSync("ignored/out.txt", "x");
+}
+if (mode === "--touch") writeFileSync("data/c.txt", readFileSync("data/c.txt"));
+if (mode === "--delete") rmSync("data/old.txt");
+if (mode === "--add") writeFileSync("data/new.txt", "new\\n");
+if (mode === "--relink") {
+  unlinkSync("data/link.txt");
+  symlinkSync("target-b", "data/link.txt");
+}
+if (mode === "--exec") chmodSync("data/a.txt", 0o755);
+if (mode === "--rootblip") {
+  writeFileSync("blip", "");
+  rmSync("blip");
+}
+`;
+  const RUN = 'node "$AKRCTX_GENERATOR_ROOT/tools/gen.mjs"';
+  const VALIDATION = 'node -e "process.exit(0)"';
+
+  interface Fixture {
+    generator: { taskId: string };
+    task: { taskId: string; taskDir: string };
+    landed: string;
+    candidate: string;
+    include: string[];
+    declare: (declaration: unknown) => Promise<void>;
+  }
+
+  interface FixtureOptions {
+    command?: string;
+    prepare?: string[];
+    paths?: string[] | (() => string[]);
+    inputs?: string[];
+    generatorSource?: string;
+    reviewedSource?: string;
+    setupBase?: () => Promise<void>;
+    generateCandidate?: () => Promise<void>;
+    includeTaskIds?: () => string[];
+    review?: "approved" | "needs-changes" | "missing" | "commit-candidate";
+    afterLanding?: () => Promise<void>;
+    editCandidate?: () => Promise<void>;
+    declarationOverride?: (declaration: Record<string, unknown>) => unknown;
+    skipGeneration?: boolean;
+    baseFiles?: Record<string, string>;
+  }
+
+  async function sh(...args: string[]): Promise<string> {
+    return (await execFileAsync("git", args, { cwd: tmp })).stdout.trim();
+  }
+
+  async function fillValidation(taskDir: string): Promise<void> {
+    const file = path.join(tmp, taskDir, "task.md");
+    const original = await readFile(file, "utf8");
+    await writeFile(file, original.replace("```\n```", `\`\`\`\n${VALIDATION}\n\`\`\``), "utf8");
+  }
+
+  async function approvedGeneratorRecord(
+    generatorTaskId: string,
+    snapshotScope: unknown,
+    verdict: string,
+    recordFile: string,
+  ) {
+    const declaration = await readAcceptanceCriteria(tmp, generatorTaskId);
+    await mkdir(path.dirname(path.join(tmp, recordFile)), { recursive: true });
+    await writeFile(
+      path.join(tmp, recordFile),
+      `${JSON.stringify({
+        schemaVersion: JUDGE_SCHEMA_VERSION,
+        taskId: generatorTaskId,
+        scope: snapshotScope,
+        verdict,
+        tests: [{ command: VALIDATION, status: "passed" }],
+        criteria: declaration.ids.map((id) => ({ id, status: "pass", evidence: "Reviewed the generator." })),
+        observations: [],
+        reviewedAt: new Date().toISOString(),
+      })}\n`,
+      "utf8",
+    );
+  }
+
+  async function mechanicalFixture(options: FixtureOptions = {}): Promise<Fixture> {
+    const recordFile = ".akrctx/local/judge/generator-approved.json";
+    await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+    await sh("init");
+    await sh("config", "user.email", "tests@example.com");
+    await sh("config", "user.name", "akrctx tests");
+    await mkdir(path.join(tmp, "data"), { recursive: true });
+    const baseFiles = options.baseFiles ?? {
+      "data/a.txt": "alpha\n",
+      "data/b.txt": "beta\n",
+      "data/c.txt": "gamma\n",
+      "data/old.txt": "old\n",
+    };
+    for (const [file, content] of Object.entries(baseFiles)) {
+      await mkdir(path.dirname(path.join(tmp, file)), { recursive: true });
+      await writeFile(path.join(tmp, file), content, "utf8");
+    }
+    await symlink("target-a", path.join(tmp, "data/link.txt"));
+    await writeFile(
+      path.join(tmp, ".gitignore"),
+      `${await readFile(path.join(tmp, ".gitignore"), "utf8").catch(() => "")}\nignored/\n`,
+    );
+    const generator = await runTask("Land the generator", { cwd: tmp, nonInteractive: true });
+    await fillValidation(generator.taskDir);
+    await options.setupBase?.();
+    await sh("add", "-A");
+    await sh("commit", "-m", "base");
+
+    const landedSource = options.generatorSource ?? GENERATOR;
+    await mkdir(path.join(tmp, "tools"), { recursive: true });
+    await writeFile(path.join(tmp, "tools/gen.mjs"), options.reviewedSource ?? landedSource, "utf8");
+    if (options.review !== "missing") {
+      const reviewed = await captureJudgeSnapshot(tmp, generator.taskId, "HEAD");
+      await approvedGeneratorRecord(
+        generator.taskId,
+        reviewed.scope,
+        options.review === "needs-changes" ? "NEEDS_CHANGES" : "APPROVED",
+        recordFile,
+      );
+      if (options.review === "commit-candidate") {
+        const record = JSON.parse(await readFile(path.join(tmp, recordFile), "utf8"));
+        record.scope.candidate = "HEAD";
+        await writeFile(path.join(tmp, recordFile), JSON.stringify(record), "utf8");
+      }
+    }
+    await writeFile(path.join(tmp, "tools/gen.mjs"), landedSource, "utf8");
+    await sh("add", "-A");
+    await sh("commit", "-m", "land generator");
+    const landed = await sh("rev-parse", "HEAD");
+    await options.afterLanding?.();
+
+    const task = await runTask("Mechanical change", { cwd: tmp, nonInteractive: true });
+    await fillValidation(task.taskDir);
+    const declaration = {
+      generator: {
+        command: options.command ?? RUN,
+        commit: landed,
+        review: recordFile,
+        inputs: options.inputs ?? ["tools/gen.mjs"],
+        prepare: options.prepare ?? [],
+      },
+      paths: typeof options.paths === "function" ? options.paths() : (options.paths ?? ["data/a.txt", "data/b.txt"]),
+    };
+    const declare = async (value: unknown) => {
+      const file = path.join(tmp, task.taskDir, "task.md");
+      const markdown = (await readFile(file, "utf8")).replace(/\n## Migration[\s\S]*$/, "");
+      await writeFile(file, `${markdown}\n## Migration\n\n\`\`\`json\n${JSON.stringify(value, null, 2)}\n\`\`\`\n`);
+    };
+    await declare(options.declarationOverride ? options.declarationOverride(declaration) : declaration);
+    if (options.generateCandidate) {
+      await options.generateCandidate();
+    } else if (!options.skipGeneration) {
+      for (const file of ["data/a.txt", "data/b.txt"]) {
+        const full = path.join(tmp, file);
+        await writeFile(full, (await readFile(full, "utf8")).toUpperCase());
+      }
+    }
+    await options.editCandidate?.();
+    const include = options.includeTaskIds?.() ?? [];
+    const snapshot = await captureJudgeSnapshot(tmp, task.taskId, "HEAD", include);
+    return { generator, task, landed, candidate: snapshot.candidate, include, declare };
+  }
+
+  async function reproduce(fixture: Fixture, approve: (commands: string[]) => Promise<boolean> = async () => true) {
+    const { reproduceMechanicalChange } = await import("../src/mechanical-reproduction.js");
+    return reproduceMechanicalChange(tmp, fixture.task.taskId, {
+      base: "HEAD",
+      candidate: fixture.candidate,
+      includedTaskIds: fixture.include,
+      approve,
+    });
+  }
+
+  async function treeDigest(root: string): Promise<string> {
+    const lines: string[] = [];
+    const visit = async (directory: string): Promise<void> => {
+      for (const entry of (await readdir(directory, { withFileTypes: true })).sort((a, b) =>
+        a.name.localeCompare(b.name),
+      )) {
+        if (entry.name === ".git") continue;
+        const full = path.join(directory, entry.name);
+        const relative = path.relative(root, full);
+        if (entry.isDirectory()) {
+          lines.push(`d ${relative}`);
+          await visit(full);
+        } else if (entry.isSymbolicLink()) {
+          lines.push(`l ${relative} ${await readlink(full)}`);
+        } else {
+          lines.push(
+            `f ${relative} ${createHash("sha256")
+              .update(await readFile(full))
+              .digest("hex")}`,
+          );
+        }
+      }
+    };
+    await visit(root);
+    return createHash("sha256").update(lines.join("\n")).digest("hex");
+  }
+
+  describe("declaration", () => {
+    async function read(value: unknown, raw?: string) {
+      const { readMigrationDeclaration } = await import("../src/mechanical-reproduction.js");
+      const dir = path.join(tmp, "capsule");
+      await mkdir(dir, { recursive: true });
+      await writeFile(
+        path.join(dir, "task.md"),
+        `# T\n\n## Migration\n\n\`\`\`json\n${raw ?? JSON.stringify(value)}\n\`\`\`\n`,
+      );
+      return readMigrationDeclaration(dir, [".env", "secrets/"]);
+    }
+    type Declaration = { generator: Record<string, unknown>; paths: unknown };
+    const valid = (): Declaration => ({
+      generator: {
+        command: "node tool.mjs",
+        commit: "a".repeat(40),
+        review: ".akrctx/local/judge/r.json",
+        inputs: ["tools/gen.mjs"],
+        prepare: [],
+      },
+      paths: ["data/a.txt"],
+    });
+
+    it("accepts the documented shape, including an empty prepare list", async () => {
+      const result = await read(valid());
+      expect(result.problems).toEqual([]);
+      expect(result.declaration?.paths).toEqual(["data/a.txt"]);
+    });
+
+    it.each([
+      ["an unknown top-level key", (d: Declaration) => ({ ...d, extra: 1 }), "Unknown key in migration: extra"],
+      [
+        "an unknown generator key",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, shell: "sh" } }),
+        "Unknown key in generator: shell",
+      ],
+      [
+        "an empty command",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, command: " " } }),
+        "generator.command must be a non-empty string",
+      ],
+      [
+        "a short commit",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, commit: "abc123" } }),
+        "full Git SHA",
+      ],
+      [
+        "an empty review",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, review: "" } }),
+        "generator.review must be a non-empty string",
+      ],
+      [
+        "empty inputs",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, inputs: [] } }),
+        "generator.inputs must be a non-empty array",
+      ],
+      [
+        "duplicate inputs",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, inputs: ["a.mjs", "a.mjs"] } }),
+        "generator.inputs lists a.mjs more than once",
+      ],
+      [
+        "a missing prepare list",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, prepare: undefined } }),
+        "generator.prepare must be an array",
+      ],
+      [
+        "a malformed prepare entry",
+        (d: Declaration) => ({ ...d, generator: { ...d.generator, prepare: ["ok", 3] } }),
+        "generator.prepare[1]",
+      ],
+      ["empty paths", (d: Declaration) => ({ ...d, paths: [] }), "paths must be a non-empty array"],
+      [
+        "duplicate paths",
+        (d: Declaration) => ({ ...d, paths: ["a.txt", "a.txt"] }),
+        "paths lists a.txt more than once",
+      ],
+      ["an absolute path", (d: Declaration) => ({ ...d, paths: ["/etc/passwd"] }), "must not be absolute"],
+      ["a traversal path", (d: Declaration) => ({ ...d, paths: ["../x.txt"] }), "must not traverse upward"],
+      ["a glob", (d: Declaration) => ({ ...d, paths: ["data/*.txt"] }), "exact path, not a glob"],
+      ["a directory path", (d: Declaration) => ({ ...d, paths: ["data/"] }), "normalized file path"],
+      ["an unnormalized path", (d: Declaration) => ({ ...d, paths: ["data//a.txt"] }), "normalized file path"],
+      ["a .git path", (d: Declaration) => ({ ...d, paths: [".git/config"] }), "must not touch .git"],
+      ["a blocked path", (d: Declaration) => ({ ...d, paths: [".env"] }), "blocked by blockedReadPatterns"],
+    ])("refuses %s with a named reason", async (_label, mutate, reason) => {
+      const result = await read(mutate(valid()));
+      expect(result.declaration).toBeNull();
+      expect(result.problems.join("\n")).toContain(reason);
+    });
+
+    it("refuses text that is not one JSON object", async () => {
+      expect((await read(null, "{ nope")).problems[0]).toContain("not valid JSON");
+      expect((await read(null, "[]")).problems[0]).toContain("must be a JSON object");
+    });
+
+    it("reports a capsule without a Migration section", async () => {
+      const { readMigrationDeclaration } = await import("../src/mechanical-reproduction.js");
+      await mkdir(path.join(tmp, "plain"), { recursive: true });
+      await writeFile(path.join(tmp, "plain/task.md"), "# T\n\n## Validation\n");
+      const result = await readMigrationDeclaration(path.join(tmp, "plain"), []);
+      expect(result.sectionPresent).toBe(false);
+      expect(result.declaration).toBeNull();
+    });
+  });
+
+  describe("reproduction", () => {
+    it(
+      "reproduces the generated paths exactly and leaves the project and snapshot untouched",
+      async () => {
+        const fixture = await mechanicalFixture({ prepare: ['node -e "process.exit(0)"'] });
+        const before = await treeDigest(tmp);
+        const seen: string[][] = [];
+
+        const result = await reproduce(fixture, async (commands) => {
+          seen.push(commands);
+          return true;
+        });
+
+        expect(result.reasons).toEqual([]);
+        expect(result.ok).toBe(true);
+        expect(result.reproduced).toEqual(["data/a.txt", "data/b.txt"]);
+        expect(seen).toEqual([['node -e "process.exit(0)"', RUN]]);
+        expect(result.nonGeneratedChanges).toContain(`${fixture.task.taskDir}/task.md`);
+        expect(await treeDigest(tmp)).toBe(before);
+        await expect(loadJudgeSnapshot(tmp, fixture.candidate)).resolves.toBeDefined();
+      },
+      SLOW,
+    );
+
+    it(
+      "names a generated path that differs from the candidate",
+      async () => {
+        const fixture = await mechanicalFixture({
+          editCandidate: async () => writeFile(path.join(tmp, "data/b.txt"), "BETA edited by hand\n"),
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.ok).toBe(false);
+        expect(result.differing).toEqual(["data/b.txt"]);
+        expect(result.reproduced).toEqual(["data/a.txt"]);
+        expect(result.reasons.join("\n")).toContain("data/b.txt does not match the candidate (bytes)");
+      },
+      SLOW,
+    );
+
+    it(
+      "does not accept idempotency: a candidate that equals the base is an error",
+      async () => {
+        const fixture = await mechanicalFixture({
+          baseFiles: { "data/a.txt": "ALPHA\n", "data/b.txt": "BETA\n", "data/c.txt": "g\n", "data/old.txt": "o\n" },
+          skipGeneration: true,
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.ok).toBe(false);
+        expect(result.reasons.join("\n")).toContain("Declared path data/a.txt has no change");
+        expect(result.reasons.join("\n")).toContain("Declared path data/b.txt has no change");
+      },
+      SLOW,
+    );
+
+    it(
+      "compares the executable bit",
+      async () => {
+        const exec = await mechanicalFixture({
+          command: `${RUN} --exec`,
+          editCandidate: async () => undefined,
+        });
+        const execResult = await reproduce(exec);
+        expect(execResult.differing).toContain("data/a.txt");
+        expect(execResult.reasons.join("\n")).toContain("data/a.txt does not match the candidate (executable bit)");
+      },
+      SLOW,
+    );
+
+    it(
+      "detects a changed symlink target without following it",
+      async () => {
+        const fixture = await mechanicalFixture({
+          command: `${RUN} --relink`,
+          paths: ["data/a.txt", "data/b.txt", "data/link.txt"],
+          editCandidate: async () => {
+            await rm(path.join(tmp, "data/link.txt"));
+            await symlink("target-c", path.join(tmp, "data/link.txt"));
+          },
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.differing).toEqual(["data/link.txt"]);
+        expect(result.reasons.join("\n")).toContain("data/link.txt does not match the candidate (symlink target)");
+      },
+      SLOW,
+    );
+
+    it(
+      "reproduces a symlink retarget when the candidate matches",
+      async () => {
+        const fixture = await mechanicalFixture({
+          command: `${RUN} --relink`,
+          paths: ["data/a.txt", "data/b.txt", "data/link.txt"],
+          editCandidate: async () => {
+            await rm(path.join(tmp, "data/link.txt"));
+            await symlink("target-b", path.join(tmp, "data/link.txt"));
+          },
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.reasons).toEqual([]);
+        expect(result.reproduced).toContain("data/link.txt");
+      },
+      SLOW,
+    );
+
+    it(
+      "detects a file replaced by a symlink in the candidate",
+      async () => {
+        const fixture = await mechanicalFixture({
+          editCandidate: async () => {
+            await rm(path.join(tmp, "data/a.txt"));
+            await symlink("elsewhere", path.join(tmp, "data/a.txt"));
+          },
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.reasons.join("\n")).toContain("data/a.txt does not match the candidate (file type)");
+      },
+      SLOW,
+    );
+
+    it(
+      "covers deletions and additions",
+      async () => {
+        const deleted = await mechanicalFixture({
+          command: `${RUN} --delete`,
+          paths: ["data/a.txt", "data/b.txt", "data/old.txt"],
+          editCandidate: async () => rm(path.join(tmp, "data/old.txt")),
+        });
+        expect((await reproduce(deleted)).reasons).toEqual([]);
+      },
+      SLOW,
+    );
+
+    it(
+      "names a deletion the candidate did not make",
+      async () => {
+        const kept = await mechanicalFixture({
+          command: `${RUN} --delete`,
+          paths: ["data/a.txt", "data/b.txt", "data/old.txt"],
+        });
+        const result = await reproduce(kept);
+        expect(result.reasons.join("\n")).toContain("data/old.txt does not match the candidate (existence)");
+      },
+      SLOW,
+    );
+
+    it(
+      "names an addition the candidate lacks",
+      async () => {
+        const fixture = await mechanicalFixture({
+          command: `${RUN} --add`,
+          paths: ["data/a.txt", "data/b.txt", "data/new.txt"],
+        });
+        const result = await reproduce(fixture);
+        expect(result.reasons.join("\n")).toContain("data/new.txt does not match the candidate (existence)");
+      },
+      SLOW,
+    );
+
+    it(
+      "fails on a write outside the declared paths, including an ignored output",
+      async () => {
+        const fixture = await mechanicalFixture({
+          command: `${RUN} --stray`,
+          editCandidate: async () => undefined,
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.ok).toBe(false);
+        expect(result.unexpectedWrites).toContain("ignored/out.txt");
+        expect(result.reasons.join("\n")).toContain("wrote outside the declared paths");
+      },
+      SLOW,
+    );
+
+    it(
+      "fails on a write-then-restore of an undeclared file",
+      async () => {
+        const fixture = await mechanicalFixture({ command: `${RUN} --touch` });
+
+        const result = await reproduce(fixture);
+
+        expect(result.unexpectedWrites).toEqual(["data/c.txt"]);
+        expect(result.ok).toBe(false);
+      },
+      SLOW,
+    );
+
+    it(
+      "fails on a file created and deleted in the worktree root",
+      async () => {
+        const fixture = await mechanicalFixture({ command: `${RUN} --rootblip` });
+
+        const result = await reproduce(fixture);
+
+        expect(result.ok).toBe(false);
+        expect(result.unexpectedWrites).toContain(".");
+      },
+      SLOW,
+    );
+
+    it(
+      "refuses a declared path behind a symlinked directory",
+      async () => {
+        const fixture = await mechanicalFixture({
+          paths: ["data/a.txt", "linked/x.txt"],
+          editCandidate: async () => {
+            await symlink("data", path.join(tmp, "linked"));
+          },
+        });
+
+        const result = await reproduce(fixture);
+
+        expect(result.reasons.join("\n")).toContain("paths entry linked/x.txt has a symlink ancestor: linked");
+      },
+      SLOW,
+    );
+  });
+
+  describe("provenance", () => {
+    it.each([
+      ["a missing review record", "missing", "generator.review"],
+      ["a record that is not APPROVED", "needs-changes", "not a verified APPROVED record"],
+      ["a record for a commit candidate", "commit-candidate", "immutable SNAPSHOT candidate"],
+    ] as const)(
+      "refuses %s",
+      async (_label, review, reason) => {
+        const fixture = await mechanicalFixture({ review });
+        const result = await reproduce(fixture);
+        expect(result.ok).toBe(false);
+        expect(result.commands).toEqual([]);
+        expect(result.reasons.join("\n")).toContain(reason);
+      },
+      SLOW,
+    );
+
+    it(
+      "refuses a generator whose reviewed content differs from the landed commit",
+      async () => {
+        const fixture = await mechanicalFixture({ reviewedSource: `${GENERATOR}// reviewed variant\n` });
+        const result = await reproduce(fixture);
+        expect(result.reasons.join("\n")).toContain("differs between the reviewed content and the landed commit");
+      },
+      SLOW,
+    );
+
+    it(
+      "refuses a generator modified after it landed",
+      async () => {
+        const fixture = await mechanicalFixture({
+          afterLanding: async () => {
+            await writeFile(path.join(tmp, "tools/gen.mjs"), `${GENERATOR}// tampered\n`);
+            await sh("add", "-A");
+            await sh("commit", "-m", "tamper with the generator");
+          },
+        });
+        const result = await reproduce(fixture);
+        expect(result.reasons.join("\n")).toContain("tools/gen.mjs was modified after the landed commit");
+      },
+      SLOW,
+    );
+
+    it(
+      "refuses a generator that exists only in the candidate",
+      async () => {
+        const fixture = await mechanicalFixture({
+          inputs: ["tools/gen.mjs", "tools/bootstrap.mjs"],
+          editCandidate: async () => writeFile(path.join(tmp, "tools/bootstrap.mjs"), "export {};\n"),
+        });
+        const result = await reproduce(fixture);
+        expect(result.commands).toEqual([]);
+        expect(result.reasons.join("\n")).toContain("tools/bootstrap.mjs is not a regular file in the landed commit");
+      },
+      SLOW,
+    );
+
+    it(
+      "refuses a landed commit that is not an ancestor of the base",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const sidelined = await sh("commit-tree", "HEAD^{tree}", "-m", "unrelated");
+        await fixture.declare({
+          generator: {
+            command: RUN,
+            commit: sidelined,
+            review: ".akrctx/local/judge/generator-approved.json",
+            inputs: ["tools/gen.mjs"],
+            prepare: [],
+          },
+          paths: ["data/a.txt", "data/b.txt"],
+        });
+        const snapshot = await captureJudgeSnapshot(tmp, fixture.task.taskId, "HEAD");
+        const result = await reproduce({ ...fixture, candidate: snapshot.candidate });
+        expect(result.reasons.join("\n")).toContain("is not an ancestor of the mechanical base");
+      },
+      SLOW,
+    );
+  });
+
+  describe("approval and scope", () => {
+    it(
+      "runs nothing when the operator denies the ordered command list",
+      async () => {
+        const sentinel = path.join(tmp, "..", `akrctx-sentinel-${process.pid}.txt`);
+        const fixture = await mechanicalFixture({
+          prepare: [`node -e "require('fs').writeFileSync(${JSON.stringify(sentinel)}, 'ran')"`],
+        });
+        let shown: string[] = [];
+
+        const result = await reproduce(fixture, async (commands) => {
+          shown = commands;
+          return false;
+        });
+
+        expect(result.ok).toBe(false);
+        expect(shown).toHaveLength(2);
+        expect(shown[1]).toBe(RUN);
+        expect(await pathExists(sentinel)).toBe(false);
+        expect(result.reasons.join("\n")).toContain("Operator approval was not given");
+      },
+      SLOW,
+    );
+
+    it(
+      "never runs without an approval callback",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const { reproduceMechanicalChange } = await import("../src/mechanical-reproduction.js");
+        const result = await reproduceMechanicalChange(tmp, fixture.task.taskId, {
+          base: "HEAD",
+          candidate: fixture.candidate,
+        });
+        expect(result.ok).toBe(false);
+        expect(result.reproduced).toEqual([]);
+      },
+      SLOW,
+    );
+
+    it(
+      "keeps the foreign-capsule rule: capture needs --include-task and the declaration grants nothing",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const foreign = await runTask("A foreign capsule", { cwd: tmp, nonInteractive: true });
+        await writeFile(
+          path.join(tmp, foreign.taskDir, "acceptance-criteria.md"),
+          "# Acceptance Criteria\n\n- AC-1: Changed.\n",
+        );
+        await sh("add", "-A");
+        await sh("commit", "-m", "foreign capsule");
+        const foreignSecond = await runTask("Another foreign capsule", { cwd: tmp, nonInteractive: true });
+        await sh("add", "-A");
+        await sh("commit", "-m", "second foreign capsule");
+        await writeFile(
+          path.join(tmp, foreign.taskDir, "acceptance-criteria.md"),
+          "# Acceptance Criteria\n\n- AC-1: Edited.\n",
+        );
+        await writeFile(
+          path.join(tmp, foreignSecond.taskDir, "acceptance-criteria.md"),
+          "# Acceptance Criteria\n\n- AC-1: Edited.\n",
+        );
+
+        await expect(captureJudgeSnapshot(tmp, fixture.task.taskId, "HEAD")).rejects.toThrow(/foreign task capsule/);
+        const authorized = await captureJudgeSnapshot(tmp, fixture.task.taskId, "HEAD", [
+          foreign.taskId,
+          foreignSecond.taskId,
+        ]);
+
+        const withoutInclude = await reproduce({ ...fixture, candidate: authorized.candidate });
+        expect(withoutInclude.ok).toBe(false);
+        expect(withoutInclude.reasons.join("\n")).toContain("different --include-task scope");
+      },
+      SLOW,
+    );
+
+    it(
+      "rejects a base that is not the snapshot base",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const { reproduceMechanicalChange } = await import("../src/mechanical-reproduction.js");
+        const result = await reproduceMechanicalChange(tmp, fixture.task.taskId, {
+          base: "HEAD~1",
+          candidate: fixture.candidate,
+          approve: async () => true,
+        });
+        expect(result.reasons.join("\n")).toContain("does not resolve to the snapshot base");
+      },
+      SLOW,
+    );
+
+    it(
+      "rejects a candidate that is not a snapshot",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const { reproduceMechanicalChange } = await import("../src/mechanical-reproduction.js");
+        const result = await reproduceMechanicalChange(tmp, fixture.task.taskId, {
+          base: "HEAD",
+          candidate: "WORKTREE",
+          approve: async () => true,
+        });
+        expect(result.reasons.join("\n")).toContain("immutable SNAPSHOT candidate");
+      },
+      SLOW,
+    );
+  });
+
+  describe("CLI judge reproduce", () => {
+    const runCli = async (args: string[]) => {
+      const previousCwd = process.cwd();
+      const originalLog = console.log;
+      const originalExitCode = process.exitCode;
+      const writes: string[] = [];
+      console.log = (message?: unknown) => {
+        writes.push(String(message));
+      };
+      try {
+        process.chdir(tmp);
+        await main(["node", "akrctx", ...args]);
+      } finally {
+        process.chdir(previousCwd);
+        console.log = originalLog;
+      }
+      const exitCode = process.exitCode;
+      process.exitCode = originalExitCode;
+      return { output: writes.join("\n"), exitCode };
+    };
+
+    it(
+      "refuses headless without --approve-commands, then reproduces with the exact list",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const base = ["judge", "reproduce", fixture.task.taskId, "--base", "HEAD", "--candidate", fixture.candidate];
+
+        const refused = await runCli(base);
+        expect(refused.exitCode).toBe(1);
+        expect(refused.output).toContain("NOT REPRODUCED");
+        expect(refused.output).toContain("AKRCTX_GENERATOR_ROOT");
+
+        const wrong = await runCli([...base, "--approve-commands", "echo hi"]);
+        expect(wrong.exitCode).toBe(1);
+
+        const approved = await runCli([...base, "--approve-commands", RUN]);
+        expect(approved.exitCode).toBeUndefined();
+        expect(approved.output).toContain("REPRODUCED");
+        expect(approved.output).toContain("process isolation, not an OS sandbox");
+      },
+      SLOW,
+    );
+
+    it(
+      "keeps JSON parseable on stdout when headless approval is missing",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const { output, exitCode } = await runCli([
+          "judge",
+          "reproduce",
+          fixture.task.taskId,
+          "--base",
+          "HEAD",
+          "--candidate",
+          fixture.candidate,
+          "--json",
+        ]);
+        const report = JSON.parse(output);
+        expect(exitCode).toBe(1);
+        expect(report.ok).toBe(false);
+        expect(report.commands).toEqual([RUN]);
+        expect(report.generatorRoot).toEqual(expect.stringContaining("akrctx-generator-tool-"));
+      },
+      SLOW,
+    );
+
+    it(
+      "emits JSON and writes no result file",
+      async () => {
+        const fixture = await mechanicalFixture();
+        const before = await treeDigest(tmp);
+        const { output, exitCode } = await runCli([
+          "judge",
+          "reproduce",
+          fixture.task.taskId,
+          "--base",
+          "HEAD",
+          "--candidate",
+          fixture.candidate,
+          "--approve-commands",
+          RUN,
+          "--json",
+        ]);
+        expect(exitCode).toBeUndefined();
+        expect(JSON.parse(output)).toMatchObject({ ok: true, reproduced: ["data/a.txt", "data/b.txt"] });
+        expect(await treeDigest(tmp)).toBe(before);
+      },
+      SLOW,
+    );
+  });
+
+  describe("shipped contract", () => {
+    it("states what reproduction proves and what it does not", async () => {
+      await runInit({ cwd: tmp, target: "codex", nonInteractive: true });
+      const readme = await readFile(path.join(tmp, ".akrctx/judge/README.md"), "utf8");
+      const section = readme.slice(readme.indexOf("## Mechanical change reproduction"));
+
+      expect(section).toContain("akrctx judge reproduce");
+      expect(section).toContain("It does not approve the generator");
+      expect(section).toContain("process isolation, not an OS sandbox");
+      expect(section).toContain("--include-task");
+      expect(section).toContain("only idempotency");
+    });
+  });
+
+  describe("TASK-075 adapted two-step fixture", () => {
+    // Adapted reproduction: the criterion migration generator is placed in the base and reviewed
+    // first, then the migration is reproduced. It is not the original command in its historical base.
+    it(
+      "reproduces the criterion migration of several capsules from a previously reviewed generator",
+      async () => {
+        const { build } = await import("esbuild");
+        const repoRoot = path.resolve(import.meta.dirname, "..");
+        const bundle = await build({
+          stdin: {
+            contents: `import { migrateAcceptanceCriteriaIdentifiers } from "./src/task.ts";\nawait migrateAcceptanceCriteriaIdentifiers(process.cwd());\n`,
+            resolveDir: repoRoot,
+            loader: "ts",
+          },
+          bundle: true,
+          platform: "node",
+          format: "esm",
+          write: false,
+          banner: {
+            js: 'import { createRequire } from "node:module"; const require = createRequire(import.meta.url);',
+          },
+        });
+        const legacy: Array<{ taskId: string; taskDir: string }> = [];
+        const fixture = await mechanicalFixture({
+          generatorSource: bundle.outputFiles[0].text,
+          baseFiles: { "data/a.txt": "a\n" },
+          setupBase: async () => {
+            for (const name of ["First legacy capsule", "Second legacy capsule", "Third legacy capsule"]) {
+              const created = await runTask(name, { cwd: tmp, nonInteractive: true });
+              await writeFile(
+                path.join(tmp, created.taskDir, "acceptance-criteria.md"),
+                "# Acceptance Criteria\n\n- First behavior.\n- Second behavior.\n",
+              );
+              legacy.push(created);
+            }
+          },
+          paths: () => legacy.map((capsule) => `${capsule.taskDir}/acceptance-criteria.md`),
+          generateCandidate: async () => {
+            await migrateAcceptanceCriteriaIdentifiers(tmp);
+          },
+          includeTaskIds: () => legacy.map((capsule) => capsule.taskId),
+        });
+
+        await expect(captureJudgeSnapshot(tmp, fixture.task.taskId, "HEAD")).rejects.toThrow(/foreign task capsule/);
+        const before = await treeDigest(tmp);
+        const result = await reproduce(fixture);
+
+        expect(result.reasons).toEqual([]);
+        expect(result.ok).toBe(true);
+        expect(result.reproduced).toHaveLength(3);
+        expect(await treeDigest(tmp)).toBe(before);
+      },
+      SLOW,
+    );
+  });
+});

@@ -10,6 +10,7 @@ import {
 } from "../judge-snapshot.js";
 import { withJudgeTimings } from "../judge-timings.js";
 import { runJudgeDisable, runJudgeEnable, runJudgeStatus } from "../judge.js";
+import { reproduceMechanicalChange } from "../mechanical-reproduction.js";
 import {
   addCommon,
   ln,
@@ -390,6 +391,78 @@ export function registerJudge(program: Command): void {
     });
 
   judge
+    .command("reproduce")
+    .description("Reproduce a declared mechanical change from the base and compare it to a snapshot.")
+    .argument("<task-id>", "task capsule ID, for example TASK-080")
+    .requiredOption("--base <ref>", "base Git commit or ref the snapshot was captured against")
+    .requiredOption("--candidate <snapshot>", "immutable snapshot candidate, SNAPSHOT:<id>")
+    .option(
+      "--include-task <task-id>",
+      "the foreign task capsules the snapshot was captured with; repeat for each task",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .option("--json", "emit JSON output", false)
+    .option(
+      "--approve-commands <cmd>",
+      "approve one command; repeat once per command, in the printed order",
+      (value: string, previous: string[]) => [...previous, value],
+      [] as string[],
+    )
+    .addHelpText(
+      "after",
+      [
+        "",
+        "Runs the generator declared in the `## Migration` block of the snapshot's task.md against a",
+        "disposable copy of the base and compares the declared paths to the snapshot. The generator",
+        "must already be landed in the base and named by a verified APPROVED review record.",
+        "",
+        "Nothing runs without your approval. The complete ordered list is shown first: the frozen",
+        "dependency install, the prepare commands, then the generator. Headless, pass",
+        "--approve-commands once per command, in that order. AKRCTX_GENERATOR_ROOT is set to the",
+        "external tool workspace and shown with the list.",
+        "",
+        "The report goes to stdout and the exit code. No file is written. A match is evidence about",
+        "the result, not approval of the generator or of changes outside the declared paths.",
+        "This is process isolation, not an OS sandbox.",
+      ].join("\n"),
+    )
+    .action(async (taskId: string, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const approved = Array.isArray(raw.approveCommands) ? (raw.approveCommands as string[]) : [];
+      const result = await reproduceMechanicalChange(options.cwd ?? process.cwd(), taskId, {
+        base: String(raw.base),
+        candidate: String(raw.candidate),
+        includedTaskIds: Array.isArray(raw.includeTask) ? (raw.includeTask as string[]) : [],
+        approve: async (commands, context) => {
+          // In --json mode stdout carries only the JSON report, so the approval text goes to stderr.
+          const originalLog = console.log;
+          if (options.json) console.log = console.error;
+          try {
+            ln();
+            log(`  ${dim("AKRCTX_GENERATOR_ROOT")} ${context.generatorRoot}`);
+            return await approveCommands(commands, approved, "run in disposable workspaces");
+          } finally {
+            console.log = originalLog;
+          }
+        },
+      });
+      if (options.json) {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        log(`${bold("Mechanical reproduction:")} ${result.ok ? green("REPRODUCED") : yellow("NOT REPRODUCED")}`);
+        for (const reason of result.reasons) log(`  ${minus()} ${reason}`);
+        for (const reproduced of result.reproduced) log(`  ${plus()} ${file(reproduced)}`);
+        if (result.nonGeneratedChanges.length > 0) {
+          log(`  ${dim(`Non-generated changes need ordinary review (${result.nonGeneratedChanges.length}):`)}`);
+          for (const changed of result.nonGeneratedChanges) log(`    ${file(changed)}`);
+        }
+        for (const notice of result.notices) log(`  ${yellow("!")} ${notice}`);
+      }
+      if (!result.ok) process.exitCode = 1;
+    });
+
+  judge
     .command("rounds")
     .description("Report review rounds per task from the local judge records. Read-only.")
     .argument("[task-id]", "report one task, for example TASK-001")
@@ -430,7 +503,11 @@ export function registerJudge(program: Command): void {
  * list that was shown instead of assembling a plausible one by hand, and that confirmation is the
  * whole control.
  */
-async function approveCommands(declared: string[], approved: string[]): Promise<boolean> {
+async function approveCommands(
+  declared: string[],
+  approved: string[],
+  origin = "come from the capsule's task.md and will run in a disposable copy",
+): Promise<boolean> {
   const asFlags = declared.map((command) => `--approve-commands ${JSON.stringify(command)}`).join(" ");
   if (!process.stdin.isTTY) {
     if (approved.length === 0) {
@@ -456,7 +533,7 @@ async function approveCommands(declared: string[], approved: string[]): Promise<
   }
 
   ln();
-  log(`  ${bold("These commands come from the capsule's task.md and will run in a disposable copy:")}`);
+  log(`  ${bold(`These commands ${origin}:`)}`);
   for (const [index, command] of declared.entries()) log(`    ${index + 1}. ${cmd(command)}`);
   ln();
   const { createInterface } = await import("node:readline/promises");

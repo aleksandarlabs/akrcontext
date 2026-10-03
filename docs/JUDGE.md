@@ -311,6 +311,35 @@ and a future receipt verifier must be a separate explicit path. No receipt may m
 operator consent reusable; each execution still needs approval for its exact command
 list.
 
+### Mechanical change reproduction
+
+`akrctx judge reproduce TASK-XXX --base <ref> --candidate SNAPSHOT:<id>` checks that a declared
+generator produces exactly the generated paths of a snapshot. Land and review the generator first,
+as ordinary code. A later change declares it in one fenced JSON object under `## Migration`:
+
+```json
+{
+  "generator": {
+    "command": "node \"$AKRCTX_GENERATOR_ROOT/tools/migrate.mjs\"",
+    "commit": "<full-landed-generator-commit-sha>",
+    "review": ".akrctx/local/judge/generator-approved.json",
+    "inputs": ["tools/migrate.mjs", "package.json", "pnpm-lock.yaml"],
+    "prepare": []
+  },
+  "paths": [".akrctx/tasks/TASK-001-example/acceptance-criteria.md"]
+}
+```
+
+The command refuses a generator that is not an ancestor of the base, a review record that is not a
+verified APPROVED snapshot record, and any input that differs between the reviewed content, the
+landed commit and the base. It runs the frozen install, the `prepare` commands and the generator
+only after the operator approves the complete ordered list. Headless, pass `--approve-commands`
+once per command. Each declared path is compared by bytes, existence, file type, executable bit and
+symlink target. A declared path with no change, and any write outside `paths`, fail with named
+paths. `--include-task` stays required for every foreign capsule. The result is stdout and the exit
+code only. It is process isolation, not an OS sandbox, and it does not replace review of the
+generator or of non-generated changes.
+
 ### Withheld paths
 
 Files matching `blockedReadPatterns` in `policy.json` are excluded from the diff at the Git level and listed by path in `scope.excludedPaths`. Their contents are never fingerprinted, and blocked tracked paths are removed from the snapshot's reviewable worktree after checkout. The path list is itself part of the boundary, so a blocked file appearing or disappearing still invalidates a stale approval.

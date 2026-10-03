@@ -153,6 +153,24 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   order. Preparation runs in an external disposable tool workspace from base inputs and the
   committed lockfile; generation runs in a separate disposable worktree from the base. Preparation
   never builds candidate-derived tool code.
+- CLI surface answered by the human before implementation: a new subcommand
+  `akrctx judge reproduce TASK-XXX --base <ref> --candidate SNAPSHOT:<id>` with `--include-task`,
+  `--approve-commands` and `--json`. It does not change `judge verify` or the review record shape.
+- Result answered by the human: the report goes to stdout and the exit code only. Failure exits
+  non-zero. Nothing writes a result file, so no receipt exists that could be mistaken for trust.
+- Provenance re-verification answered by the human: it checks that the generator review record is
+  valid and APPROVED, and that the inputs match the reviewed content and the landed commit. It does
+  not re-run that record's tests, so the approval list holds only preparation and generation.
+- Dependency materialization answered by the human: the runner adds the frozen lockfile install
+  (`pnpm install --frozen-lockfile`, `npm ci` or `yarn install --frozen-lockfile`, as in
+  `materialiseDependencies`) to the approved list before the `prepare` commands. No implicit build
+  step exists.
+- Declared path without a delta answered by the human: a `paths` entry that is identical in the
+  base, the candidate and the reproduction is an error that names the path. Inert paths never
+  count as reproduced.
+- Generator review record answered by the human: `generator.review` accepts only a record whose
+  candidate is an immutable `SNAPSHOT:<id>`. A commit-ref or `WORKTREE` candidate is refused with
+  a named reason.
 
 ## Open Questions
 
