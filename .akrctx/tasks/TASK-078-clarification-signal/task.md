@@ -130,6 +130,12 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   are compared. A `WORKTREE` candidate or unreadable inputs report `comparison unavailable`. A new
   capsule, or one without Clarifications on both sides, stays inconclusive with no notice. A
   bullet date is never evidence.
+- During implementation the human decided four points the contract did not cover. The WORKTREE
+  `comparison unavailable` diagnostic goes into `notices`; the human authorized minimal edits to
+  the three existing tests that assert `notices` exactly or the word "unavailable". A compared
+  file missing or unreadable on one side reports `comparison unavailable` for that file, and an
+  absent `## Contract` section compares as empty text. Structured lines are only `proof-command:`,
+  `proof-doc:` and `Retired:`. The `No ambiguity:` prefix ignores letter case.
 
 ## Open Questions
 
