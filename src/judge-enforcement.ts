@@ -541,6 +541,24 @@ export async function verifyJudgeRecord(
     );
   }
 
+  // Experimental signal: an unexpected failure must never abort verify or change the verdict.
+  try {
+    const { clarificationSignalNotices } = await import("./clarification-signal.js");
+    notices.push(
+      ...(await clarificationSignalNotices({
+        cwd,
+        taskId: record.taskId,
+        baseCommit: record.scope.baseCommit,
+        candidate: record.scope.candidate,
+        candidateCommit: record.scope.candidateCommit,
+        snapshotRoot: snapshot?.worktreePath ?? null,
+      })),
+    );
+  } catch (error) {
+    const text = `Clarification comparison unavailable: ${messageOf(error).split("\n")[0]}. No conclusion about consultation is drawn.`;
+    notices.push(text.length <= 1024 ? text : `${text.slice(0, 1023)}…`);
+  }
+
   let verifiedNowValue: JudgeVerifyResult["verifiedNow"]["value"];
   let verifiedNowReason: string;
   if (declaration.kind === "documentation") {
@@ -793,12 +811,12 @@ export async function readClarificationState(cwd: string, taskId: string): Promi
  * The lookahead requires whitespace after `##`, so a `### Session YYYY-MM-DD` heading
  * inside `## Clarifications` does not terminate the section.
  */
-function sectionBody(markdown: string, heading: string): string | undefined {
+export function sectionBody(markdown: string, heading: string): string | undefined {
   const match = new RegExp(`\\n##\\s+${heading}\\s*\\n([\\s\\S]*?)(?=\\n##\\s|$)`).exec(markdown);
   return match ? match[1] : undefined;
 }
 
-function sectionBullets(body: string | undefined): string[] {
+export function sectionBullets(body: string | undefined): string[] {
   if (body === undefined) return [];
   const entries: string[] = [];
   for (const line of body.split("\n")) {
