@@ -165,12 +165,14 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   (`pnpm install --frozen-lockfile`, `npm ci` or `yarn install --frozen-lockfile`, as in
   `materialiseDependencies`) to the approved list before the `prepare` commands. No implicit build
   step exists.
-- Declared path without a delta answered by the human: a `paths` entry that is identical in the
-  base, the candidate and the reproduction is an error that names the path. Inert paths never
-  count as reproduced.
-- Generator review record answered by the human: `generator.review` accepts only a record whose
-  candidate is an immutable `SNAPSHOT:<id>`. A commit-ref or `WORKTREE` candidate is refused with
-  a named reason.
+- Declared path without a delta: a `paths` entry that is identical in the base, the candidate and
+  the reproduction is an error that names the path. Inert paths never count as reproduced. The
+  agent asked this during implementation and chose the recommended option. The human confirmed it
+  on 2026-10-03, after the implementation.
+- Generator review record: `generator.review` accepts only a record whose candidate is an
+  immutable `SNAPSHOT:<id>`. A commit-ref or `WORKTREE` candidate is refused with a named reason.
+  The agent asked this during implementation and chose the recommended option. The human
+  confirmed it on 2026-10-03, after the implementation.
 
 ## Open Questions
 
