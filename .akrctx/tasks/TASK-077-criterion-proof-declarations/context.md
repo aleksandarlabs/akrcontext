@@ -36,6 +36,7 @@ TASK-079 is implemented.
 
 ## Handoff
 
-Contract closed on 2026-10-02 in task.md. The implementation brief is exports/codex.md.
-The current change records decisions only; feature implementation and its tests remain pending.
-Coordinate criterion parsing with TASK-084; TASK-079 precedes template regeneration.
+Contract confirmed by the human on 2026-10-03 in task.md. The 2026-10-02 brief in exports/codex.md
+was compiled from the draft and is not the contract. Implementation is in `src/acceptance-criteria.ts`
+(parser) and `src/judge-enforcement.ts` (verify). TASK-079 and TASK-084 are already in the base.
+Shipped templates were regenerated with `akrctx upgrade`, not by hand.
