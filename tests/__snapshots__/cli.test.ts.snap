@@ -185,6 +185,8 @@ Commands:
                                    boundary a judge must review.
   verify [options] <review-file>   Verify that a judge review is APPROVED and
                                    still matches the repository.
+  rounds [options] [task-id]       Report review rounds per task from the local
+                                   judge records. Read-only.
   help [command]                   display help for command
 "
 `;

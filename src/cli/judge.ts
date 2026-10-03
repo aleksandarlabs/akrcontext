@@ -1,6 +1,7 @@
 import type { Command } from "commander";
 import { bold, cmd, dim, file, green, minus, plus, yellow } from "../format.js";
 import { createJudgeScope, verifyJudgeRecord } from "../judge-enforcement.js";
+import { collectJudgeRounds, renderJudgeRounds } from "../judge-rounds.js";
 import {
   captureJudgeCatchUpSnapshot,
   captureJudgeSnapshot,
@@ -386,6 +387,33 @@ export function registerJudge(program: Command): void {
         }
       }
       if (!result.approved) process.exitCode = 1;
+    });
+
+  judge
+    .command("rounds")
+    .description("Report review rounds per task from the local judge records. Read-only.")
+    .argument("[task-id]", "report one task, for example TASK-001")
+    .option("--json", "emit JSON output", false)
+    .addHelpText(
+      "after",
+      [
+        "",
+        "One round is one distinct (reviewedAt, scopeDigest) pair within a task, so exact copies of a",
+        "review count once. Records that disagree on verdict, independence or criterion statuses count",
+        "once and are marked ambiguous. Task states are historical; they never assert that an approval",
+        "matches the live workspace.",
+        "",
+        "Reads .akrctx/local/judge only. Nothing is written, renamed or deleted.",
+      ].join("\n"),
+    )
+    .action(async (taskId: string | undefined, raw: Record<string, unknown>) => {
+      const options = normalizeOptions(raw);
+      const report = await collectJudgeRounds(options.cwd ?? process.cwd(), taskId);
+      if (options.json) {
+        console.log(JSON.stringify(report, null, 2));
+        return;
+      }
+      for (const line of renderJudgeRounds(report)) log(line);
     });
 }
 
