@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-03
+
 ### Added
 
 - `akrctx judge reproduce TASK-XXX --base <ref> --candidate SNAPSHOT:<id>`. It reproduces a
@@ -18,10 +20,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   required for every foreign capsule. The report goes to stdout only. This is process isolation,
   not an OS sandbox, and a match does not approve the generator or any other change.
 
-- `akrctx task migrate-criteria [TASK-ID]`. It numbers the criteria of one task capsule, or of
-  every capsule, as `AC-<n>`. A capsule whose identifiers are already unique and sequential is
-  left untouched. Any other state is renumbered from 1 in declared order, and indented
-  continuation lines are never touched. `--dry-run` reports the plan and writes nothing.
+- `akrctx judge verify` reports a non-blocking clarification signal. It compares the reviewed
+  base and candidate for changes to the `## Contract` section of `task.md` or to
+  `acceptance-criteria.md`. A snapshot or a commit-ref candidate is compared; a `WORKTREE`
+  candidate or an unreadable input gives a `Clarification comparison unavailable` notice. When a
+  section changed and the candidate adds no new top-level bullet under `## Clarifications`, verify
+  emits one `Heuristic notice (experimental)` per changed section or file. The notice names the
+  section, the added and deleted raw line counts, the reviewed base and candidate, and the
+  relative path. It never embeds the diff, and it stops at 1024 characters. A new bullet that
+  starts with `No ambiguity:` and has a non-empty explanation also counts as new content. The
+  comparison ignores line endings, whitespace reflow and one final full stop on a prose line;
+  code and the `proof-command:`, `proof-doc:` and `Retired:` lines stay significant. A new
+  capsule, or a capsule without `## Clarifications` on both sides, gets no notice. The signal
+  never changes `valid` or `approved`. It compares text only: it cannot show that a consultation
+  happened or was skipped, and one new bullet silences the notice for every changed section.
+
+- Proof declarations for acceptance criteria. A criterion can name its expected evidence on
+  indented lines under its own bullet, with `proof-command: <command>` or `proof-doc: <path>`,
+  optionally followed by `#Heading`. A `proof-command:` must match a command in the `## Validation`
+  block of `task.md`. It adds no way to run anything. If the command is not declared, or the
+  record has no passing evidence for it, or its re-run under `--run-tests` fails, `judge verify`
+  rejects the record with `proof requirement unmet` and the criterion identifier. A command the
+  record claims as passed and `--run-tests` did not re-run gives the notice `execution not
+  observed: command accepted on trust`. A criterion that declares a proof and is reported
+  `not-evaluated` gives `criterion not evaluated`. A `proof-doc:` only points the judge at a file
+  of the repository and never blocks. A missing document, a file outside the repository, or a
+  non-file target gives an `unavailable` notice. An empty, orphaned or unsupported proof line, and
+  a `proof-doc:` that is absolute, uses `..`, is a URL, or matches `blockedReadPatterns`, is a
+  capsule defect reported with its line. The record shape does not change. Declarations are
+  optional, and existing capsules need no change.
+
+- `akrctx judge rounds [TASK-ID] [--json]`. It reports how many review rounds each task took,
+  from the records under `.akrctx/local/judge`. It is read-only: it writes, renames and deletes
+  nothing. One round is one distinct `(reviewedAt, scopeDigest)` pair in a task, with `reviewedAt`
+  compared as a UTC instant, so exact copies count once. Records that share a pair and disagree on
+  verdict, independence or criterion statuses count once and are marked ambiguous. A task is
+  `closed` when its latest round is `APPROVED`, `open` when it is `NEEDS_CHANGES` or `BLOCKED`,
+  and `unknown` when the evidence conflicts or a record cannot be counted. These states are
+  historical: they never say that an approval matches the live workspace. The JSON report has
+  `tasks[]`, `closed{}`, `open{}`, `unknown[]` and `skipped[]`; an empty group has `mean` and
+  `max` of `null`. The command reads only `TASK-<n>/` and `records/` directly under the judge
+  directory. Any other directory appears in `skipped`, and `snapshots/` is not listed. A
+  recognizable record without a `reviewedAt` or a `scopeDigest` goes to `unknown` and is not
+  counted. The command honors `blockedReadPatterns` and does not follow symbolic links.
+
+- `akrctx task migrate-criteria [TASK-ID]`. It adds an `AC-<n>` identifier to each criterion of
+  one task capsule, or of every capsule, that has none. A valid identifier is never changed.
+  A new identifier is one above the highest active or retired number in the file, in declared
+  order, and a gap is never filled. Only the identifier prefix is inserted: every other byte stays,
+  including continuation lines. A capsule that needs no change is not written. A capsule retires an
+  identifier with one unindented `Retired: AC-<n>` line per identifier after all criteria; a
+  retired identifier is not a criterion and is never reused. A duplicate identifier, a duplicate
+  or malformed retirement, a retired identifier that is also active, and a malformed `AC-<n>`
+  are reported with their lines. The command writes nothing to such a capsule. One run still
+  processes every other capsule, names each capsule that needs manual repair, and exits with
+  code 1. `--dry-run` reports the plan and writes nothing.
 
 - `akrctx task search <query>`. It searches literal text, case-insensitive, across the five
   canonical files of existing task capsules. Each result cites the task, the file path relative
@@ -58,6 +111,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the user's wait before invoking a command stay unmeasured, not zero.
 
 ### Changed
+
+- `akrctx judge verify` prints `APPROVED for the reviewed boundary` for an approved record, not
+  `APPROVED and current`. The already computed `reviewBoundary` follows on its own line:
+  `CURRENT`, `NEWER_CHANGES` or `DIVERGED`. When the boundary type has no classification, the
+  line reads `not classified for this boundary type`; a null value is never shown as `CURRENT`.
+  The JSON shape, the verdict rules and the exit code are unchanged, and verify runs no extra
+  currency check. `akrctx judge current` stays the command that reports live applicability.
+
+- `akrctx task` and the shipped `.akrctx/tasks/_template/review-checklist.md` generate a review
+  checklist with two sections. `## Evidence References` points to the `AC-<n>` identifiers and to
+  the commands declared in `task.md`; it holds no checkboxes and no pass or fail claim.
+  `## Process Attestations` holds checkboxes that each name the asserting role, for example
+  `Implementing agent:`. A checked box is self-reported. It does not authenticate its author and
+  does not verify anything independently. The checklist still has to be complete before snapshot
+  capture. The old checkboxes that repeated mechanical results are gone. Existing capsules are not
+  migrated. No new gate reads the checklist, so `valid` and `approved` do not change.
+
+- `akrctx init` and `akrctx upgrade` track the provenance of the files in
+  `.akrctx/tasks/_template/`. They are now managed files with a recorded SHA-256 hash in the
+  manifest. `upgrade` creates a missing template. It updates a template whose current bytes match
+  the recorded hash to the shipped content, and records the new hash. A template that differs
+  from the recorded hash, or has no recorded hash, is kept as it is. `upgrade` writes the shipped
+  version as a candidate under `.akrctx/upgrades/<version>/`, and akrctx never decides ownership
+  by similarity to an old template. A template identical to the shipped content gets its hash
+  recorded without a rewrite. `--dry-run` names the differing templates and the planned updates or
+  candidates, and changes neither the files nor the provenance. Wiki pages and real task capsules
+  keep their existing ownership.
 
 - The judge review record reports one typed result per acceptance criterion instead of a
   free-form `issues` list. Every top-level bullet in a capsule's `acceptance-criteria.md` now
@@ -96,6 +176,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   field reads as `unknown`, never `true`.
 
 ### Fixed
+
+- `akrctx task show` reads the declared workflow from the `## Workflow` section of `plan.md`
+  first. It takes the first non-empty line of that section and removes one list marker and one
+  final full stop, so `TDD.` and `- fast-patch.` give `TDD` and `fast-patch`. When that section
+  has no value, it falls back to `## Recommended Workflow` in `task.md`. A value in `plan.md`
+  wins when the two differ. The command reports the declared string as written: it does not
+  check it against `allowedWorkflows`, so `UI review` is readable. With no declaration, the
+  workflow stays absent. The JSON shape is unchanged.
 
 - Shipped agent instructions no longer contradict the judge's actual execution model. The
   templates in `src/templates/` stated that the judge cannot execute validation. The judge does

@@ -139,7 +139,7 @@ akrctx upgrade --target codex
 akrctx upgrade --dry-run
 ```
 
-The upgrade uses `.akrctx/manifest.json` hashes to update only verified, unchanged generated files. Wiki pages, task capsules, local records, and root instructions are never overwritten. Existing legacy or modified generated files receive candidates under `.akrctx/upgrades/<version>/`; resolve them and rerun the command before `installedVersion` advances. Obsolete generated files are reported but never deleted.
+The upgrade uses `.akrctx/manifest.json` hashes to update only verified, unchanged generated files. The files in `.akrctx/tasks/_template/` are generated files too: an unchanged template follows the shipped version, and an edited one is kept and offered as a candidate. Wiki pages, task capsules, local records, and root instructions are never overwritten. Existing legacy or modified generated files receive candidates under `.akrctx/upgrades/<version>/`; resolve them and rerun the command before `installedVersion` advances. Obsolete generated files are reported but never deleted.
 
 `config.json` and `policy.json` are migrated field by field while retaining project values. Invalid JSON is preserved as a blocking conflict. `--force` is intentionally rejected for upgrades.
 
@@ -168,6 +168,8 @@ akrctx task "Create settings screen" --workflow "UI review"
 
 akrctx task list
 akrctx task show TASK-001
+akrctx task migrate-criteria
+akrctx task migrate-criteria TASK-001 --dry-run
 akrctx task rm TASK-001
 akrctx task rm TASK-001 --dry-run
 ```
@@ -186,7 +188,9 @@ review-checklist.md
 
 Workflow is chosen automatically from the task description unless overridden with `--workflow`.
 
-`akrctx task list` prints all task capsules with their descriptions. `akrctx task show TASK-001` prints every file in the capsule. `akrctx task rm TASK-001` removes the capsule directory.
+`akrctx task list` prints all task capsules with their descriptions. `akrctx task show TASK-001` prints every file in the capsule and the declared workflow. It reads the workflow from `## Workflow` in `plan.md` first, then from `## Recommended Workflow` in `task.md`. `akrctx task rm TASK-001` removes the capsule directory.
+
+`akrctx task migrate-criteria [TASK-ID]` adds an `AC-<n>` identifier to each criterion that has none, in one capsule or in all of them. It never changes a valid identifier, and it never reuses a number that a `Retired: AC-<n>` footer line retires. It writes nothing to a capsule with a duplicate or malformed identifier. It reports that capsule and exits with code 1 after it processes the others. `--dry-run` reports the plan.
 
 ---
 
@@ -267,6 +271,9 @@ akrctx judge current .akrctx/local/judge/TASK-001/review.json
 akrctx judge snapshot TASK-001 --from-review .akrctx/local/judge/TASK-001/review.json
 akrctx judge prune --keep 5       # preview
 akrctx judge prune --keep 5 --force
+akrctx judge rounds               # review rounds per task, read-only
+akrctx judge rounds TASK-001 --json
+akrctx judge reproduce TASK-001 --base main --candidate SNAPSHOT:<id>
 ```
 
 `snapshot` captures a shallow immutable local boundary without changing live Git state.
@@ -274,6 +281,44 @@ akrctx judge prune --keep 5 --force
 declared passing validation in a disposable workspace. `current` separates historical
 approval validity from live applicability, catch-up reviews only the newer delta, and
 `prune` is dry-run-first local retention.
+
+`verify` prints `APPROVED for the reviewed boundary` for an approved record. It prints the
+`reviewBoundary` (`CURRENT`, `NEWER_CHANGES`, `DIVERGED`, or `not classified for this boundary
+type`) on its own line. It also reports non-blocking notices, such as an unmet proof declaration
+or a clarification signal. See [JUDGE.md](JUDGE.md).
+
+### `akrctx judge rounds`
+
+```bash
+akrctx judge rounds [task-id] [--json]
+```
+
+Reports review rounds per task from the records under `.akrctx/local/judge`. The command is
+read-only. It writes, renames and deletes nothing.
+
+| Argument or flag | Meaning |
+| --- | --- |
+| `[task-id]` | Report one task, for example `TASK-001`. A value that is not `TASK-<n>` is an error. |
+| `--json` | Emit the report as JSON: `tasks[]`, `closed{}`, `open{}`, `unknown[]`, `skipped[]`. |
+
+### `akrctx judge reproduce`
+
+```bash
+akrctx judge reproduce <task-id> --base <ref> --candidate SNAPSHOT:<id> \
+  [--include-task <task-id>]... [--approve-commands <cmd>]... [--json]
+```
+
+Runs the generator that the `## Migration` block of `task.md` declares, in a disposable copy of
+the base. It then compares the declared paths to the snapshot. The command exits with code 1
+when the change is not reproduced.
+
+| Flag | Meaning |
+| --- | --- |
+| `--base <ref>` | Required. The Git commit or ref the snapshot was captured against. |
+| `--candidate SNAPSHOT:<id>` | Required. The immutable snapshot to compare. |
+| `--include-task <task-id>` | The foreign task capsules the snapshot was captured with. Repeat for each task. |
+| `--approve-commands <cmd>` | Approve one command. Repeat once per command, in the printed order. Needed when no terminal is attached. |
+| `--json` | Emit JSON on stdout. The approval text goes to stderr. |
 
 Pi is not supported — it has no native subagent API.
 

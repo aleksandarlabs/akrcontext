@@ -145,6 +145,12 @@ ancestors changed or disappeared, the record was produced by a different akrctx 
 or the record is malformed. New edits in the live project do not invalidate a correct
 historical approval.
 
+For an approved record, `verify` prints `APPROVED for the reviewed boundary`. The
+`reviewBoundary` follows on its own line: `CURRENT`, `NEWER_CHANGES` or `DIVERGED`. When the
+boundary type has no classification, the line reads `not classified for this boundary type`.
+That value is never shown as `CURRENT`. The header says the scope is approved. It does not say
+that the live workspace matches it. `akrctx judge current` reports live applicability.
+
 The version check is deliberate: approval rules change between releases, so a record written under older rules must not silently satisfy a newer gate.
 
 ### Foreign task capsules
@@ -191,6 +197,93 @@ declared identifier passes.
 the verify output, and is never emitted again.
 
 A capsule with no `## Validation` section is legacy. Verification reports `verifiedNow: unknown` for it, because no declared command set exists to check. The record can still keep its historical `approved` verdict; `unknown` says current runtime verification was not established, not that the record is rejected.
+
+A criterion identifier is never reused. To retire one, write one unindented line per identifier
+after all criteria:
+
+```text
+Retired: AC-5
+```
+
+A retired identifier is not a criterion, so the record carries no result for it. A new identifier
+is one above the highest active or retired number in the file. A duplicate identifier, a duplicate
+or malformed retirement, a retired identifier that is also active, and a criterion after the
+footer are capsule defects. They are reported with their file line and block verification.
+`akrctx task migrate-criteria` adds an identifier only to a criterion that has none. It never
+changes a valid identifier, and it never repairs a defect. See
+[COMMANDS_AND_UX.md](COMMANDS_AND_UX.md#akrctx-task).
+
+### Declared proof
+
+A criterion can declare expected evidence on indented lines under its own bullet:
+
+```text
+- AC-1: The requested behavior is implemented.
+  proof-command: pnpm test
+  proof-doc: docs/behavior.md#Behavior
+```
+
+Only `proof-command:` and `proof-doc:` exist. One reference per line, with a single-line value.
+Identical repeated references count once. Both are optional, and existing capsules need no change.
+An empty, orphaned, or unsupported proof line is a capsule defect reported with its file line. So
+is a `proof-doc:` that is absolute, uses `..`, is a URL, or matches `blockedReadPatterns`. Such a
+reference is never read or fetched.
+
+A `proof-command:` must match a command in the `## Validation` block of `task.md`, after the same
+trimming and removal of the `# optional` marker. It adds no execution channel: only declared
+commands ever run. Several `proof-command:` lines on one criterion are all necessary. A command
+that is optional for the whole task is necessary for a criterion that names it.
+
+Verification reports three separate texts, which can appear together:
+
+- `proof requirement unmet`: the command is not declared, or the record has no passing evidence
+  for it (absent, `failed` or `not-run`), or its observed re-run failed. This rejects the record
+  and names the criterion. A criterion that the record reports as `fail` gets no such reason.
+- `execution not observed: command accepted on trust`: the record claims the command passed and
+  `--run-tests` did not observe it. This is a notice. The record stays valid under the usual
+  rules. A successful observed re-run removes it.
+- `criterion not evaluated`: the record reports `not-evaluated` for a criterion that declares a
+  proof. This never hides an unmet proof.
+
+A passing command is a necessary condition, never a verdict. The judge still decides whether the
+criterion is satisfied. A `proof-doc:` only points the judge at repository content, including
+unchanged files in the boundary. It never blocks. A missing document, a target that is not a
+file, or a link that leaves the repository gives an `unavailable` notice and is not read. File
+existence alone proves nothing, and a heading fragment is not checked for existence. The record
+shape does not change, and akrctx does not read per-test results from reporter output.
+
+### Clarification signal
+
+`judge verify` can show a heuristic notice when a reviewed change altered the contract and
+recorded no clarification. It is experimental and non-blocking. It never changes `valid` or
+`approved`.
+
+The check compares the reviewed base and candidate for changes to the `## Contract` section of
+`task.md` (with its subsections) or to `acceptance-criteria.md`. It supports a snapshot and a
+commit-ref candidate. It never uses the live workspace. For a `WORKTREE` candidate, or when an
+input cannot be read, verify shows `Clarification comparison unavailable` and draws no
+conclusion. A capsule that is new in the boundary, or that has no `## Clarifications` section on
+both sides, is not comparable and gets no notice.
+
+The comparison ignores line endings, whitespace reflow inside prose, and one final full stop on a
+prose paragraph or list item outside code. Code, other punctuation, and the `proof-command:`,
+`proof-doc:` and `Retired:` lines stay significant. Any other change can trigger the notice.
+
+A new top-level `- ` bullet under `## Clarifications` counts as new content when its full body,
+with its continuation lines, was absent in the base. A new bullet that starts with
+`No ambiguity:` (any letter case) and has a non-empty explanation also counts. A heading or a
+date alone, a duplicate bullet, and a `None` placeholder do not count. One counted bullet
+silences the notice for every changed section.
+
+Without new content, verify emits one `Heuristic notice (experimental)` per changed section or
+file. It names the section, the added and deleted raw line counts, the reviewed base and
+candidate, and the relative path. It never embeds the diff, and it stops at 1024 characters.
+
+Known false positives: a clearer paraphrase, punctuation edits outside the rule above, and a
+reorder with no new decision. Known false negatives: a punctuation-only change in meaning, a
+bullet unrelated to the new decision, a `No ambiguity:` that nobody checked, and a change made
+before the review base. Neither a notice nor its absence shows that a consultation happened or
+was skipped. The check reads recorded text, not who wrote it.
 
 ### Declared validation commands
 
@@ -382,6 +475,47 @@ akrctx judge snapshot TASK-001 --from-review .akrctx/local/judge/TASK-001/review
 Catch-up re-runs the parent's declared passing validation, binds the exact parent record,
 and recursively requires every ancestor snapshot to remain intact. It never extends an old
 approval over new code silently.
+
+## Review rounds
+
+`akrctx judge rounds [TASK-ID] [--json]` counts review rounds from the local records. It is
+read-only: it writes, renames and deletes nothing. The optional task filter applies before the
+counts.
+
+The command reads regular files under `.akrctx/local/judge`, whatever their name. It enters only
+`TASK-<n>/` directories and `records/` directly under that directory. It does not traverse
+`snapshots/` or any other directory, and it does not follow symbolic links. It honors
+`blockedReadPatterns`. Any other directory appears in `skipped` as one entry that names it.
+
+One round is one distinct `(reviewedAt, scopeDigest)` pair within a task. The command compares
+`reviewedAt` as a UTC instant, so equal times with different offsets are one round. Exact copies
+count once and list every source file. Two separate runs with identical evidence cannot be told
+apart by these fields. This is an accounting rule, not a log of runs.
+
+- Records that share a pair and differ in verdict, independence or criterion statuses count as
+  one round. The round is marked `ambiguous`, and every source file appears in `unknown`.
+- A file without a valid `taskId` or verdict goes to `skipped`.
+- A record without a parseable `reviewedAt` or a valid `scopeDigest` goes to `unknown`, is not
+  counted, and makes its task `unknown`, because it can hide a round.
+- A round category is `ordinary`, `catch-up` or `unknown`. It comes from explicit snapshot
+  metadata only. A round with an unknown category still counts.
+
+A task is `closed` when its latest round is `APPROVED`. It is `open` when the latest round is
+`NEEDS_CHANGES` or `BLOCKED`. It is `unknown` when the latest instant has conflicting verdicts,
+when the latest round is ambiguous, or when an uncountable record exists. These states are
+historical. They never say that an approval matches the live workspace.
+
+The JSON report has exactly these top-level fields:
+
+- `tasks[]`: `taskId`, `state` and `rounds[]`. Each round has `reviewedAt`, `scopeDigest`,
+  `verdict` (`null` when conflicting), `independent` (`true`, `false` or `null`), `category`,
+  `ambiguous` and the sorted `files[]`.
+- `closed{}` and `open{}`: `taskCount`, `roundCount`, `mean` and `max`. An empty group has counts
+  of 0 and `null` for `mean` and `max`.
+- `unknown[]`: `taskId` (or `null`), sorted `files[]` and a `reason`.
+- `skipped[]`: `file` and `reason`.
+
+The human report prints the same fields.
 
 ## Local retention
 

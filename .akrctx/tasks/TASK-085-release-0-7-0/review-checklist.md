@@ -12,7 +12,7 @@ Point to evidence. Do not restate results or tick boxes here.
 A checked box is self-reported by the named actor. It is not independent verification or
 authenticated human approval. Complete every box before snapshot capture.
 
-- [ ] Implementing agent: relevant files were inspected and blocked paths were avoided.
-- [ ] Implementing agent: existing instruction files were not overwritten.
-- [ ] Implementing agent: all capsule changes are final before snapshot capture.
-- [ ] Implementing agent: the capsule is ready for independent review.
+- [x] Implementing agent: relevant files were inspected and blocked paths were avoided.
+- [x] Implementing agent: existing instruction files were not overwritten.
+- [x] Implementing agent: all capsule changes are final before snapshot capture.
+- [x] Implementing agent: the capsule is ready for independent review.
