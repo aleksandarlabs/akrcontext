@@ -24,10 +24,7 @@ declared commands in a disposable copy rather than trusting a claim.
 
 ## Contract
 
-**Draft, not confirmed.** The decisions below come from the assistant's recommendations and a
-reviewing agent's refinements. No human confirmed them. Each one is listed under
-`## Open Questions` for confirmation. Implementation must not start until they move to
-`## Clarifications` with the human's answer.
+Confirmed by the human on 2026-10-03. See `## Clarifications`, Session 2026-10-03.
 
 ### Two-step delivery and generator provenance
 
@@ -136,17 +133,27 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   comparable recommendations was already reversed by the human in TASK-084 once its consequence
   was shown, so an unconfirmed recommendation is not treated as an answer.
 
+### Session 2026-10-03
+- Two-step delivery confirmed by the human as drafted. The generator lands and is reviewed as
+  ordinary code first. Only a later change may declare it, and the generator must already be in
+  that review's base, named by its landed commit and its verified APPROVED record. A generator
+  from the candidate is never accepted, and reproduction never approves a generator change.
+- Declaration and capture confirmed by the human as drafted. One fenced JSON object under
+  `## Migration` with `generator` (command, commit, review, inputs, prepare) and `paths` keys;
+  paths are exact files, never globs or directories. `--include-task` stays required for every
+  foreign capsule, and the declaration never grants capture scope. Reducing repeated
+  `--include-task` flags is separate work.
+- Comparison coverage confirmed by the human as drafted. Each declared path is compared by bytes,
+  existence (additions and deletions), executable bit, file type and symlink target, without
+  following the target. Any detected write outside the declared paths is an error, not a
+  warning, including ignored outputs and detectable write-then-restore changes.
+- Preparation and approval confirmed by the human as drafted. The runner builds the complete
+  ordered list of preparation, build and generation commands before executing any, and the
+  existing approval flow covers every one; headless approvals must match each exact command in
+  order. Preparation runs in an external disposable tool workspace from base inputs and the
+  committed lockfile; generation runs in a separate disposable worktree from the base. Preparation
+  never builds candidate-derived tool code.
+
 ## Open Questions
 
-- Confirm the two-step delivery. Draft: the generator lands and is reviewed as ordinary code
-  first, and only a later mechanical change may declare it, using the unchanged generator from its
-  base. Bootstrapping a generator from the candidate is disallowed.
-- Confirm the declaration and the capture authorization. Draft: `generator` and `paths` keys in a
-  fenced JSON Migration declaration, with provenance referencing a verified ordinary-code review
-  and exact base inputs. Explicit `--include-task` stays required, separately from reproduction.
-- Confirm what the comparison covers. Draft: byte content, additions and deletions, executable
-  mode and symlink target. A write outside the declared paths is an error, not a warning.
-- Confirm the preparation and the approval list. Draft: every environment-preparation and
-  generation command appears in the ordered approval list, and preparation runs in an external
-  tool workspace so reproduction cannot write without authorization. Bootstrap here means
-  environment preparation only, never candidate-derived tool code.
+- None.
