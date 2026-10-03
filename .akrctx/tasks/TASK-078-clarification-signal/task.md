@@ -115,12 +115,14 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   comparable recommendations was already reversed by the human in TASK-084 once its consequence
   was shown, so an unconfirmed recommendation is not treated as an answer.
 
+### Session 2026-10-03
+- Trigger normalization confirmed by the human as drafted. The comparison ignores only CRLF/LF,
+  whitespace reflow within prose, and one terminal full stop on a prose paragraph or list item
+  outside code. Operators, paths, identifiers, numbers, quoting, Markdown syntax, code and
+  structured declaration lines stay significant.
+
 ## Open Questions
 
-- Confirm the trigger comparison and the transformations it ignores. Draft: compare the contract
-  and criteria sections between base and candidate, normalising only prose reflow and one terminal
-  full stop. Operators, paths, code, identifiers and structured declarations stay significant,
-  because blanket punctuation removal would hide a real contract change.
 - Confirm what counts as newly recorded clarification content. Draft: a new top-level bullet under
   `## Clarifications`, and a bullet starting `No ambiguity:` to state that no question was needed.
   Neither form authenticates a human consultation.

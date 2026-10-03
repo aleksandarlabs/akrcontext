@@ -115,6 +115,13 @@ Ambiguity resolved with the human before implementation. One answer per top-leve
   `proof requirement unmet`, `execution not observed: command accepted on trust`, and
   `criterion not evaluated`. They may coexist. A command accepted on trust only emits the
   notice and keeps today's validity rules. The record shape stays unchanged.
+- After the judge approved the implementation, the human accepted six interpretations the
+  implementing agent made without asking. They are recorded here after review, not before it:
+  any indentation marks a proof line, and an unindented one is orphaned; prefix detection
+  ignores case, but only lowercase spellings are valid; `criterion not evaluated` applies only to
+  criteria that declare a proof; a criterion reported `fail` gets no unmet-proof reason or trust
+  notice; a heading fragment is not checked for existence, but an empty fragment is a defect; an
+  escaping symlink or a directory target is reported unavailable, never read.
 
 ## Open Questions
 
